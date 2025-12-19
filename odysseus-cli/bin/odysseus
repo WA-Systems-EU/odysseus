@@ -1,0 +1,39 @@
+#!/usr/bin/env ruby
+# odysseus-cli/bin/odysseus
+
+require 'odysseus/cli/cli'
+require 'optparse'
+
+def main
+  cli = Odysseus::CLI::CLI.new
+
+  commands = {
+    'deploy' => ->(args, opts) { cli.deploy(args[0], opts) },
+    'generate' => ->(args, opts) { cli.generate(args[0], opts) },
+    'validate' => ->(args, opts) { cli.validate(opts) }
+  }
+
+  command = ARGV[0]
+  command_args = ARGV[1..-1] || []
+
+  unless command && commands[command]
+    puts "Usage: odysseus <command> [options]"
+    puts ""
+    puts "Commands:"
+    puts "  deploy <server>           Deploy to server"
+    puts "  generate <type>           Generate config (docker-compose, caddyfile)"
+    puts "  validate                  Validate deploy.yml"
+    exit 1
+  end
+
+  options = {}
+  OptionParser.new do |opts|
+    opts.on('--config FILE', 'Path to deploy.yml') { |v| options[:config] = v }
+    opts.on('--image TAG', 'Docker image tag') { |v| options[:image] = v }
+    opts.on('--dry-run', 'Don\'t actually deploy') { |v| options[:'dry-run'] = v }
+  end.parse!(command_args)
+
+  commands[command].call(command_args, options)
+end
+
+main if $0 == __FILE__

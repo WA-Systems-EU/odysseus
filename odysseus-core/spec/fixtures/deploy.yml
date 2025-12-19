@@ -1,0 +1,47 @@
+# spec/fixtures/deploy.yml
+# Test fixture based on real MyApp config
+
+service: myapp
+image: myapp-production
+
+servers:
+  web:
+    hosts:
+      - app1.example.com  # Use Tailscale hostname for testing
+    options:
+      memory: 12g
+      memory-reservation: 10g
+
+proxy:
+  ssl: false
+  hosts:
+    - app.example.com
+    - example.com
+    - www.example.com
+  app_port: 3000
+  healthcheck:
+    interval: 3
+    path: "/releases/current"
+    timeout: 3
+  response_timeout: 120
+
+builder:
+  arch: amd64
+
+env:
+  clear:
+    PGSSLMODE: verify-full
+    RAILS_ENV: production
+    RAILS_HOST: https://app.example.com
+    RAILS_SERVE_STATIC_FILES: "false"
+    RAILS_ASSETS_HOST: https://cdn-production.example.com
+    WORKER_PROCESSES: "8"
+  secret:
+    - RAILS_MASTER_KEY
+    - DATABASE_URL
+    - SECONDARY_DATABASE_URL
+
+ssh:
+  user: root
+  keys:
+    - ~/.ssh/id_ed25519
