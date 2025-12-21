@@ -1,6 +1,9 @@
 #!/usr/bin/env ruby
 # odysseus-cli/bin/odysseus
 
+$LOAD_PATH.unshift File.expand_path('../../odysseus-core/lib', __dir__)
+$LOAD_PATH.unshift File.expand_path('../lib', __dir__)
+
 require 'odysseus/cli/cli'
 require 'optparse'
 
@@ -8,9 +11,10 @@ def main
   cli = Odysseus::CLI::CLI.new
 
   commands = {
-    'deploy' => ->(args, opts) { cli.deploy(args[0], opts) },
-    'generate' => ->(args, opts) { cli.generate(args[0], opts) },
-    'validate' => ->(args, opts) { cli.validate(opts) }
+    'deploy' => { method: :deploy, needs_server: true },
+    'status' => { method: :status, needs_server: true },
+    'containers' => { method: :containers, needs_server: true },
+    'validate' => { method: :validate, needs_server: false }
   }
 
   command = ARGV[0]
@@ -20,20 +24,44 @@ def main
     puts "Usage: odysseus <command> [options]"
     puts ""
     puts "Commands:"
-    puts "  deploy <server>           Deploy to server"
-    puts "  generate <type>           Generate config (docker-compose, caddyfile)"
-    puts "  validate                  Validate deploy.yml"
+    puts "  deploy <server>       Deploy to server"
+    puts "  status <server>       Show Caddy proxy status on server"
+    puts "  containers <server>   List containers for service on server"
+    puts "  validate              Validate deploy.yml"
+    puts ""
+    puts "Options:"
+    puts "  --config FILE         Path to deploy.yml (default: deploy.yml)"
+    puts "  --image TAG           Docker image tag (default: latest)"
+    puts "  --service NAME        Service name (for containers command)"
+    puts "  --dry-run             Don't actually deploy"
     exit 1
   end
 
   options = {}
+  remaining_args = []
+
   OptionParser.new do |opts|
     opts.on('--config FILE', 'Path to deploy.yml') { |v| options[:config] = v }
     opts.on('--image TAG', 'Docker image tag') { |v| options[:image] = v }
+    opts.on('--service NAME', 'Service name') { |v| options[:service] = v }
     opts.on('--dry-run', 'Don\'t actually deploy') { |v| options[:'dry-run'] = v }
   end.parse!(command_args)
 
-  commands[command].call(command_args, options)
+  remaining_args = command_args
+
+  cmd_info = commands[command]
+
+  if cmd_info[:needs_server]
+    server = remaining_args[0]
+    unless server
+      puts "Error: #{command} requires a server argument"
+      puts "Usage: odysseus #{command} <server> [options]"
+      exit 1
+    end
+    cli.send(cmd_info[:method], server, options)
+  else
+    cli.send(cmd_info[:method], options)
+  end
 end
 
 main if $0 == __FILE__

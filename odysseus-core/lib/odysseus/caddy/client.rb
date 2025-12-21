@@ -138,6 +138,62 @@ module Odysseus
         api_request('GET', '/config/')
       end
 
+      # List all configured services/routes
+      # @return [Array<Hash>] list of services with their config
+      def list_services
+        routes = api_request('GET', '/config/apps/http/servers/srv0/routes') || []
+
+        routes.map do |route|
+          id = route['@id'] || 'unknown'
+          service_name = id.sub(/^route-/, '')
+          hosts = route.dig('match', 0, 'host') || []
+          upstreams = route.dig('handle', 0, 'upstreams') || []
+
+          {
+            service: service_name,
+            hosts: hosts,
+            upstreams: upstreams.map { |u| u['dial'] },
+            has_healthcheck: route.dig('handle', 0, 'health_checks').nil? ? false : true
+          }
+        end
+      end
+
+      # Get TLS/SSL status for domains
+      # @return [Hash] TLS configuration info
+      def tls_status
+        tls_config = api_request('GET', '/config/apps/tls') || {}
+        policies = tls_config.dig('automation', 'policies') || []
+
+        {
+          enabled: !policies.empty?,
+          policies: policies.map do |policy|
+            {
+              subjects: policy['subjects'] || [],
+              issuer: policy.dig('issuers', 0, 'module') || 'unknown',
+              email: policy.dig('issuers', 0, 'email')
+            }
+          end
+        }
+      end
+
+      # Get server listen addresses
+      # @return [Array<String>] listen addresses
+      def listen_addresses
+        servers = api_request('GET', '/config/apps/http/servers') || {}
+        servers.dig('srv0', 'listen') || []
+      end
+
+      # Print formatted status (for CLI use)
+      # @return [Hash] full status summary
+      def status
+        {
+          running: running?,
+          listen: listen_addresses,
+          services: list_services,
+          tls: tls_status
+        }
+      end
+
       # Enable TLS/HTTPS for hosts
       # @param hosts [Array<String>] domain hosts
       # @param email [String] email for Let's Encrypt
