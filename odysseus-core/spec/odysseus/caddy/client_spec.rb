@@ -1,0 +1,207 @@
+# spec/odysseus/caddy/client_spec.rb
+
+require 'spec_helper'
+
+RSpec.describe Odysseus::Caddy::Client do
+  let(:mock_ssh) { instance_double(Odysseus::Deployer::SSH) }
+  let(:mock_docker) { instance_double(Odysseus::Docker::Client) }
+  let(:client) { described_class.new(ssh: mock_ssh, docker: mock_docker) }
+
+  describe '#running?' do
+    it 'delegates to docker client' do
+      expect(mock_docker).to receive(:running?).with('odysseus-caddy').and_return(true)
+      expect(client.running?).to be true
+    end
+  end
+
+  describe '#ensure_running' do
+    context 'when Caddy is already running' do
+      before do
+        allow(mock_docker).to receive(:running?).with('odysseus-caddy').and_return(true)
+      end
+
+      it 'returns true without starting' do
+        expect(mock_docker).not_to receive(:run)
+        expect(client.ensure_running).to be true
+      end
+    end
+
+    context 'when Caddy is not running' do
+      before do
+        allow(mock_docker).to receive(:running?)
+          .with('odysseus-caddy')
+          .and_return(false, true) # First check false, then true after start
+        allow(mock_ssh).to receive(:execute) # For network creation
+        allow(mock_docker).to receive(:run)
+        allow(client).to receive(:sleep) # Don't actually sleep
+      end
+
+      it 'creates Docker network' do
+        expect(mock_ssh).to receive(:execute)
+          .with('docker network create odysseus 2>/dev/null || true')
+        client.ensure_running
+      end
+
+      it 'starts Caddy container' do
+        expect(mock_docker).to receive(:run).with(
+          name: 'odysseus-caddy',
+          image: 'caddy:2-alpine',
+          options: hash_including(
+            service: 'odysseus-proxy',
+            ports: ['80:80', '443:443', '2019:2019']
+          )
+        )
+        client.ensure_running
+      end
+
+      it 'returns true after starting' do
+        expect(client.ensure_running).to be true
+      end
+    end
+  end
+
+  describe '#add_upstream' do
+    context 'when route does not exist (ssl disabled)' do
+      it 'creates new route at index 0' do
+        # First call: GET routes returns empty array
+        expect(mock_ssh).to receive(:execute)
+          .with(/GET.*\/routes/)
+          .and_return('[]')
+          .ordered
+
+        # Second call: PUT to routes/0
+        expect(mock_ssh).to receive(:execute) do |cmd|
+          expect(cmd).to include('-X PUT')
+          expect(cmd).to include('/config/apps/http/servers/srv0/routes/0')
+          expect(cmd).to include('myapp:3000')
+          '{}'
+        end.ordered
+
+        client.add_upstream(
+          service: 'myapp',
+          hosts: ['app.example.com'],
+          upstream: 'myapp:3000',
+          ssl: false
+        )
+      end
+
+      it 'includes healthcheck config when provided' do
+        expect(mock_ssh).to receive(:execute)
+          .with(/GET.*\/routes/)
+          .and_return('[]')
+          .ordered
+
+        expect(mock_ssh).to receive(:execute) do |cmd|
+          expect(cmd).to include('/health')
+          '{}'
+        end.ordered
+
+        client.add_upstream(
+          service: 'myapp',
+          hosts: ['app.example.com'],
+          upstream: 'myapp:3000',
+          healthcheck: { path: '/health', interval: 10, timeout: 5 },
+          ssl: false
+        )
+      end
+    end
+
+    context 'when route already exists (ssl disabled)' do
+      let(:routes) { [{ '@id' => 'route-myapp', 'handle' => [{ 'upstreams' => [{ 'dial' => 'myapp:3000' }] }] }] }
+
+      it 'adds upstream to existing route' do
+        expect(mock_ssh).to receive(:execute)
+          .with(/GET.*\/routes/)
+          .and_return(routes.to_json)
+          .ordered
+
+        expect(mock_ssh).to receive(:execute) do |cmd|
+          expect(cmd).to include('-X PATCH')
+          expect(cmd).to include('/upstreams')
+          expect(cmd).to include('myapp:3001')
+          '{}'
+        end.ordered
+
+        client.add_upstream(
+          service: 'myapp',
+          hosts: ['app.example.com'],
+          upstream: 'myapp:3001',
+          ssl: false
+        )
+      end
+
+      it 'does not duplicate existing upstream' do
+        expect(mock_ssh).to receive(:execute)
+          .with(/GET.*\/routes/)
+          .and_return(routes.to_json)
+
+        client.add_upstream(
+          service: 'myapp',
+          hosts: ['app.example.com'],
+          upstream: 'myapp:3000',
+          ssl: false
+        )
+      end
+    end
+
+    context 'with ssl enabled' do
+      it 'configures TLS automation before adding route' do
+        # TLS config PUT
+        expect(mock_ssh).to receive(:execute)
+          .with(/PUT.*\/config\/apps\/tls/)
+          .and_return('{}')
+
+        # GET servers for ensure_https_server
+        expect(mock_ssh).to receive(:execute)
+          .with(/GET.*\/servers/)
+          .and_return('{"srv0":{"listen":[":80",":443"]}}')
+
+        # GET routes
+        expect(mock_ssh).to receive(:execute)
+          .with(/GET.*\/routes/)
+          .and_return('[]')
+
+        # PUT route
+        expect(mock_ssh).to receive(:execute)
+          .with(/PUT.*\/routes\/0/)
+          .and_return('{}')
+
+        client.add_upstream(
+          service: 'myapp',
+          hosts: ['app.example.com'],
+          upstream: 'myapp:3000',
+          ssl: true,
+          ssl_email: 'admin@example.com'
+        )
+      end
+    end
+  end
+
+  describe '#remove_upstream' do
+    before do
+      routes = [
+        { '@id' => 'route-myapp', 'handle' => [{ 'upstreams' => [{ 'dial' => 'myapp:3000' }] }] }
+      ]
+      allow(mock_ssh).to receive(:execute).and_return(routes.to_json, '{}')
+    end
+
+    it 'removes route when last upstream' do
+      expect(mock_ssh).to receive(:execute).with(/DELETE/).and_return('{}')
+      client.remove_upstream(service: 'myapp', upstream: 'myapp:3000')
+    end
+  end
+
+  describe '#config' do
+    it 'fetches current config via API' do
+      config = { 'apps' => { 'http' => {} } }
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(cmd).to include('curl')
+        expect(cmd).to include('/config/')
+        config.to_json
+      end
+
+      result = client.config
+      expect(result).to eq(config)
+    end
+  end
+end

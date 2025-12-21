@@ -1,9 +1,10 @@
 # lib/odysseus/deployer/executor.rb
 
 require 'odysseus/config/parser'
-require 'odysseus/generators/docker_compose'
-require 'odysseus/generators/caddy'
 require 'odysseus/deployer/ssh'
+require 'odysseus/docker/client'
+require 'odysseus/caddy/client'
+require 'odysseus/orchestrator/web_deploy'
 
 module Odysseus
   module Deployer
@@ -16,52 +17,45 @@ module Odysseus
 
       # Execute full deploy
       # @param server [String] target server (hostname/IP)
-      # @param image_tag [String] docker image tag (e.g., "myapp:v1.2.3")
+      # @param image_tag [String] docker image tag (e.g., "v1.2.3")
       # @param dry_run [Boolean] if true, don't actually deploy
-      def deploy(server:, image_tag:, dry_run: false)
-        puts "Preparing deploy for #{server}..." unless dry_run
+      # @param role [Symbol] server role (default: :web)
+      def deploy(server:, image_tag:, dry_run: false, role: :web)
+        puts "Preparing deploy for #{server}..."
 
-        # Generate files
-        compose_content = generate_compose_file
-        caddy_content = generate_caddy_file
+        if dry_run
+          puts "Dry run - would deploy #{@config[:image]}:#{image_tag} to #{server}"
+          puts "Service: #{@config[:service]}"
+          puts "Hosts: #{@config[:proxy][:hosts].join(', ')}"
+          return { success: true, dry_run: true }
+        end
 
-        puts "Generated docker-compose.yml"
-        puts "Generated Caddyfile"
-
-        return if dry_run
-
-        # Connect to server
         ssh = connect_to_server(server)
 
         begin
-          # Upload files
-          ssh.execute('mkdir -p /tmp/odysseus')
-          ssh.upload_string(compose_content, '/tmp/odysseus/docker-compose.yml')
-          ssh.upload_string(caddy_content, '/tmp/odysseus/Caddyfile')
+          orchestrator = Odysseus::Orchestrator::WebDeploy.new(
+            ssh: ssh,
+            config: @config
+          )
 
-          # Deploy
-          ssh.execute('cd /tmp/odysseus && docker-compose pull')
-          ssh.execute('cd /tmp/odysseus && docker-compose down')
-          ssh.execute('cd /tmp/odysseus && docker-compose up -d')
-
-          # Reload Caddy
-          ssh.execute('docker exec caddy caddy reload --config /etc/caddy/Caddyfile')
-
+          result = orchestrator.deploy(image_tag: image_tag, role: role)
           puts "Deploy complete!"
+          result
         ensure
           ssh.close
         end
       end
 
+      # Generate and print docker run command (for debugging)
+      # @param image_tag [String] image tag
+      # @param role [Symbol] server role
+      def show_docker_command(image_tag:, role: :web)
+        docker = Odysseus::Docker::Client.new(nil)
+        # This would need refactoring to work without SSH
+        puts "Docker command generation not yet implemented for dry-run"
+      end
+
       private
-
-      def generate_compose_file
-        Odysseus::Generators::DockerCompose.new(@config).generate
-      end
-
-      def generate_caddy_file
-        Odysseus::Generators::Caddy.new(@config).generate
-      end
 
       def connect_to_server(server)
         Odysseus::Deployer::SSH.new(

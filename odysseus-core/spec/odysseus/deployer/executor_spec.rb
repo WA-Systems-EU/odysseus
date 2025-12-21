@@ -7,11 +7,10 @@ RSpec.describe Odysseus::Deployer::Executor do
   let(:executor) { described_class.new(fixture_file) }
 
   let(:mock_ssh) { instance_double(Odysseus::Deployer::SSH) }
+  let(:mock_orchestrator) { instance_double(Odysseus::Orchestrator::WebDeploy) }
 
   before do
     allow(Odysseus::Deployer::SSH).to receive(:new).and_return(mock_ssh)
-    allow(mock_ssh).to receive(:execute).and_return('')
-    allow(mock_ssh).to receive(:upload_string)
     allow(mock_ssh).to receive(:close)
   end
 
@@ -28,18 +27,29 @@ RSpec.describe Odysseus::Deployer::Executor do
 
   describe '#deploy' do
     context 'with dry_run: true' do
-      it 'generates files but does not connect to server' do
+      it 'does not connect to server' do
         expect(Odysseus::Deployer::SSH).not_to receive(:new)
         executor.deploy(server: 'test-server', image_tag: 'v1.0', dry_run: true)
       end
 
-      it 'outputs generation messages' do
+      it 'outputs deploy info' do
         expect { executor.deploy(server: 'test-server', image_tag: 'v1.0', dry_run: true) }
-          .to output(/Generated docker-compose.yml/).to_stdout
+          .to output(/Dry run/).to_stdout
+      end
+
+      it 'returns success result' do
+        result = executor.deploy(server: 'test-server', image_tag: 'v1.0', dry_run: true)
+        expect(result[:success]).to be true
+        expect(result[:dry_run]).to be true
       end
     end
 
     context 'with dry_run: false' do
+      before do
+        allow(Odysseus::Orchestrator::WebDeploy).to receive(:new).and_return(mock_orchestrator)
+        allow(mock_orchestrator).to receive(:deploy).and_return({ success: true })
+      end
+
       it 'connects to the server with correct config' do
         expect(Odysseus::Deployer::SSH).to receive(:new).with(
           host: 'test-server',
@@ -51,55 +61,29 @@ RSpec.describe Odysseus::Deployer::Executor do
         executor.deploy(server: 'test-server', image_tag: 'v1.0')
       end
 
-      it 'creates deploy directory' do
-        expect(mock_ssh).to receive(:execute).with('mkdir -p /tmp/odysseus')
-        executor.deploy(server: 'test-server', image_tag: 'v1.0')
-      end
-
-      it 'uploads docker-compose.yml' do
-        expect(mock_ssh).to receive(:upload_string)
-          .with(a_string_including('version'), '/tmp/odysseus/docker-compose.yml')
-          .ordered
-
-        expect(mock_ssh).to receive(:upload_string)
-          .with(anything, '/tmp/odysseus/Caddyfile')
-          .ordered
+      it 'creates orchestrator with SSH and config' do
+        expect(Odysseus::Orchestrator::WebDeploy).to receive(:new).with(
+          ssh: mock_ssh,
+          config: hash_including(service: 'df', image: 'myapp-production')
+        ).and_return(mock_orchestrator)
 
         executor.deploy(server: 'test-server', image_tag: 'v1.0')
       end
 
-      it 'uploads Caddyfile' do
-        expect(mock_ssh).to receive(:upload_string)
-          .with(anything, '/tmp/odysseus/docker-compose.yml')
-          .ordered
-
-        expect(mock_ssh).to receive(:upload_string)
-          .with(a_string_including('reverse_proxy'), '/tmp/odysseus/Caddyfile')
-          .ordered
+      it 'calls orchestrator deploy with image tag' do
+        expect(mock_orchestrator).to receive(:deploy)
+          .with(image_tag: 'v1.0', role: :web)
+          .and_return({ success: true })
 
         executor.deploy(server: 'test-server', image_tag: 'v1.0')
       end
 
-      it 'executes docker-compose commands in order' do
-        commands = []
-        allow(mock_ssh).to receive(:execute) do |cmd|
-          commands << cmd
-          ''
-        end
+      it 'passes role to orchestrator' do
+        expect(mock_orchestrator).to receive(:deploy)
+          .with(image_tag: 'v1.0', role: :worker)
+          .and_return({ success: true })
 
-        executor.deploy(server: 'test-server', image_tag: 'v1.0')
-
-        expect(commands).to include('mkdir -p /tmp/odysseus')
-        expect(commands).to include('cd /tmp/odysseus && docker-compose pull')
-        expect(commands).to include('cd /tmp/odysseus && docker-compose down')
-        expect(commands).to include('cd /tmp/odysseus && docker-compose up -d')
-      end
-
-      it 'reloads Caddy' do
-        expect(mock_ssh).to receive(:execute)
-          .with('docker exec caddy caddy reload --config /etc/caddy/Caddyfile')
-
-        executor.deploy(server: 'test-server', image_tag: 'v1.0')
+        executor.deploy(server: 'test-server', image_tag: 'v1.0', role: :worker)
       end
 
       it 'closes SSH connection when done' do
@@ -108,13 +92,22 @@ RSpec.describe Odysseus::Deployer::Executor do
       end
 
       it 'closes SSH connection even on error' do
-        allow(mock_ssh).to receive(:execute).with(/docker-compose pull/)
-          .and_raise(Odysseus::SSHCommandError.new('Command failed'))
+        allow(mock_orchestrator).to receive(:deploy)
+          .and_raise(Odysseus::DeployError.new('Deploy failed'))
 
         expect(mock_ssh).to receive(:close)
 
         expect { executor.deploy(server: 'test-server', image_tag: 'v1.0') }
-          .to raise_error(Odysseus::SSHCommandError)
+          .to raise_error(Odysseus::DeployError)
+      end
+
+      it 'returns orchestrator result' do
+        allow(mock_orchestrator).to receive(:deploy)
+          .and_return({ success: true, container_id: 'abc123' })
+
+        result = executor.deploy(server: 'test-server', image_tag: 'v1.0')
+        expect(result[:success]).to be true
+        expect(result[:container_id]).to eq('abc123')
       end
     end
   end

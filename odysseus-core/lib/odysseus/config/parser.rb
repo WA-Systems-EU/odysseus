@@ -72,6 +72,7 @@ module Odysseus
 
         {
           ssl: proxy.key?('ssl') ? proxy['ssl'] : true,
+          ssl_email: proxy['ssl_email'],
           hosts: proxy['hosts'] || [],
           app_port: proxy['app_port'],
           healthcheck: parse_healthcheck(proxy['healthcheck']),

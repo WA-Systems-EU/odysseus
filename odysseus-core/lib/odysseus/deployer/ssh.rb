@@ -88,14 +88,14 @@ module Odysseus
       end
 
       def connect
-        @session = Net::SSH.start(
-          @host,
-          @user,
+        options = {
           port: @port,
-          keys: @keys.any? ? @keys : nil,
-          password_auth: false,
-          verify_host_key: :never # For testing; use :accept_new_or_existing in production
-        )
+          non_interactive: true,
+          verify_host_key: :never
+        }
+        options[:keys] = @keys if @keys.any?
+
+        @session = Net::SSH.start(@host, @user, options)
       end
     end
   end

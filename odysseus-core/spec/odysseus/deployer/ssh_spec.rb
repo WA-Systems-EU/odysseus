@@ -55,7 +55,7 @@ RSpec.describe Odysseus::Deployer::SSH do
       expect(Net::SSH).to receive(:start).with(
         'test-server',
         'deploy',
-        hash_including(port: 22, password_auth: false)
+        hash_including(port: 22, non_interactive: true)
       ).and_return(mock_session)
 
       ssh.execute('test')

@@ -1,0 +1,226 @@
+# lib/odysseus/caddy/client.rb
+
+require 'json'
+
+module Odysseus
+  module Caddy
+    class Client
+      ADMIN_API_PORT = 2019
+      CONTAINER_NAME = 'odysseus-caddy'
+      CADDY_IMAGE = 'caddy:2-alpine'
+
+      # @param ssh [Odysseus::Deployer::SSH] SSH connection to server
+      # @param docker [Odysseus::Docker::Client] Docker client
+      def initialize(ssh:, docker:)
+        @ssh = ssh
+        @docker = docker
+      end
+
+      # Ensure Caddy is running
+      # @return [Boolean] true if caddy is running
+      def ensure_running
+        return true if running?
+
+        start_caddy
+        running?
+      end
+
+      # Check if Caddy container is running
+      # @return [Boolean]
+      def running?
+        @docker.running?(CONTAINER_NAME)
+      end
+
+      # Start Caddy container
+      def start_caddy
+        # Create network if not exists
+        @ssh.execute("docker network create odysseus 2>/dev/null || true")
+
+        # Create data directory for certificates
+        @ssh.execute("mkdir -p /var/lib/odysseus/caddy")
+
+        # Run Caddy with admin API enabled and persistent storage for certs
+        @docker.run(
+          name: CONTAINER_NAME,
+          image: CADDY_IMAGE,
+          options: {
+            service: 'odysseus-proxy',
+            ports: ['80:80', '443:443', "#{ADMIN_API_PORT}:#{ADMIN_API_PORT}"],
+            network: 'odysseus',
+            restart: 'unless-stopped',
+            volumes: ['/var/lib/odysseus/caddy:/data'],
+            env: {
+              'CADDY_ADMIN' => "0.0.0.0:#{ADMIN_API_PORT}"
+            }
+          }
+        )
+
+        # Wait for Caddy to be ready
+        sleep 2
+      end
+
+      # Add an upstream server to a route
+      # @param service [String] service name (used as route identifier)
+      # @param hosts [Array<String>] domain hosts for this service
+      # @param upstream [String] upstream address (container:port)
+      # @param healthcheck [Hash] healthcheck config (optional)
+      # @param ssl [Boolean] enable automatic HTTPS (default: true)
+      # @param ssl_email [String] email for Let's Encrypt registration
+      def add_upstream(service:, hosts:, upstream:, healthcheck: nil, ssl: true, ssl_email: nil)
+        # Enable TLS for these hosts if ssl is enabled
+        enable_tls_for_hosts(hosts, email: ssl_email) if ssl
+
+        # Check if route already exists for this service
+        routes = api_request('GET', "/config/apps/http/servers/srv0/routes") || []
+        existing_idx = routes.find_index { |r| r['@id'] == "route-#{service}" }
+
+        if existing_idx
+          # Update existing route's upstreams
+          current_upstreams = routes[existing_idx].dig('handle', 0, 'upstreams') || []
+          unless current_upstreams.any? { |u| u['dial'] == upstream }
+            current_upstreams << { 'dial' => upstream }
+            api_request('PATCH', "/config/apps/http/servers/srv0/routes/#{existing_idx}/handle/0/upstreams", current_upstreams)
+          end
+        else
+          # Create new route - prepend at index 0 so it matches before default routes
+          config = build_route_config(
+            service: service,
+            hosts: hosts,
+            upstreams: [upstream],
+            healthcheck: healthcheck
+          )
+          api_request('PUT', "/config/apps/http/servers/srv0/routes/0", config)
+        end
+      end
+
+      # Remove an upstream from a service
+      # @param service [String] service name
+      # @param upstream [String] upstream to remove
+      def remove_upstream(service:, upstream:)
+        # Get current config
+        routes = api_request('GET', "/config/apps/http/servers/srv0/routes")
+        return unless routes
+
+        # Find route for this service and remove the upstream
+        routes.each_with_index do |route, idx|
+          next unless route.dig('@id') == "route-#{service}"
+
+          upstreams = route.dig('handle', 0, 'upstreams') || []
+          upstreams.reject! { |u| u['dial'] == upstream }
+
+          if upstreams.empty?
+            # Remove entire route if no upstreams left
+            api_request('DELETE', "/config/apps/http/servers/srv0/routes/#{idx}")
+          else
+            # Update route with remaining upstreams
+            api_request('PATCH', "/config/apps/http/servers/srv0/routes/#{idx}/handle/0/upstreams", upstreams)
+          end
+
+          break
+        end
+      end
+
+      # Drain connections from an upstream (mark as down)
+      # @param service [String] service name
+      # @param upstream [String] upstream to drain
+      def drain_upstream(service:, upstream:)
+        # Caddy doesn't have built-in drain, so we set health to down
+        # This will stop new connections from being sent to this upstream
+        # The upstream will be removed after existing connections close
+
+        # For now, we just remove it - Caddy will gracefully close existing connections
+        remove_upstream(service: service, upstream: upstream)
+      end
+
+      # Get current Caddy config
+      # @return [Hash] current config
+      def config
+        api_request('GET', '/config/')
+      end
+
+      # Enable TLS/HTTPS for hosts
+      # @param hosts [Array<String>] domain hosts
+      # @param email [String] email for Let's Encrypt
+      def enable_tls_for_hosts(hosts, email: nil)
+        # Build issuer config
+        issuer = { 'module' => 'acme' }
+        issuer['email'] = email if email
+
+        # Configure TLS automation with Let's Encrypt
+        tls_config = {
+          'automation' => {
+            'policies' => [
+              {
+                'subjects' => hosts,
+                'issuers' => [issuer]
+              }
+            ]
+          }
+        }
+
+        # Use PUT to create/replace TLS config (PATCH fails if path doesn't exist)
+        api_request('PUT', '/config/apps/tls', tls_config)
+
+        # Ensure HTTPS server exists and listens on 443
+        ensure_https_server
+      end
+
+      private
+
+      def ensure_https_server
+        # Check if we have an HTTPS server configured
+        servers = api_request('GET', '/config/apps/http/servers') || {}
+
+        unless servers['srv0']&.dig('listen')&.include?(':443')
+          # Add :443 to listen addresses
+          current_listen = servers.dig('srv0', 'listen') || [':80']
+          unless current_listen.include?(':443')
+            current_listen << ':443'
+            api_request('PATCH', '/config/apps/http/servers/srv0/listen', current_listen)
+          end
+        end
+      end
+
+      def build_route_config(service:, hosts:, upstreams:, healthcheck: nil)
+        route = {
+          '@id' => "route-#{service}",
+          'match' => [{ 'host' => hosts }],
+          'handle' => [
+            {
+              'handler' => 'reverse_proxy',
+              'upstreams' => upstreams.map { |u| { 'dial' => u } }
+            }
+          ]
+        }
+
+        # Add health checks if configured
+        if healthcheck
+          route['handle'][0]['health_checks'] = {
+            'active' => {
+              'uri' => healthcheck[:path] || '/health',
+              'interval' => "#{healthcheck[:interval] || 10}s",
+              'timeout' => "#{healthcheck[:timeout] || 5}s"
+            }
+          }
+        end
+
+        route
+      end
+
+      def api_request(method, path, body = nil)
+        # Build curl command to hit Caddy's admin API
+        cmd = "curl -s -X #{method} "
+        cmd += "-H 'Content-Type: application/json' "
+        cmd += "-d '#{body.to_json}' " if body
+        cmd += "http://localhost:#{ADMIN_API_PORT}#{path}"
+
+        output = @ssh.execute(cmd)
+        return nil if output.strip.empty?
+
+        JSON.parse(output)
+      rescue JSON::ParserError
+        output
+      end
+    end
+  end
+end
