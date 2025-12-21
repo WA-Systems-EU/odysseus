@@ -33,8 +33,8 @@ module Odysseus
 
       # Start Caddy container
       def start_caddy
-        # Create network if not exists
-        @ssh.execute("docker network create odysseus 2>/dev/null || true")
+        # Create network if not exists (with label to protect from prune)
+        @ssh.execute("docker network create --label odysseus.managed=true odysseus 2>/dev/null || true")
 
         # Create data directory for certificates
         @ssh.execute("mkdir -p /var/lib/odysseus/caddy")
@@ -51,6 +51,9 @@ module Odysseus
             volumes: ['/var/lib/odysseus/caddy:/data'],
             env: {
               'CADDY_ADMIN' => "0.0.0.0:#{ADMIN_API_PORT}"
+            },
+            labels: {
+              'odysseus.managed' => 'true'
             }
           }
         )
@@ -93,9 +96,9 @@ module Odysseus
         end
       end
 
-      # Remove an upstream from a service
+      # Remove an upstream from a service (or entire route if upstream is nil)
       # @param service [String] service name
-      # @param upstream [String] upstream to remove
+      # @param upstream [String, nil] upstream to remove, or nil to remove entire route
       def remove_upstream(service:, upstream:)
         # Get current config
         routes = api_request('GET', "/config/apps/http/servers/srv0/routes")
@@ -104,6 +107,12 @@ module Odysseus
         # Find route for this service and remove the upstream
         routes.each_with_index do |route, idx|
           next unless route.dig('@id') == "route-#{service}"
+
+          # If no specific upstream, remove the entire route
+          if upstream.nil?
+            api_request('DELETE', "/config/apps/http/servers/srv0/routes/#{idx}")
+            break
+          end
 
           upstreams = route.dig('handle', 0, 'upstreams') || []
           upstreams.reject! { |u| u['dial'] == upstream }

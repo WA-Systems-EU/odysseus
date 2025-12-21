@@ -620,6 +620,107 @@ module Odysseus
         exit 1
       end
 
+      # Cleanup command - remove containers for this service
+      # Usage: odysseus cleanup <server> [--config FILE] [--prune-images]
+      def cleanup(server, options = {})
+        config_file = options[:config] || 'deploy.yml'
+        prune_images = options[:all] || false
+
+        config = load_config(config_file)
+        service_name = config[:service]
+
+        puts @pastel.cyan("Odysseus Cleanup: #{service_name}")
+        puts @pastel.blue("Server: #{server}")
+        puts ""
+
+        ssh = connect_to_server(server, config)
+
+        begin
+          docker = Odysseus::Docker::Client.new(ssh)
+          caddy = Odysseus::Caddy::Client.new(ssh: ssh, docker: docker)
+
+          # Show current disk usage
+          puts @pastel.cyan("Current disk usage:")
+          puts docker.disk_usage
+          puts ""
+
+          # Collect all service names for this deploy.yml
+          service_names = [service_name]
+          config[:servers].keys.reject { |r| r == :web }.each do |role|
+            service_names << "#{service_name}-#{role}"
+          end
+          config[:accessories]&.each_key do |name|
+            service_names << "#{service_name}-#{name}"
+          end
+
+          puts @pastel.yellow("Removing containers for #{service_name}...")
+
+          total_removed = 0
+
+          # Remove all containers for each service (not just old ones)
+          service_names.each do |svc|
+            containers = docker.list(service: svc, all: true)
+            containers.each do |c|
+              docker.stop(c['ID'], timeout: 10) if c['State'] == 'running'
+              docker.remove(c['ID'], force: true)
+              total_removed += 1
+            end
+          end
+
+          puts "  Removed #{total_removed} container(s)"
+
+          # Remove routes from Caddy for this service
+          puts ""
+          puts @pastel.yellow("Removing Caddy routes for #{service_name}...")
+
+          if caddy.running?
+            # Remove web service route
+            caddy.remove_upstream(service: service_name, upstream: nil) rescue nil
+
+            # Remove accessory routes
+            config[:accessories]&.each do |name, acc_config|
+              if acc_config[:proxy]
+                acc_service = "#{service_name}-#{name}"
+                caddy.remove_upstream(service: acc_service, upstream: nil) rescue nil
+              end
+            end
+
+            # Check if Caddy still has other services
+            remaining_services = caddy.list_services
+            remaining_services.reject! { |s| s[:service] == 'unknown' || s[:service].empty? }
+
+            if remaining_services.empty?
+              puts @pastel.yellow("No other services using Caddy, stopping Caddy...")
+              docker.stop('odysseus-caddy', timeout: 10) rescue nil
+              docker.remove('odysseus-caddy', force: true) rescue nil
+              puts "  Caddy removed"
+            else
+              puts @pastel.dim("  Keeping Caddy (#{remaining_services.size} other service(s) configured)")
+            end
+          end
+
+          # Optionally prune dangling images
+          if prune_images
+            puts ""
+            puts @pastel.yellow("Pruning dangling images...")
+            results = docker.prune(containers: false, images: true, volumes: false, networks: false)
+            puts results[:images]
+          end
+
+          puts ""
+          puts @pastel.cyan("Disk usage after cleanup:")
+          puts docker.disk_usage
+        ensure
+          ssh.close
+        end
+
+        puts ""
+        puts @pastel.green("Cleanup complete!")
+      rescue Odysseus::Error => e
+        puts @pastel.red("Error: #{e.message}")
+        exit 1
+      end
+
       # Accessory exec command - run a command in a running accessory container
       # Usage: odysseus accessory exec <server> --name NAME <command> [--config FILE]
       def accessory_exec(server, options = {})

@@ -16,6 +16,7 @@ def main
     'status' => { method: :status, needs_server: true },
     'containers' => { method: :containers, needs_server: true },
     'logs' => { method: :logs, needs_server: true },
+    'cleanup' => { method: :cleanup, needs_server: true },
     'validate' => { method: :validate, needs_server: false },
     'accessory' => { method: :accessory_dispatch, needs_server: false },
     'app' => { method: :app_dispatch, needs_server: false }
@@ -49,6 +50,8 @@ def main
     opts.on('--role ROLE', 'Role to deploy/logs') { |v| options[:role] = v }
     opts.on('--service NAME', 'Service name') { |v| options[:service] = v }
     opts.on('--dry-run', 'Don\'t actually deploy') { |v| options[:'dry-run'] = v }
+    # Cleanup options
+    opts.on('--prune-images', 'Also prune dangling images') { |v| options[:all] = v }
     # Logs options
     opts.on('-f', '--follow', 'Follow log output') { |v| options[:follow] = v }
     opts.on('-n', '--lines N', Integer, 'Number of lines to show') { |v| options[:lines] = v }
@@ -181,6 +184,7 @@ def print_help
   puts "  status <server>           Show service status on server"
   puts "  containers <server>       List containers for service on server"
   puts "  logs <server>             Show logs for a service"
+  puts "  cleanup <server>          Clean up old containers and images"
   puts "  validate                  Validate deploy.yml"
   puts "  accessory <subcommand>    Manage accessories"
   puts "  app <subcommand>          Run commands in app containers"
@@ -196,6 +200,9 @@ def print_help
   puts "  -f, --follow              Follow log output"
   puts "  -n, --lines N             Number of lines to show (default: 100)"
   puts "  --since TIME              Show logs since timestamp (e.g., '10m', '2h')"
+  puts ""
+  puts "Cleanup options:"
+  puts "  --prune-images            Also prune dangling images after removing containers"
 end
 
 main if $0 == __FILE__

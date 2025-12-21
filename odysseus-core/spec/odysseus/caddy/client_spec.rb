@@ -36,19 +36,20 @@ RSpec.describe Odysseus::Caddy::Client do
         allow(client).to receive(:sleep) # Don't actually sleep
       end
 
-      it 'creates Docker network' do
+      it 'creates Docker network with odysseus.managed label' do
         expect(mock_ssh).to receive(:execute)
-          .with('docker network create odysseus 2>/dev/null || true')
+          .with('docker network create --label odysseus.managed=true odysseus 2>/dev/null || true')
         client.ensure_running
       end
 
-      it 'starts Caddy container' do
+      it 'starts Caddy container with managed label' do
         expect(mock_docker).to receive(:run).with(
           name: 'odysseus-caddy',
           image: 'caddy:2-alpine',
           options: hash_including(
             service: 'odysseus-proxy',
-            ports: ['80:80', '443:443', '2019:2019']
+            ports: ['80:80', '443:443', '2019:2019'],
+            labels: { 'odysseus.managed' => 'true' }
           )
         )
         client.ensure_running

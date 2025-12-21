@@ -198,6 +198,7 @@ module Odysseus
       # Cleanup old stopped containers, keeping only the last N
       # @param service [String] service name
       # @param keep [Integer] number of stopped containers to keep
+      # @return [Array<String>] IDs of removed containers
       def cleanup_old_containers(service:, keep: 2)
         stopped = list(service: service, all: true).select do |c|
           c['State'] == 'exited'
@@ -210,6 +211,53 @@ module Odysseus
         to_remove.each do |container|
           remove(container['ID'])
         end
+
+        to_remove.map { |c| c['ID'] }
+      end
+
+      # Prune unused Docker resources (excludes odysseus-managed resources)
+      # @param containers [Boolean] remove stopped containers (excludes odysseus-caddy)
+      # @param images [Boolean] remove dangling images
+      # @param volumes [Boolean] remove unused volumes (DANGEROUS - data loss!)
+      # @param networks [Boolean] remove unused networks (excludes odysseus network)
+      # @return [Hash] prune results
+      def prune(containers: true, images: true, volumes: false, networks: false)
+        results = {}
+
+        if containers
+          # Prune containers but exclude odysseus-caddy
+          # Use filter to exclude containers with odysseus label
+          output = @ssh.execute(
+            'docker container prune -f --filter "label!=odysseus.managed=true" 2>&1'
+          )
+          results[:containers] = output
+        end
+
+        if images
+          output = @ssh.execute('docker image prune -f 2>&1')
+          results[:images] = output
+        end
+
+        if volumes
+          output = @ssh.execute('docker volume prune -f 2>&1')
+          results[:volumes] = output
+        end
+
+        if networks
+          # Prune networks but exclude odysseus network
+          output = @ssh.execute(
+            'docker network prune -f --filter "label!=odysseus.managed=true" 2>&1'
+          )
+          results[:networks] = output
+        end
+
+        results
+      end
+
+      # Get disk usage info
+      # @return [String] docker system df output
+      def disk_usage
+        @ssh.execute('docker system df')
       end
 
       private
@@ -223,6 +271,13 @@ module Odysseus
         # Labels for tracking
         parts << "--label odysseus.service=#{options[:service] || name}"
         parts << "--label odysseus.version=#{options[:version]}" if options[:version]
+
+        # Additional custom labels
+        if options[:labels]
+          options[:labels].each do |key, value|
+            parts << "--label #{key}=#{value}"
+          end
+        end
 
         # Port mappings
         if options[:ports]

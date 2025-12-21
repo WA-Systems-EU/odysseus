@@ -338,4 +338,83 @@ RSpec.describe Odysseus::Docker::Client do
       )
     end
   end
+
+  describe '#prune' do
+    it 'prunes containers excluding odysseus-managed' do
+      expect(mock_ssh).to receive(:execute)
+        .with('docker container prune -f --filter "label!=odysseus.managed=true" 2>&1')
+        .and_return("Deleted containers:\nabc123\n")
+      expect(mock_ssh).to receive(:execute)
+        .with('docker image prune -f 2>&1')
+        .and_return("Total reclaimed space: 100MB\n")
+
+      result = client.prune
+      expect(result[:containers]).to include('abc123')
+      expect(result[:images]).to include('100MB')
+    end
+
+    it 'can prune volumes when requested' do
+      expect(mock_ssh).to receive(:execute)
+        .with('docker container prune -f --filter "label!=odysseus.managed=true" 2>&1')
+        .and_return('')
+      expect(mock_ssh).to receive(:execute).with('docker image prune -f 2>&1').and_return('')
+      expect(mock_ssh).to receive(:execute).with('docker volume prune -f 2>&1').and_return("Total reclaimed space: 500MB\n")
+
+      result = client.prune(volumes: true)
+      expect(result[:volumes]).to include('500MB')
+    end
+
+    it 'can prune networks excluding odysseus-managed' do
+      expect(mock_ssh).to receive(:execute)
+        .with('docker container prune -f --filter "label!=odysseus.managed=true" 2>&1')
+        .and_return('')
+      expect(mock_ssh).to receive(:execute).with('docker image prune -f 2>&1').and_return('')
+      expect(mock_ssh).to receive(:execute)
+        .with('docker network prune -f --filter "label!=odysseus.managed=true" 2>&1')
+        .and_return("Deleted networks:\nold_network\n")
+
+      result = client.prune(networks: true)
+      expect(result[:networks]).to include('old_network')
+    end
+
+    it 'can skip containers and images' do
+      expect(mock_ssh).not_to receive(:execute).with(/container prune/)
+      expect(mock_ssh).not_to receive(:execute).with(/image prune/)
+
+      result = client.prune(containers: false, images: false)
+      expect(result).to eq({})
+    end
+  end
+
+  describe '#disk_usage' do
+    it 'returns docker system df output' do
+      df_output = "TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE\nImages          5         2         1.2GB     800MB (66%)\n"
+      expect(mock_ssh).to receive(:execute).with('docker system df').and_return(df_output)
+
+      result = client.disk_usage
+      expect(result).to include('Images')
+      expect(result).to include('1.2GB')
+    end
+  end
+
+  describe '#cleanup_old_containers' do
+    it 'removes old stopped containers keeping specified number' do
+      allow(mock_ssh).to receive(:execute) do |cmd|
+        if cmd.include?('docker ps')
+          [
+            '{"ID":"old1","State":"exited","CreatedAt":"2024-01-01"}',
+            '{"ID":"old2","State":"exited","CreatedAt":"2024-01-02"}',
+            '{"ID":"new1","State":"exited","CreatedAt":"2024-01-03"}'
+          ].join("\n")
+        else
+          ''
+        end
+      end
+
+      expect(mock_ssh).to receive(:execute).with('docker rm  old1')
+
+      removed = client.cleanup_old_containers(service: 'myapp', keep: 2)
+      expect(removed).to eq(['old1'])
+    end
+  end
 end
