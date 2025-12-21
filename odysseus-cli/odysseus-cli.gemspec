@@ -13,8 +13,9 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
   spec.required_ruby_version = ">= 3.0"
 
-  spec.add_dependency "odysseus-core", "~> 0.1"
   spec.add_dependency "pastel", "~> 0.8"
+  spec.add_dependency "net-ssh", "~> 7.2"
+  spec.add_dependency "net-scp", "~> 4.0"
 
   spec.add_development_dependency "rspec", "~> 3.12"
   spec.add_development_dependency "pry-byebug", "~> 3.10"

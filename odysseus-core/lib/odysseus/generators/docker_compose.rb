@@ -12,12 +12,14 @@ module Odysseus
       # @return [String] YAML content
       def generate
         compose = {
-          version: '3.8',
-          services: generate_services,
-          volumes: generate_volumes
+          'version' => '3.8',
+          'services' => generate_services
         }
 
-        compose.compact.to_yaml
+        volumes = generate_volumes
+        compose['volumes'] = volumes unless volumes.empty?
+
+        compose.to_yaml
       end
 
       private
@@ -25,29 +27,30 @@ module Odysseus
       def generate_services
         services = {}
 
-        @config[:servers].each do |role, server_config|
-          services[@config[:service].to_sym] = {
-            image: "#{@config[:image]}:latest",
-            command: server_config[:cmd],
-            ports: generate_ports,
-            environment: generate_environment,
-            restart: 'unless-stopped',
-            deploy: {
-              resources: {
-                limits: generate_resource_limits(server_config[:options]),
-                reservations: generate_resource_reservations(server_config[:options])
-              }
-            }
-          }.compact
+        @config[:servers].each do |_role, server_config|
+          service = {
+            'image' => "#{@config[:image]}:latest",
+            'ports' => generate_ports,
+            'environment' => generate_environment,
+            'restart' => 'unless-stopped'
+          }
+
+          service['command'] = server_config[:cmd] if server_config[:cmd]
+
+          deploy = generate_deploy(server_config[:options])
+          service['deploy'] = deploy if deploy
+
+          services[@config[:service]] = service.compact
         end
 
         services
       end
 
       def generate_ports
-        return nil unless @config[:proxy]
+        return nil unless @config[:proxy] && @config[:proxy][:app_port]
 
-        ["#{@config[:proxy][:app_port]}:#{@config[:proxy][:app_port]}"]
+        port = @config[:proxy][:app_port]
+        ["#{port}:#{port}"]
       end
 
       def generate_environment
@@ -67,7 +70,22 @@ module Odysseus
       end
 
       def generate_volumes
-        {} # Placeholder for volume config
+        {}
+      end
+
+      def generate_deploy(options)
+        return nil if options.empty?
+
+        limits = generate_resource_limits(options)
+        reservations = generate_resource_reservations(options)
+
+        return nil unless limits || reservations
+
+        resources = {}
+        resources['limits'] = limits if limits
+        resources['reservations'] = reservations if reservations
+
+        { 'resources' => resources }
       end
 
       def generate_resource_limits(options)

@@ -3,6 +3,9 @@ git_source(:github) { |repo| "https://github.com/#{repo}.git" }
 
 gemspec
 
+# Use local odysseus-core gem
+gem "odysseus-core", path: "../odysseus-core"
+
 group :development, :test do
   gem "rspec", "~> 3.12"
   gem "pry-byebug", "~> 3.10"

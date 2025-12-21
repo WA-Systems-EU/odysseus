@@ -12,6 +12,7 @@ module Odysseus
       # @return [String] Caddyfile content
       def generate
         return '' unless @config[:proxy]
+        return '' unless @config[:proxy][:hosts]&.any?
 
         lines = []
 

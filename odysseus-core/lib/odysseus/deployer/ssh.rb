@@ -58,6 +58,15 @@ module Odysseus
         end
       end
 
+      # Upload string content to remote file
+      # @param content [String] content to write
+      # @param remote_path [String] remote file path
+      def upload_string(content, remote_path)
+        with_connection do |session|
+          session.scp.upload!(StringIO.new(content), remote_path)
+        end
+      end
+
       # Check if connected
       # @return [Boolean]
       def connected?
@@ -74,7 +83,7 @@ module Odysseus
       def with_connection
         connect unless connected?
         yield(@session)
-      rescue Net::SSH::ConnectionFailed => e
+      rescue Errno::ECONNREFUSED, SocketError, Net::SSH::AuthenticationFailed => e
         raise Odysseus::SSHConnectionError, "SSH connection failed: #{e.message}"
       end
 
