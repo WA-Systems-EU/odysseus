@@ -198,23 +198,35 @@ module Odysseus
       # @param hosts [Array<String>] domain hosts
       # @param email [String] email for Let's Encrypt
       def enable_tls_for_hosts(hosts, email: nil)
+        # Get existing TLS config to merge with
+        existing_tls = api_request('GET', '/config/apps/tls') || {}
+        existing_policies = existing_tls.dig('automation', 'policies') || []
+
+        # Collect all existing subjects
+        all_subjects = existing_policies.flat_map { |p| p['subjects'] || [] }
+
+        # Add new hosts (avoid duplicates)
+        hosts.each do |host|
+          all_subjects << host unless all_subjects.include?(host)
+        end
+
         # Build issuer config
         issuer = { 'module' => 'acme' }
         issuer['email'] = email if email
 
-        # Configure TLS automation with Let's Encrypt
+        # Configure TLS automation with Let's Encrypt (single policy for all domains)
         tls_config = {
           'automation' => {
             'policies' => [
               {
-                'subjects' => hosts,
+                'subjects' => all_subjects,
                 'issuers' => [issuer]
               }
             ]
           }
         }
 
-        # Use PUT to create/replace TLS config (PATCH fails if path doesn't exist)
+        # Use PUT to create/replace TLS config
         api_request('PUT', '/config/apps/tls', tls_config)
 
         # Ensure HTTPS server exists and listens on 443

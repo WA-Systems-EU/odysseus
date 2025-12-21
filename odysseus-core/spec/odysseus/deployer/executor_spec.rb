@@ -79,11 +79,26 @@ RSpec.describe Odysseus::Deployer::Executor do
       end
 
       it 'passes role to orchestrator' do
-        expect(mock_orchestrator).to receive(:deploy)
+        mock_job_orchestrator = instance_double(Odysseus::Orchestrator::JobDeploy)
+        allow(Odysseus::Orchestrator::JobDeploy).to receive(:new).and_return(mock_job_orchestrator)
+        allow(mock_job_orchestrator).to receive(:deploy).and_return({ success: true })
+
+        expect(mock_job_orchestrator).to receive(:deploy)
           .with(image_tag: 'v1.0', role: :worker)
           .and_return({ success: true })
 
         executor.deploy(server: 'test-server', image_tag: 'v1.0', role: :worker)
+      end
+
+      it 'uses JobDeploy for non-web roles' do
+        mock_job_orchestrator = instance_double(Odysseus::Orchestrator::JobDeploy)
+
+        expect(Odysseus::Orchestrator::JobDeploy).to receive(:new)
+          .with(ssh: mock_ssh, config: anything)
+          .and_return(mock_job_orchestrator)
+        allow(mock_job_orchestrator).to receive(:deploy).and_return({ success: true })
+
+        executor.deploy(server: 'test-server', image_tag: 'v1.0', role: :jobs)
       end
 
       it 'closes SSH connection when done' do

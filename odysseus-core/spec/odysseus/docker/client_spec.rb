@@ -208,4 +208,134 @@ RSpec.describe Odysseus::Docker::Client do
       expect(client.wait_healthy('abc123')).to be false
     end
   end
+
+  describe '#logs' do
+    it 'gets container logs' do
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(cmd).to include('docker logs')
+        expect(cmd).to include('--tail 100')
+        expect(cmd).to include('abc123')
+        "log line 1\nlog line 2\n"
+      end
+
+      result = client.logs('abc123')
+      expect(result).to eq("log line 1\nlog line 2\n")
+    end
+
+    it 'supports follow mode with streaming' do
+      expect(mock_ssh).to receive(:stream) do |cmd, &block|
+        expect(cmd).to include('docker logs')
+        expect(cmd).to include('--follow')
+        block.call("log line 1\n")
+        block.call("log line 2\n")
+      end
+
+      lines = []
+      client.logs('abc123', follow: true) { |line| lines << line }
+      expect(lines).to eq(["log line 1\n", "log line 2\n"])
+    end
+
+    it 'supports since parameter' do
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(cmd).to include('--since 10m')
+        ""
+      end
+
+      client.logs('abc123', since: '10m')
+    end
+
+    it 'supports timestamps option' do
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(cmd).to include('--timestamps')
+        ""
+      end
+
+      client.logs('abc123', timestamps: true)
+    end
+  end
+
+  describe '#exec' do
+    it 'executes command in container' do
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(cmd).to include('docker exec')
+        expect(cmd).to include('abc123')
+        expect(cmd).to include('ls -la')
+        "file1\nfile2\n"
+      end
+
+      result = client.exec('abc123', 'ls -la')
+      expect(result).to eq("file1\nfile2\n")
+    end
+
+    it 'supports interactive mode' do
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(cmd).to include('-i')
+        ""
+      end
+
+      client.exec('abc123', 'bash', interactive: true)
+    end
+
+    it 'supports tty mode' do
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(cmd).to include('-t')
+        ""
+      end
+
+      client.exec('abc123', 'bash', tty: true)
+    end
+  end
+
+  describe '#run_once' do
+    it 'runs command in ephemeral container' do
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(cmd).to include('docker run --rm')
+        expect(cmd).to include('myapp:latest')
+        expect(cmd).to include('rake db:migrate')
+        "Migrated!\n"
+      end
+
+      result = client.run_once(image: 'myapp:latest', command: 'rake db:migrate')
+      expect(result).to eq("Migrated!\n")
+    end
+
+    it 'includes environment variables' do
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(cmd).to include('-e RAILS_ENV=production')
+        ""
+      end
+
+      client.run_once(
+        image: 'myapp:latest',
+        command: 'rails console',
+        options: { env: { 'RAILS_ENV' => 'production' } }
+      )
+    end
+
+    it 'includes network option' do
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(cmd).to include('--network odysseus')
+        ""
+      end
+
+      client.run_once(
+        image: 'myapp:latest',
+        command: 'bash',
+        options: { network: 'odysseus' }
+      )
+    end
+
+    it 'includes volume mounts' do
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(cmd).to include('-v /data:/app/data')
+        ""
+      end
+
+      client.run_once(
+        image: 'myapp:latest',
+        command: 'bash',
+        options: { volumes: ['/data:/app/data'] }
+      )
+    end
+  end
 end

@@ -146,6 +146,11 @@ RSpec.describe Odysseus::Caddy::Client do
 
     context 'with ssl enabled' do
       it 'configures TLS automation before adding route' do
+        # GET existing TLS config
+        expect(mock_ssh).to receive(:execute)
+          .with(/GET.*\/config\/apps\/tls/)
+          .and_return('{}')
+
         # TLS config PUT
         expect(mock_ssh).to receive(:execute)
           .with(/PUT.*\/config\/apps\/tls/)
@@ -172,6 +177,48 @@ RSpec.describe Odysseus::Caddy::Client do
           upstream: 'myapp:3000',
           ssl: true,
           ssl_email: 'admin@example.com'
+        )
+      end
+
+      it 'merges new hosts with existing TLS subjects' do
+        existing_tls = {
+          'automation' => {
+            'policies' => [{ 'subjects' => ['existing.example.com'] }]
+          }
+        }
+
+        # GET existing TLS config
+        expect(mock_ssh).to receive(:execute)
+          .with(/GET.*\/config\/apps\/tls/)
+          .and_return(existing_tls.to_json)
+
+        # TLS config PUT - should include both domains
+        expect(mock_ssh).to receive(:execute) do |cmd|
+          expect(cmd).to include('existing.example.com')
+          expect(cmd).to include('new.example.com')
+          '{}'
+        end
+
+        # GET servers for ensure_https_server
+        expect(mock_ssh).to receive(:execute)
+          .with(/GET.*\/servers/)
+          .and_return('{"srv0":{"listen":[":80",":443"]}}')
+
+        # GET routes
+        expect(mock_ssh).to receive(:execute)
+          .with(/GET.*\/routes/)
+          .and_return('[]')
+
+        # PUT route
+        expect(mock_ssh).to receive(:execute)
+          .with(/PUT.*\/routes\/0/)
+          .and_return('{}')
+
+        client.add_upstream(
+          service: 'myapp',
+          hosts: ['new.example.com'],
+          upstream: 'myapp:3000',
+          ssl: true
         )
       end
     end
@@ -202,6 +249,110 @@ RSpec.describe Odysseus::Caddy::Client do
 
       result = client.config
       expect(result).to eq(config)
+    end
+  end
+
+  describe '#list_services' do
+    it 'returns parsed list of services' do
+      routes = [
+        {
+          '@id' => 'route-myapp',
+          'match' => [{ 'host' => ['app.example.com'] }],
+          'handle' => [{
+            'handler' => 'reverse_proxy',
+            'upstreams' => [{ 'dial' => 'myapp:3000' }],
+            'health_checks' => { 'active' => {} }
+          }]
+        },
+        {
+          '@id' => 'route-api',
+          'match' => [{ 'host' => ['api.example.com'] }],
+          'handle' => [{
+            'handler' => 'reverse_proxy',
+            'upstreams' => [{ 'dial' => 'api:8080' }]
+          }]
+        }
+      ]
+
+      expect(mock_ssh).to receive(:execute)
+        .with(/GET.*\/routes/)
+        .and_return(routes.to_json)
+
+      result = client.list_services
+      expect(result.size).to eq(2)
+      expect(result[0]).to eq({
+        service: 'myapp',
+        hosts: ['app.example.com'],
+        upstreams: ['myapp:3000'],
+        has_healthcheck: true
+      })
+      expect(result[1]).to eq({
+        service: 'api',
+        hosts: ['api.example.com'],
+        upstreams: ['api:8080'],
+        has_healthcheck: false
+      })
+    end
+  end
+
+  describe '#tls_status' do
+    it 'returns TLS configuration info' do
+      tls_config = {
+        'automation' => {
+          'policies' => [{
+            'subjects' => ['app.example.com', 'api.example.com'],
+            'issuers' => [{ 'module' => 'acme', 'email' => 'admin@example.com' }]
+          }]
+        }
+      }
+
+      expect(mock_ssh).to receive(:execute)
+        .with(/GET.*\/config\/apps\/tls/)
+        .and_return(tls_config.to_json)
+
+      result = client.tls_status
+      expect(result[:enabled]).to be true
+      expect(result[:policies].size).to eq(1)
+      expect(result[:policies][0][:subjects]).to eq(['app.example.com', 'api.example.com'])
+      expect(result[:policies][0][:issuer]).to eq('acme')
+      expect(result[:policies][0][:email]).to eq('admin@example.com')
+    end
+
+    it 'returns disabled status when no TLS configured' do
+      expect(mock_ssh).to receive(:execute)
+        .with(/GET.*\/config\/apps\/tls/)
+        .and_return('{}')
+
+      result = client.tls_status
+      expect(result[:enabled]).to be false
+      expect(result[:policies]).to be_empty
+    end
+  end
+
+  describe '#status' do
+    it 'returns combined status summary' do
+      allow(mock_docker).to receive(:running?).with('odysseus-caddy').and_return(true)
+
+      # listen_addresses
+      expect(mock_ssh).to receive(:execute)
+        .with(/GET.*\/servers/)
+        .and_return('{"srv0":{"listen":[":80",":443"]}}')
+
+      # list_services
+      expect(mock_ssh).to receive(:execute)
+        .with(/GET.*\/routes/)
+        .and_return('[]')
+
+      # tls_status
+      expect(mock_ssh).to receive(:execute)
+        .with(/GET.*\/config\/apps\/tls/)
+        .and_return('{}')
+
+      result = client.status
+      expect(result[:running]).to be true
+      expect(result[:listen]).to eq([':80', ':443'])
+      expect(result[:services]).to eq([])
+      expect(result[:tls][:enabled]).to be false
     end
   end
 end

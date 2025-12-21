@@ -12,47 +12,53 @@ def main
 
   commands = {
     'deploy' => { method: :deploy, needs_server: true },
+    'deploy-all' => { method: :deploy_all, needs_server: true },
     'status' => { method: :status, needs_server: true },
     'containers' => { method: :containers, needs_server: true },
-    'validate' => { method: :validate, needs_server: false }
+    'logs' => { method: :logs, needs_server: true },
+    'validate' => { method: :validate, needs_server: false },
+    'accessory' => { method: :accessory_dispatch, needs_server: false },
+    'app' => { method: :app_dispatch, needs_server: false }
   }
 
   command = ARGV[0]
   command_args = ARGV[1..-1] || []
 
+  # Handle accessory subcommands
+  if command == 'accessory'
+    handle_accessory_command(cli, command_args)
+    return
+  end
+
+  # Handle app subcommands
+  if command == 'app'
+    handle_app_command(cli, command_args)
+    return
+  end
+
   unless command && commands[command]
-    puts "Usage: odysseus <command> [options]"
-    puts ""
-    puts "Commands:"
-    puts "  deploy <server>       Deploy to server"
-    puts "  status <server>       Show Caddy proxy status on server"
-    puts "  containers <server>   List containers for service on server"
-    puts "  validate              Validate deploy.yml"
-    puts ""
-    puts "Options:"
-    puts "  --config FILE         Path to deploy.yml (default: deploy.yml)"
-    puts "  --image TAG           Docker image tag (default: latest)"
-    puts "  --service NAME        Service name (for containers command)"
-    puts "  --dry-run             Don't actually deploy"
+    print_help
     exit 1
   end
 
   options = {}
-  remaining_args = []
 
   OptionParser.new do |opts|
     opts.on('--config FILE', 'Path to deploy.yml') { |v| options[:config] = v }
     opts.on('--image TAG', 'Docker image tag') { |v| options[:image] = v }
+    opts.on('--role ROLE', 'Role to deploy/logs') { |v| options[:role] = v }
     opts.on('--service NAME', 'Service name') { |v| options[:service] = v }
     opts.on('--dry-run', 'Don\'t actually deploy') { |v| options[:'dry-run'] = v }
+    # Logs options
+    opts.on('-f', '--follow', 'Follow log output') { |v| options[:follow] = v }
+    opts.on('-n', '--lines N', Integer, 'Number of lines to show') { |v| options[:lines] = v }
+    opts.on('--since TIME', 'Show logs since timestamp') { |v| options[:since] = v }
   end.parse!(command_args)
-
-  remaining_args = command_args
 
   cmd_info = commands[command]
 
   if cmd_info[:needs_server]
-    server = remaining_args[0]
+    server = command_args[0]
     unless server
       puts "Error: #{command} requires a server argument"
       puts "Usage: odysseus #{command} <server> [options]"
@@ -62,6 +68,134 @@ def main
   else
     cli.send(cmd_info[:method], options)
   end
+end
+
+def handle_accessory_command(cli, args)
+  subcommand = args[0]
+  subcommand_args = args[1..-1] || []
+
+  accessory_commands = {
+    'boot' => :accessory_boot,
+    'boot-all' => :accessory_boot_all,
+    'remove' => :accessory_remove,
+    'restart' => :accessory_restart,
+    'upgrade' => :accessory_upgrade,
+    'status' => :accessory_status,
+    'logs' => :accessory_logs,
+    'exec' => :accessory_exec,
+    'shell' => :accessory_shell
+  }
+
+  unless subcommand && accessory_commands[subcommand]
+    puts "Usage: odysseus accessory <subcommand> <server> [options]"
+    puts ""
+    puts "Subcommands:"
+    puts "  boot <server>         Boot an accessory (requires --name)"
+    puts "  boot-all <server>     Boot all accessories"
+    puts "  remove <server>       Remove an accessory (requires --name)"
+    puts "  restart <server>      Restart an accessory (requires --name)"
+    puts "  upgrade <server>      Upgrade accessory to new image (requires --name)"
+    puts "  status <server>       Show accessory status"
+    puts "  logs <server>         Show accessory logs (requires --name)"
+    puts "  exec <server>         Execute command in accessory (requires --name)"
+    puts "  shell <server>        Open interactive shell in accessory (requires --name)"
+    puts ""
+    puts "Options:"
+    puts "  --config FILE         Path to deploy.yml (default: deploy.yml)"
+    puts "  --name NAME           Accessory name"
+    puts "  -f, --follow          Follow log output (logs only)"
+    puts "  -n, --lines N         Number of lines (logs only, default: 100)"
+    puts "  --since TIME          Show logs since timestamp (logs only)"
+    puts "  --command CMD         Command to execute (exec only)"
+    exit 1
+  end
+
+  options = {}
+
+  OptionParser.new do |opts|
+    opts.on('--config FILE', 'Path to deploy.yml') { |v| options[:config] = v }
+    opts.on('--name NAME', 'Accessory name') { |v| options[:name] = v }
+    opts.on('-f', '--follow', 'Follow log output') { |v| options[:follow] = v }
+    opts.on('-n', '--lines N', Integer, 'Number of lines') { |v| options[:lines] = v }
+    opts.on('--since TIME', 'Show logs since timestamp') { |v| options[:since] = v }
+    opts.on('--command CMD', 'Command to execute') { |v| options[:command] = v }
+  end.parse!(subcommand_args)
+
+  server = subcommand_args[0]
+  unless server
+    puts "Error: accessory #{subcommand} requires a server argument"
+    exit 1
+  end
+
+  cli.send(accessory_commands[subcommand], server, options)
+end
+
+def handle_app_command(cli, args)
+  subcommand = args[0]
+  subcommand_args = args[1..-1] || []
+
+  app_commands = {
+    'shell' => :app_shell,
+    'exec' => :app_exec,
+    'console' => :app_console
+  }
+
+  unless subcommand && app_commands[subcommand]
+    puts "Usage: odysseus app <subcommand> <server> [options]"
+    puts ""
+    puts "Subcommands:"
+    puts "  shell <server>        Open an interactive shell in a temporary container"
+    puts "  exec <server>         Run a command in a new container (requires --command)"
+    puts "  console <server>      Start a custom console (e.g., rails c, irb)"
+    puts ""
+    puts "Options:"
+    puts "  --config FILE         Path to deploy.yml (default: deploy.yml)"
+    puts "  --command CMD         Command to execute (exec only)"
+    puts "  --cmd CMD             Console command (console only, default: /bin/sh)"
+    exit 1
+  end
+
+  options = {}
+
+  OptionParser.new do |opts|
+    opts.on('--config FILE', 'Path to deploy.yml') { |v| options[:config] = v }
+    opts.on('--command CMD', 'Command to execute') { |v| options[:command] = v }
+    opts.on('--cmd CMD', 'Console command') { |v| options[:cmd] = v }
+  end.parse!(subcommand_args)
+
+  server = subcommand_args[0]
+  unless server
+    puts "Error: app #{subcommand} requires a server argument"
+    exit 1
+  end
+
+  cli.send(app_commands[subcommand], server, options)
+end
+
+def print_help
+  puts "Usage: odysseus <command> [options]"
+  puts ""
+  puts "Commands:"
+  puts "  deploy <server>           Deploy a role to server (default: web)"
+  puts "  deploy-all <server>       Deploy all roles to server"
+  puts "  status <server>           Show service status on server"
+  puts "  containers <server>       List containers for service on server"
+  puts "  logs <server>             Show logs for a service"
+  puts "  validate                  Validate deploy.yml"
+  puts "  accessory <subcommand>    Manage accessories"
+  puts "  app <subcommand>          Run commands in app containers"
+  puts ""
+  puts "Options:"
+  puts "  --config FILE             Path to deploy.yml (default: deploy.yml)"
+  puts "  --image TAG               Docker image tag (default: latest)"
+  puts "  --role ROLE               Role to deploy/logs: web, jobs, worker, etc (default: web)"
+  puts "  --service NAME            Service name (for containers command)"
+  puts "  --dry-run                 Don't actually deploy"
+  puts ""
+  puts "Logs options:"
+  puts "  -f, --follow              Follow log output"
+  puts "  -n, --lines N             Number of lines to show (default: 100)"
+  puts "  --since TIME              Show logs since timestamp (e.g., '10m', '2h')"
 end
 
 main if $0 == __FILE__

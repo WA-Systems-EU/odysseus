@@ -67,6 +67,28 @@ module Odysseus
         end
       end
 
+      # Stream command output (for long-running commands like logs --follow)
+      # @param command [String] command to execute
+      # @yield [String] yields each line of output
+      def stream(command, &block)
+        with_connection do |session|
+          session.open_channel do |channel|
+            channel.exec(command) do |ch, success|
+              raise Odysseus::SSHCommandError, "Failed to execute: #{command}" unless success
+
+              channel.on_data do |_, data|
+                data.each_line { |line| block.call(line) }
+              end
+
+              channel.on_extended_data do |_, _, data|
+                data.each_line { |line| block.call(line) }
+              end
+            end
+          end
+          session.loop
+        end
+      end
+
       # Check if connected
       # @return [Boolean]
       def connected?

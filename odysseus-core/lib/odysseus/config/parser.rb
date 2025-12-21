@@ -47,6 +47,7 @@ module Odysseus
           proxy: parse_proxy(config['proxy']),
           env: parse_env(config['env']),
           ssh: parse_ssh(config['ssh']),
+          accessories: parse_accessories(config['accessories']),
           builder: config['builder'] || {}
         }
       end
@@ -61,9 +62,22 @@ module Odysseus
           acc[role.to_sym] = {
             hosts: config['hosts'] || [],
             options: symbolize_keys(config['options'] || {}),
-            cmd: config['cmd']
+            cmd: config['cmd'],
+            healthcheck: parse_server_healthcheck(config['healthcheck'])
           }
         end
+      end
+
+      # Parse server-level healthcheck (for workers/jobs)
+      def parse_server_healthcheck(healthcheck)
+        return nil unless healthcheck
+
+        {
+          cmd: healthcheck['cmd'],
+          interval: healthcheck['interval'] || 30,
+          timeout: healthcheck['timeout'] || 10,
+          retries: healthcheck['retries'] || 3
+        }
       end
 
       # Parse proxy (Caddy) config
@@ -108,6 +122,47 @@ module Odysseus
         {
           user: ssh['user'] || 'root',
           keys: ssh['keys'] || []
+        }
+      end
+
+      # Parse accessories config
+      def parse_accessories(accessories)
+        return {} unless accessories
+
+        accessories.each_with_object({}) do |(name, config), acc|
+          acc[name.to_sym] = {
+            image: config['image'],
+            cmd: config['cmd'],
+            ports: config['ports'],
+            volumes: config['volumes'],
+            env: parse_env(config['env']),
+            healthcheck: parse_accessory_healthcheck(config['healthcheck']),
+            proxy: parse_accessory_proxy(config['proxy'])
+          }
+        end
+      end
+
+      # Parse accessory healthcheck
+      def parse_accessory_healthcheck(healthcheck)
+        return nil unless healthcheck
+
+        {
+          cmd: healthcheck['cmd'],
+          interval: healthcheck['interval'] || 30,
+          timeout: healthcheck['timeout'] || 10,
+          retries: healthcheck['retries'] || 3
+        }
+      end
+
+      # Parse accessory proxy config
+      def parse_accessory_proxy(proxy)
+        return nil unless proxy
+
+        {
+          hosts: proxy['hosts'] || [],
+          app_port: proxy['app_port'],
+          ssl: proxy.key?('ssl') ? proxy['ssl'] : true,
+          ssl_email: proxy['ssl_email']
         }
       end
 

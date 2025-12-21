@@ -8,6 +8,8 @@ require_relative 'odysseus/deployer/ssh'
 require_relative 'odysseus/docker/client'
 require_relative 'odysseus/caddy/client'
 require_relative 'odysseus/orchestrator/web_deploy'
+require_relative 'odysseus/orchestrator/job_deploy'
+require_relative 'odysseus/orchestrator/accessory_deploy'
 require_relative 'odysseus/deployer/executor'
 
 module Odysseus

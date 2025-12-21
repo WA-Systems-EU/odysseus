@@ -126,6 +126,75 @@ module Odysseus
         !output.strip.empty?
       end
 
+      # Get logs from a container
+      # @param container_id [String] container ID or name
+      # @param follow [Boolean] follow log output (streaming)
+      # @param tail [Integer, String] number of lines to show from end, or 'all'
+      # @param since [String] show logs since timestamp (e.g., '10m', '2h', '2024-01-01')
+      # @param timestamps [Boolean] show timestamps
+      # @return [String] log output (or yields lines if block given)
+      def logs(container_id, follow: false, tail: 100, since: nil, timestamps: false, &block)
+        parts = ['docker logs']
+        parts << '--follow' if follow
+        parts << "--tail #{tail}" if tail
+        parts << "--since #{since}" if since
+        parts << '--timestamps' if timestamps
+        parts << container_id
+
+        cmd = parts.join(' ')
+
+        if block_given?
+          @ssh.stream(cmd, &block)
+        else
+          @ssh.execute(cmd)
+        end
+      end
+
+      # Execute a command in a running container
+      # @param container_id [String] container ID or name
+      # @param command [String] command to execute
+      # @param interactive [Boolean] keep STDIN open
+      # @param tty [Boolean] allocate a TTY
+      # @return [String] command output
+      def exec(container_id, command, interactive: false, tty: false)
+        parts = ['docker exec']
+        parts << '-i' if interactive
+        parts << '-t' if tty
+        parts << container_id
+        parts << command
+
+        @ssh.execute(parts.join(' '))
+      end
+
+      # Run a one-off command in a new container (doesn't persist)
+      # @param image [String] image to use
+      # @param command [String] command to execute
+      # @param options [Hash] container options (env, volumes, network, etc.)
+      # @return [String] command output
+      def run_once(image:, command:, options: {})
+        parts = ['docker run --rm']
+
+        # Environment variables
+        options[:env]&.each do |key, value|
+          parts << "-e #{key}=#{value}"
+        end
+
+        # Volume mounts
+        options[:volumes]&.each { |v| parts << "-v #{v}" }
+
+        # Network
+        parts << "--network #{options[:network]}" if options[:network]
+
+        # Interactive/TTY
+        parts << '-i' if options[:interactive]
+        parts << '-t' if options[:tty]
+
+        parts << image
+        parts << command
+
+        @ssh.execute(parts.join(' '))
+      end
+
       # Cleanup old stopped containers, keeping only the last N
       # @param service [String] service name
       # @param keep [Integer] number of stopped containers to keep
