@@ -108,19 +108,35 @@ module Odysseus
       def with_connection
         connect unless connected?
         yield(@session)
-      rescue Errno::ECONNREFUSED, SocketError, Net::SSH::AuthenticationFailed => e
-        raise Odysseus::SSHConnectionError, "SSH connection failed: #{e.message}"
+      rescue Errno::ECONNREFUSED => e
+        raise Odysseus::SSHConnectionError, "Connection refused to #{@host}. Is the server running and accepting SSH connections?"
+      rescue SocketError => e
+        raise Odysseus::SSHConnectionError, "Could not resolve hostname '#{@host}'. Check your DNS or /etc/hosts."
+      rescue Net::SSH::AuthenticationFailed => e
+        raise Odysseus::SSHConnectionError, "SSH authentication failed for #{@user}@#{@host}. Check your SSH keys."
+      rescue Errno::ETIMEDOUT, Net::SSH::ConnectionTimeout, Errno::EHOSTUNREACH => e
+        error_msg = "Connection to #{@host} timed out."
+        if @use_tailscale
+          error_msg += "\n\nThis looks like a Tailscale hostname. Please check:\n"
+          error_msg += "  1. Tailscale is running: tailscale status\n"
+          error_msg += "  2. You're authenticated: tailscale login\n"
+          error_msg += "  3. The host is online: tailscale ping #{@host}"
+        end
+        raise Odysseus::SSHConnectionError, error_msg
       end
 
       def connect
+        puts "Connecting to #{@user}@#{@host}:#{@port}..." if @verbose
         options = {
           port: @port,
           non_interactive: true,
-          verify_host_key: :never
+          verify_host_key: :never,
+          timeout: 10  # Connection timeout in seconds
         }
         options[:keys] = @keys if @keys.any?
 
         @session = Net::SSH.start(@host, @user, options)
+        puts "Connected to #{@host}" if @verbose
       end
     end
   end
