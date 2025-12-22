@@ -149,6 +149,26 @@ odysseus app exec <server> --command "rails db:migrate"
 odysseus app console <server> [--cmd "rails c"]
 ```
 
+### secrets
+
+Manage encrypted secrets files.
+
+```bash
+# Generate a new master key
+odysseus secrets generate-key
+
+# Encrypt a plaintext secrets file
+odysseus secrets encrypt --input secrets.yml --file secrets.yml.enc
+
+# Decrypt and display secrets (values are masked)
+odysseus secrets decrypt --file secrets.yml.enc
+
+# Edit encrypted secrets using $EDITOR
+odysseus secrets edit --file secrets.yml.enc
+```
+
+The master key should be set as `ODYSSEUS_MASTER_KEY` environment variable.
+
 ## Configuration Reference
 
 ### service
@@ -214,9 +234,30 @@ env:
   clear:
     RAILS_ENV: production
   secret:
-    - DATABASE_URL      # Fetched from server environment
+    - DATABASE_URL
     - RAILS_MASTER_KEY
 ```
+
+- `clear` - Plaintext values stored in deploy.yml
+- `secret` - Keys to load from encrypted secrets file or server environment
+
+### secrets_file
+
+Path to an encrypted secrets file (relative to deploy.yml or absolute):
+
+```yaml
+secrets_file: secrets.yml.enc
+```
+
+Create the encrypted file using `odysseus secrets encrypt`. The secrets file should be YAML format:
+
+```yaml
+# secrets.yml (before encryption)
+DATABASE_URL: postgres://user:pass@db/myapp
+RAILS_MASTER_KEY: abc123def456
+```
+
+During deploy, secrets listed in `env.secret` are loaded from the encrypted file. If a key is not found in the secrets file, it falls back to the server's environment variables.
 
 ### accessories
 
