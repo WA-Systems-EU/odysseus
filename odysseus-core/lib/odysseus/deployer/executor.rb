@@ -71,6 +71,47 @@ module Odysseus
         }
       end
 
+      # Push image to all configured hosts via SSH (using docker pussh)
+      # @param image_tag [String] docker image tag
+      # @return [Hash] pussh results
+      def pussh(image_tag:)
+        full_image = "#{@config[:image]}:#{image_tag}"
+        hosts = collect_all_hosts
+
+        if hosts.empty?
+          return { success: false, error: "No hosts configured" }
+        end
+
+        builder = build_builder
+        builder.pussh_to_hosts(
+          image: full_image,
+          hosts: hosts,
+          user: @config[:ssh][:user]
+        )
+      end
+
+      # Build and pussh to all hosts (no registry needed)
+      # @param image_tag [String] docker image tag
+      # @param context_path [String] path to build context
+      # @return [Hash] build and pussh results
+      def build_and_pussh(image_tag:, context_path: nil)
+        # First, build the image locally
+        build_result = build(image_tag: image_tag, push: false, context_path: context_path)
+
+        unless build_result[:success]
+          return { build: build_result, pussh: nil, success: false }
+        end
+
+        # Then pussh to all hosts
+        pussh_result = pussh(image_tag: image_tag)
+
+        {
+          build: build_result,
+          pussh: pussh_result,
+          success: pussh_result[:success]
+        }
+      end
+
       # Deploy all roles to their configured hosts
       # @param image_tag [String] docker image tag
       # @param dry_run [Boolean] if true, don't actually deploy
@@ -258,6 +299,17 @@ module Odysseus
         else
           File.join(@config_dir, context)
         end
+      end
+
+      def collect_all_hosts
+        hosts = []
+
+        @config[:servers].each do |_role, role_config|
+          role_hosts = role_config[:hosts] || []
+          hosts.concat(role_hosts)
+        end
+
+        hosts.uniq
       end
     end
   end

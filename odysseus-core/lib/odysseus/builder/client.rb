@@ -56,7 +56,7 @@ module Odysseus
       # @param registry [Hash] registry config (server, username, password)
       # @return [Hash] push result
       def push(image:, registry: nil)
-        @logger.info("Pushing image: #{image}")
+        @logger.info("Pushing image to registry: #{image}")
 
         executor = build_executor
 
@@ -71,6 +71,47 @@ module Odysseus
       rescue SSHCommandError, BuildError => e
         @logger.error("Push failed: #{e.message}")
         { success: false, error: e.message }
+      end
+
+      # Push image directly to remote host via SSH (using docker pussh/unregistry)
+      # @param image [String] full image name with tag
+      # @param host [String] target host to push to
+      # @param user [String] SSH user (default: from ssh_config)
+      # @return [Hash] pussh result
+      def pussh(image:, host:, user: nil)
+        ssh_user = user || @ssh_config[:user] || 'root'
+        target = "#{ssh_user}@#{host}"
+
+        @logger.info("Pushing image via SSH to #{target}: #{image}")
+
+        # docker pussh uses: docker pussh IMAGE [USER@]HOST
+        cmd = "docker pussh #{image} #{target}"
+        @logger.debug(cmd) if @logger.respond_to?(:debug)
+
+        output = execute_local_command(cmd)
+        { success: true, output: output, host: host }
+      rescue BuildError => e
+        @logger.error("Pussh failed: #{e.message}")
+        { success: false, error: e.message, host: host }
+      end
+
+      # Push image to multiple hosts via SSH
+      # @param image [String] full image name with tag
+      # @param hosts [Array<String>] list of target hosts
+      # @param user [String] SSH user (default: from ssh_config)
+      # @return [Hash] results for each host
+      def pussh_to_hosts(image:, hosts:, user: nil)
+        results = {}
+
+        hosts.each do |host|
+          @logger.info("Pushing to #{host}...")
+          results[host] = pussh(image: image, host: host, user: user)
+        end
+
+        {
+          success: results.values.all? { |r| r[:success] },
+          results: results
+        }
       end
 
       # Check if image exists (locally or on build host)

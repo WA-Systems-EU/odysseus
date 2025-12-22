@@ -109,6 +109,37 @@ odysseus build --image v1.0.0 --push
 odysseus build --image v1.0.0 --context ./app
 ```
 
+### pussh
+
+Push Docker image directly to hosts via SSH (no registry needed). Uses [docker-pussh/unregistry](https://github.com/psviderski/unregistry) to transfer images.
+
+```bash
+odysseus pussh [options]
+```
+
+Options:
+- `--config FILE` - Path to deploy.yml (default: deploy.yml)
+- `--image TAG` - Docker image tag (default: latest)
+- `--build` - Build image before pushing
+- `-v, --verbose` - Show commands being executed
+
+Examples:
+
+```bash
+# Push existing local image to all hosts
+odysseus pussh --image v1.0.0
+
+# Build and push in one step
+odysseus pussh --image v1.0.0 --build
+```
+
+**Prerequisites:** Install docker-pussh on your local machine:
+```bash
+# macOS/Linux
+curl -fsSL https://github.com/psviderski/unregistry/releases/latest/download/docker-pussh-$(uname -s)-$(uname -m) \
+  -o ~/.docker/cli-plugins/docker-pussh && chmod +x ~/.docker/cli-plugins/docker-pussh
+```
+
 ### status
 
 Show service status on a server.

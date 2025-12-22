@@ -350,4 +350,75 @@ RSpec.describe Odysseus::Builder::Client do
       expect(client.image_exists?('myapp:v1.0.0')).to be false
     end
   end
+
+  describe '#pussh' do
+    let(:image) { 'myregistry/myapp:v1.0.0' }
+    let(:host) { 'server1.example.com' }
+
+    it 'pushes image to host via SSH using docker pussh' do
+      expect(client).to receive(:execute_local_command) do |cmd|
+        expect(cmd).to include('docker pussh')
+        expect(cmd).to include(image)
+        expect(cmd).to include('root@server1.example.com')
+        "Pushed successfully\n"
+      end
+
+      result = client.pussh(image: image, host: host)
+      expect(result[:success]).to be true
+      expect(result[:host]).to eq(host)
+    end
+
+    it 'uses custom SSH user' do
+      expect(client).to receive(:execute_local_command) do |cmd|
+        expect(cmd).to include('deploy@server1.example.com')
+        "Pushed successfully\n"
+      end
+
+      client.pussh(image: image, host: host, user: 'deploy')
+    end
+
+    it 'returns failure when pussh fails' do
+      allow(client).to receive(:execute_local_command).and_raise(
+        Odysseus::BuildError.new("Connection refused")
+      )
+
+      result = client.pussh(image: image, host: host)
+      expect(result[:success]).to be false
+      expect(result[:error]).to include("Connection refused")
+    end
+  end
+
+  describe '#pussh_to_hosts' do
+    let(:image) { 'myregistry/myapp:v1.0.0' }
+    let(:hosts) { ['server1.example.com', 'server2.example.com'] }
+
+    before do
+      allow(client).to receive(:execute_local_command).and_return("Success\n")
+    end
+
+    it 'pushes to all hosts' do
+      expect(client).to receive(:execute_local_command).twice
+
+      result = client.pussh_to_hosts(image: image, hosts: hosts)
+      expect(result[:success]).to be true
+      expect(result[:results].keys).to eq(hosts)
+    end
+
+    it 'reports partial failure' do
+      call_count = 0
+      allow(client).to receive(:execute_local_command) do
+        call_count += 1
+        if call_count == 1
+          "Success\n"
+        else
+          raise Odysseus::BuildError.new("Failed")
+        end
+      end
+
+      result = client.pussh_to_hosts(image: image, hosts: hosts)
+      expect(result[:success]).to be false
+      expect(result[:results]['server1.example.com'][:success]).to be true
+      expect(result[:results]['server2.example.com'][:success]).to be false
+    end
+  end
 end

@@ -84,6 +84,61 @@ module Odysseus
         exit 1
       end
 
+      # Pussh command - push image to hosts via SSH (no registry needed)
+      # Usage: odysseus pussh [--config FILE] [--image TAG] [--build] [--verbose]
+      def pussh(options = {})
+        config_file = options[:config] || 'deploy.yml'
+        image_tag = options[:image] || 'latest'
+        should_build = options[:build] || false
+        verbose = options[:verbose] || false
+
+        config = load_config(config_file)
+
+        puts @pastel.cyan("Odysseus Pussh")
+        puts @pastel.blue("Service: #{config[:service]}")
+        puts @pastel.blue("Image: #{config[:image]}:#{image_tag}")
+        puts @pastel.blue("Build first: #{should_build ? 'yes' : 'no'}")
+        puts ""
+
+        executor = Odysseus::Deployer::Executor.new(config_file, verbose: verbose)
+
+        if should_build
+          result = executor.build_and_pussh(image_tag: image_tag)
+
+          if result[:build][:success]
+            puts @pastel.green("Build complete!")
+          else
+            puts @pastel.red("Build failed: #{result[:build][:error]}")
+            exit 1
+          end
+        else
+          result = executor.pussh(image_tag: image_tag)
+        end
+
+        pussh_result = should_build ? result[:pussh] : result
+
+        if pussh_result[:success]
+          puts ""
+          puts @pastel.green("Pussh complete!")
+          pussh_result[:results]&.each do |host, host_result|
+            status = host_result[:success] ? @pastel.green('✓') : @pastel.red('✗')
+            puts "  #{status} #{host}"
+          end
+        else
+          puts ""
+          puts @pastel.red("Pussh failed!")
+          pussh_result[:results]&.each do |host, host_result|
+            status = host_result[:success] ? @pastel.green('✓') : @pastel.red('✗')
+            puts "  #{status} #{host}"
+            puts "      #{host_result[:error]}" unless host_result[:success]
+          end
+          exit 1
+        end
+      rescue Odysseus::Error => e
+        puts @pastel.red("Error: #{e.message}")
+        exit 1
+      end
+
       # Status command - show full service status on a server
       # Usage: odysseus status <server> [--config FILE]
       def status(server, options = {})

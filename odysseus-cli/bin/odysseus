@@ -13,6 +13,7 @@ def main
   commands = {
     'deploy' => { method: :deploy, needs_server: false },
     'build' => { method: :build, needs_server: false },
+    'pussh' => { method: :pussh, needs_server: false },
     'status' => { method: :status, needs_server: true },
     'containers' => { method: :containers, needs_server: true },
     'logs' => { method: :logs, needs_server: true },
@@ -56,6 +57,7 @@ def main
     opts.on('--image TAG', 'Docker image tag') { |v| options[:image] = v }
     opts.on('--push', 'Push image to registry after build') { |v| options[:push] = v }
     opts.on('--context PATH', 'Build context path') { |v| options[:context] = v }
+    opts.on('--build', 'Build image before pussh') { |v| options[:build] = v }
     opts.on('--role ROLE', 'Role for logs command') { |v| options[:role] = v }
     opts.on('--service NAME', 'Service name') { |v| options[:service] = v }
     opts.on('--dry-run', 'Don\'t actually deploy') { |v| options[:'dry-run'] = v }
@@ -230,6 +232,7 @@ def print_help
   puts "Commands:"
   puts "  deploy                    Deploy all roles to servers defined in config"
   puts "  build                     Build Docker image (locally or on build host)"
+  puts "  pussh                     Push image to hosts via SSH (no registry needed)"
   puts "  status <server>           Show service status on server"
   puts "  containers <server>       List containers for service on server"
   puts "  logs <server>             Show logs for a service"
@@ -249,6 +252,9 @@ def print_help
   puts "Build options:"
   puts "  --push                    Push image to registry after build"
   puts "  --context PATH            Build context path (default: . relative to deploy.yml)"
+  puts ""
+  puts "Pussh options:"
+  puts "  --build                   Build image before pushing via SSH"
   puts ""
   puts "Logs options:"
   puts "  --role ROLE               Role for logs: web, jobs, worker, etc (default: web)"
