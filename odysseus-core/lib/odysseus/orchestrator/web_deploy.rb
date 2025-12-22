@@ -98,6 +98,8 @@ module Odysseus
             env: build_environment,
             memory: options[:memory],
             memory_reservation: options[:memory_reservation],
+            cpus: options[:cpus],
+            cpu_shares: options[:cpu_shares],
             network: 'odysseus',
             healthcheck: build_healthcheck(proxy_config[:healthcheck]),
             cmd: server_config[:cmd]

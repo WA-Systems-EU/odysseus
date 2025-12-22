@@ -171,11 +171,21 @@ servers:
       - web2.example.com
     options:
       memory: 4g
+      cpus: 2
   jobs:
     hosts:
       - worker1.example.com
     cmd: bundle exec good_job
+    options:
+      memory: 2g
+      cpus: 1.5
 ```
+
+Available options:
+- `memory` - Hard memory limit (e.g., `4g`, `512m`)
+- `memory_reservation` - Soft memory limit
+- `cpus` - CPU limit (e.g., `2` for 2 cores, `1.5` for 1.5 cores)
+- `cpu_shares` - Relative CPU weight (default: 1024)
 
 ### proxy
 

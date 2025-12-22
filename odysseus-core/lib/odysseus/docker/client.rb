@@ -296,6 +296,10 @@ module Odysseus
         parts << "--memory #{options[:memory]}" if options[:memory]
         parts << "--memory-reservation #{options[:memory_reservation]}" if options[:memory_reservation]
 
+        # CPU limits
+        parts << "--cpus #{options[:cpus]}" if options[:cpus]
+        parts << "--cpu-shares #{options[:cpu_shares]}" if options[:cpu_shares]
+
         # Health check (use image's HEALTHCHECK by default)
         if options[:healthcheck]
           hc = options[:healthcheck]
