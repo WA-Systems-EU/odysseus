@@ -19,21 +19,68 @@ module Odysseus
       end
 
       # Deploy command - deploys all roles to their configured hosts
-      # Usage: odysseus deploy [--config FILE] [--image TAG] [--dry-run] [--verbose]
+      # Usage: odysseus deploy [--config FILE] [--image TAG] [--build] [--dry-run] [--verbose]
       def deploy(options = {})
         config_file = options[:config] || 'deploy.yml'
         image_tag = options[:image] || 'latest'
+        should_build = options[:build] || false
         dry_run = options[:'dry-run'] || false
         verbose = options[:verbose] || false
 
         config = load_config(config_file)
+        uses_registry = config[:registry] && config[:registry][:server]
 
         puts @pastel.cyan("Odysseus Deploy")
         puts @pastel.blue("Service: #{config[:service]}")
         puts @pastel.blue("Image: #{config[:image]}:#{image_tag}")
+        if should_build
+          distribution = uses_registry ? "registry (#{config[:registry][:server]})" : "pussh (SSH)"
+          puts @pastel.blue("Build & distribute via: #{distribution}")
+        end
         puts ""
 
         executor = Odysseus::Deployer::Executor.new(config_file, verbose: verbose)
+
+        # Build and distribute image if requested
+        if should_build
+          puts @pastel.cyan("=== Building and distributing image ===")
+          result = executor.build_and_distribute(image_tag: image_tag)
+
+          if result[:build][:success]
+            puts @pastel.green("Build complete!")
+          else
+            puts @pastel.red("Build failed: #{result[:build][:error]}")
+            exit 1
+          end
+
+          # Handle distribution result (either pussh or registry push)
+          if uses_registry
+            if result[:push][:success]
+              puts @pastel.green("Pushed to registry!")
+            else
+              puts @pastel.red("Push to registry failed!")
+              exit 1
+            end
+          else
+            if result[:pussh][:success]
+              puts @pastel.green("Pussh complete!")
+              result[:pussh][:results]&.each do |host, host_result|
+                status = host_result[:success] ? @pastel.green('✓') : @pastel.red('✗')
+                puts "  #{status} #{host}"
+              end
+            else
+              puts @pastel.red("Pussh failed!")
+              result[:pussh][:results]&.each do |host, host_result|
+                status = host_result[:success] ? @pastel.green('✓') : @pastel.red('✗')
+                puts "  #{status} #{host}"
+                puts "      #{host_result[:error]}" unless host_result[:success]
+              end
+              exit 1
+            end
+          end
+          puts ""
+        end
+
         executor.deploy_all(image_tag: image_tag, dry_run: dry_run)
 
         puts ""

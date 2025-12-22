@@ -112,6 +112,39 @@ module Odysseus
         }
       end
 
+      # Build and distribute image based on config
+      # Uses registry if configured, otherwise pussh to hosts
+      # @param image_tag [String] docker image tag
+      # @param context_path [String] path to build context
+      # @return [Hash] build and distribution results
+      def build_and_distribute(image_tag:, context_path: nil)
+        if uses_registry?
+          build_and_push_to_registry(image_tag: image_tag, context_path: context_path)
+        else
+          build_and_pussh(image_tag: image_tag, context_path: context_path)
+        end
+      end
+
+      # Check if config uses a registry for image distribution
+      # @return [Boolean]
+      def uses_registry?
+        @config[:registry] && @config[:registry][:server]
+      end
+
+      # Build and push to registry
+      # @param image_tag [String] docker image tag
+      # @param context_path [String] path to build context
+      # @return [Hash] build and push results
+      def build_and_push_to_registry(image_tag:, context_path: nil)
+        build_result = build(image_tag: image_tag, push: true, context_path: context_path)
+
+        {
+          build: build_result,
+          push: build_result[:pushed] ? { success: true } : { success: false },
+          success: build_result[:success] && build_result[:pushed]
+        }
+      end
+
       # Deploy all roles to their configured hosts
       # @param image_tag [String] docker image tag
       # @param dry_run [Boolean] if true, don't actually deploy

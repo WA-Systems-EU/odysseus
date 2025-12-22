@@ -58,12 +58,13 @@ ssh:
 2. Build and deploy:
 
 ```bash
-# Build locally and push to registry
-odysseus build --image v1.0.0 --push
-
-# Deploy the built image
-odysseus deploy --image v1.0.0
+# Build, distribute, and deploy in one command
+odysseus deploy --image v1.0.0 --build
 ```
+
+The `--build` flag automatically chooses how to distribute the image:
+- **Without `registry` config** → uses [pussh](https://github.com/psviderski/unregistry) to transfer images directly via SSH
+- **With `registry` config** → pushes to registry, hosts pull from there
 
 ## Commands
 
@@ -78,8 +79,23 @@ odysseus deploy [options]
 Options:
 - `--config FILE` - Path to deploy.yml (default: deploy.yml)
 - `--image TAG` - Docker image tag (default: latest)
+- `--build` - Build and distribute image before deploying
 - `--dry-run` - Show what would be deployed without doing it
 - `-v, --verbose` - Show SSH commands being executed
+
+The `--build` flag automatically chooses the distribution method based on your config:
+- **No `registry` config** → uses pussh (direct SSH transfer to each host)
+- **Has `registry` config** → pushes to registry (hosts pull from there)
+
+Examples:
+
+```bash
+# Deploy existing image
+odysseus deploy --image v1.0.0
+
+# Build, distribute, and deploy in one command
+odysseus deploy --image v1.0.0 --build
+```
 
 ### build
 
@@ -112,6 +128,8 @@ odysseus build --image v1.0.0 --context ./app
 ### pussh
 
 Push Docker image directly to hosts via SSH (no registry needed). Uses [docker-pussh/unregistry](https://github.com/psviderski/unregistry) to transfer images.
+
+> **Note:** When no `registry` is configured, `odysseus deploy --build` automatically uses pussh. This command is useful for manually pushing images without deploying.
 
 ```bash
 odysseus pussh [options]
@@ -381,14 +399,21 @@ Build strategies:
 
 ### registry
 
-Docker registry credentials for pushing images:
+Docker registry configuration. When present, `odysseus deploy --build` will push images to the registry instead of using pussh:
 
 ```yaml
 registry:
-  server: docker.io         # Registry server (optional, defaults to Docker Hub)
+  server: docker.io         # Registry server (required to enable registry mode)
   username: myuser          # Registry username
   password: mypassword      # Registry password (consider using secrets)
 ```
+
+**Image distribution modes:**
+
+| Config | `deploy --build` behavior |
+|--------|---------------------------|
+| No `registry` | Build locally → pussh to each host via SSH |
+| Has `registry` | Build locally → push to registry → hosts pull |
 
 For better security, you can store registry credentials in your encrypted secrets file and reference them.
 
