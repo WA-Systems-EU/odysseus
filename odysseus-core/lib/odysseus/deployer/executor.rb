@@ -21,23 +21,40 @@ module Odysseus
         @verbose = verbose
       end
 
-      # Execute full deploy
-      # @param server [String] target server (hostname/IP)
+      # Deploy all roles to their configured hosts
+      # @param image_tag [String] docker image tag
+      # @param dry_run [Boolean] if true, don't actually deploy
+      def deploy_all(image_tag:, dry_run: false)
+        results = {}
+
+        @config[:servers].each do |role, role_config|
+          hosts = role_config[:hosts] || []
+          hosts.each do |host|
+            puts "\n=== Deploying #{role} to #{host} ==="
+            results["#{role}@#{host}"] = deploy_role(host: host, image_tag: image_tag, dry_run: dry_run, role: role)
+          end
+        end
+
+        results
+      end
+
+      # Deploy a single role to a specific host
+      # @param host [String] target host (from config)
       # @param image_tag [String] docker image tag (e.g., "v1.2.3")
       # @param dry_run [Boolean] if true, don't actually deploy
-      # @param role [Symbol] server role (default: :web)
-      def deploy(server:, image_tag:, dry_run: false, role: :web)
+      # @param role [Symbol] server role
+      def deploy_role(host:, image_tag:, dry_run: false, role:)
         if dry_run
-          puts "Dry run - would deploy #{@config[:image]}:#{image_tag} to #{server}"
+          puts "Dry run - would deploy #{@config[:image]}:#{image_tag} to #{host}"
           puts "Service: #{@config[:service]}"
           puts "Role: #{role}"
           if role == WEB_ROLE
-            puts "Hosts: #{@config[:proxy][:hosts].join(', ')}"
+            puts "Proxy hosts: #{@config[:proxy][:hosts].join(', ')}"
           end
           return { success: true, dry_run: true }
         end
 
-        ssh = connect_to_server(server)
+        ssh = connect_to_server(host)
 
         begin
           orchestrator = build_orchestrator(ssh, role)
@@ -45,21 +62,6 @@ module Odysseus
         ensure
           ssh.close
         end
-      end
-
-      # Deploy all roles defined in config
-      # @param server [String] target server
-      # @param image_tag [String] docker image tag
-      # @param dry_run [Boolean] if true, don't actually deploy
-      def deploy_all(server:, image_tag:, dry_run: false)
-        results = {}
-
-        @config[:servers].each_key do |role|
-          puts "\n=== Deploying role: #{role} ==="
-          results[role] = deploy(server: server, image_tag: image_tag, dry_run: dry_run, role: role)
-        end
-
-        results
       end
 
       # Deploy an accessory

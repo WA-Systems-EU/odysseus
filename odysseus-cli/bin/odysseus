@@ -11,7 +11,7 @@ def main
   cli = Odysseus::CLI::CLI.new
 
   commands = {
-    'deploy' => { method: :deploy, needs_server: true },
+    'deploy' => { method: :deploy, needs_server: false },
     'status' => { method: :status, needs_server: true },
     'containers' => { method: :containers, needs_server: true },
     'logs' => { method: :logs, needs_server: true },
@@ -179,7 +179,7 @@ def print_help
   puts "Usage: odysseus <command> [options]"
   puts ""
   puts "Commands:"
-  puts "  deploy <server>           Deploy all roles to server"
+  puts "  deploy                    Deploy all roles to servers defined in config"
   puts "  status <server>           Show service status on server"
   puts "  containers <server>       List containers for service on server"
   puts "  logs <server>             Show logs for a service"

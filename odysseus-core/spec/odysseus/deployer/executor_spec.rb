@@ -25,20 +25,58 @@ RSpec.describe Odysseus::Deployer::Executor do
     end
   end
 
-  describe '#deploy' do
+  describe '#deploy_all' do
+    before do
+      allow(Odysseus::Orchestrator::WebDeploy).to receive(:new).and_return(mock_orchestrator)
+      allow(mock_orchestrator).to receive(:deploy).and_return({ success: true })
+    end
+
+    it 'deploys to all hosts for each role' do
+      # The fixture has web role with app1.example.com host
+      expect(Odysseus::Deployer::SSH).to receive(:new).with(
+        host: 'app1.example.com',
+        user: 'root',
+        keys: ['~/.ssh/id_ed25519'],
+        use_tailscale: true,
+        verbose: false
+      ).and_return(mock_ssh)
+
+      executor.deploy_all(image_tag: 'v1.0')
+    end
+
+    it 'returns results keyed by role@host' do
+      results = executor.deploy_all(image_tag: 'v1.0')
+      expect(results).to have_key('web@app1.example.com')
+      expect(results['web@app1.example.com'][:success]).to be true
+    end
+
     context 'with dry_run: true' do
       it 'does not connect to server' do
         expect(Odysseus::Deployer::SSH).not_to receive(:new)
-        executor.deploy(server: 'test-server', image_tag: 'v1.0', dry_run: true)
+        executor.deploy_all(image_tag: 'v1.0', dry_run: true)
       end
 
       it 'outputs deploy info' do
-        expect { executor.deploy(server: 'test-server', image_tag: 'v1.0', dry_run: true) }
+        expect { executor.deploy_all(image_tag: 'v1.0', dry_run: true) }
+          .to output(/Dry run/).to_stdout
+      end
+    end
+  end
+
+  describe '#deploy_role' do
+    context 'with dry_run: true' do
+      it 'does not connect to server' do
+        expect(Odysseus::Deployer::SSH).not_to receive(:new)
+        executor.deploy_role(host: 'test-server', image_tag: 'v1.0', role: :web, dry_run: true)
+      end
+
+      it 'outputs deploy info' do
+        expect { executor.deploy_role(host: 'test-server', image_tag: 'v1.0', role: :web, dry_run: true) }
           .to output(/Dry run/).to_stdout
       end
 
       it 'returns success result' do
-        result = executor.deploy(server: 'test-server', image_tag: 'v1.0', dry_run: true)
+        result = executor.deploy_role(host: 'test-server', image_tag: 'v1.0', role: :web, dry_run: true)
         expect(result[:success]).to be true
         expect(result[:dry_run]).to be true
       end
@@ -59,7 +97,7 @@ RSpec.describe Odysseus::Deployer::Executor do
           verbose: false
         ).and_return(mock_ssh)
 
-        executor.deploy(server: 'test-server', image_tag: 'v1.0')
+        executor.deploy_role(host: 'test-server', image_tag: 'v1.0', role: :web)
       end
 
       it 'creates orchestrator with SSH and config' do
@@ -69,7 +107,7 @@ RSpec.describe Odysseus::Deployer::Executor do
           logger: anything
         ).and_return(mock_orchestrator)
 
-        executor.deploy(server: 'test-server', image_tag: 'v1.0')
+        executor.deploy_role(host: 'test-server', image_tag: 'v1.0', role: :web)
       end
 
       it 'calls orchestrator deploy with image tag' do
@@ -77,7 +115,7 @@ RSpec.describe Odysseus::Deployer::Executor do
           .with(image_tag: 'v1.0', role: :web)
           .and_return({ success: true })
 
-        executor.deploy(server: 'test-server', image_tag: 'v1.0')
+        executor.deploy_role(host: 'test-server', image_tag: 'v1.0', role: :web)
       end
 
       it 'passes role to orchestrator' do
@@ -89,7 +127,7 @@ RSpec.describe Odysseus::Deployer::Executor do
           .with(image_tag: 'v1.0', role: :worker)
           .and_return({ success: true })
 
-        executor.deploy(server: 'test-server', image_tag: 'v1.0', role: :worker)
+        executor.deploy_role(host: 'test-server', image_tag: 'v1.0', role: :worker)
       end
 
       it 'uses JobDeploy for non-web roles' do
@@ -100,12 +138,12 @@ RSpec.describe Odysseus::Deployer::Executor do
           .and_return(mock_job_orchestrator)
         allow(mock_job_orchestrator).to receive(:deploy).and_return({ success: true })
 
-        executor.deploy(server: 'test-server', image_tag: 'v1.0', role: :jobs)
+        executor.deploy_role(host: 'test-server', image_tag: 'v1.0', role: :jobs)
       end
 
       it 'closes SSH connection when done' do
         expect(mock_ssh).to receive(:close)
-        executor.deploy(server: 'test-server', image_tag: 'v1.0')
+        executor.deploy_role(host: 'test-server', image_tag: 'v1.0', role: :web)
       end
 
       it 'closes SSH connection even on error' do
@@ -114,7 +152,7 @@ RSpec.describe Odysseus::Deployer::Executor do
 
         expect(mock_ssh).to receive(:close)
 
-        expect { executor.deploy(server: 'test-server', image_tag: 'v1.0') }
+        expect { executor.deploy_role(host: 'test-server', image_tag: 'v1.0', role: :web) }
           .to raise_error(Odysseus::DeployError)
       end
 
@@ -122,7 +160,7 @@ RSpec.describe Odysseus::Deployer::Executor do
         allow(mock_orchestrator).to receive(:deploy)
           .and_return({ success: true, container_id: 'abc123' })
 
-        result = executor.deploy(server: 'test-server', image_tag: 'v1.0')
+        result = executor.deploy_role(host: 'test-server', image_tag: 'v1.0', role: :web)
         expect(result[:success]).to be true
         expect(result[:container_id]).to eq('abc123')
       end

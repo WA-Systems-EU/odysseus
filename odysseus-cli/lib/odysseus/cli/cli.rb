@@ -15,26 +15,23 @@ module Odysseus
         @pastel = Pastel.new
       end
 
-      # Deploy command - deploys all roles defined in config
-      # Usage: odysseus deploy <server> [--config FILE] [--image TAG] [--dry-run] [--verbose]
-      def deploy(server, options = {})
+      # Deploy command - deploys all roles to their configured hosts
+      # Usage: odysseus deploy [--config FILE] [--image TAG] [--dry-run] [--verbose]
+      def deploy(options = {})
         config_file = options[:config] || 'deploy.yml'
         image_tag = options[:image] || 'latest'
         dry_run = options[:'dry-run'] || false
         verbose = options[:verbose] || false
 
         config = load_config(config_file)
-        roles = config[:servers].keys
 
         puts @pastel.cyan("Odysseus Deploy")
-        puts @pastel.blue("Server: #{server}")
-        puts @pastel.blue("Config: #{config_file}")
-        puts @pastel.blue("Image tag: #{image_tag}")
-        puts @pastel.blue("Roles: #{roles.join(', ')}")
+        puts @pastel.blue("Service: #{config[:service]}")
+        puts @pastel.blue("Image: #{config[:image]}:#{image_tag}")
         puts ""
 
         executor = Odysseus::Deployer::Executor.new(config_file, verbose: verbose)
-        executor.deploy_all(server: server, image_tag: image_tag, dry_run: dry_run)
+        executor.deploy_all(image_tag: image_tag, dry_run: dry_run)
 
         puts ""
         puts @pastel.green("Deploy complete!")
