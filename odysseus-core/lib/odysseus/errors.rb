@@ -15,6 +15,11 @@ module Odysseus
 
   class RegistryError < Error; end
   class RegistryPushError < RegistryError; end
+  class RegistryAuthError < RegistryError; end
+
+  class BuildError < Error; end
+  class BuildFailedError < BuildError; end
+  class BuildContextError < BuildError; end
 
   class GeneratorError < Error; end
   class DockerComposeGenerationError < GeneratorError; end

@@ -55,9 +55,13 @@ ssh:
     - ~/.ssh/id_ed25519
 ```
 
-2. Deploy:
+2. Build and deploy:
 
 ```bash
+# Build locally and push to registry
+odysseus build --image v1.0.0 --push
+
+# Deploy the built image
 odysseus deploy --image v1.0.0
 ```
 
@@ -76,6 +80,34 @@ Options:
 - `--image TAG` - Docker image tag (default: latest)
 - `--dry-run` - Show what would be deployed without doing it
 - `-v, --verbose` - Show SSH commands being executed
+
+### build
+
+Build Docker image locally or on a remote build host.
+
+```bash
+odysseus build [options]
+```
+
+Options:
+- `--config FILE` - Path to deploy.yml (default: deploy.yml)
+- `--image TAG` - Docker image tag (default: latest)
+- `--push` - Push image to registry after build
+- `--context PATH` - Build context path (default: . relative to deploy.yml)
+- `-v, --verbose` - Show build commands being executed
+
+Examples:
+
+```bash
+# Build locally
+odysseus build --image v1.0.0
+
+# Build and push to registry
+odysseus build --image v1.0.0 --push
+
+# Build with custom context path
+odysseus build --image v1.0.0 --context ./app
+```
 
 ### status
 
@@ -289,6 +321,45 @@ ssh:
   keys:
     - ~/.ssh/id_ed25519
 ```
+
+### builder
+
+Configuration for building Docker images:
+
+```yaml
+builder:
+  strategy: local           # 'local' or 'remote'
+  host: build-server        # Required if strategy is 'remote'
+  dockerfile: Dockerfile    # Dockerfile name (default: Dockerfile)
+  context: .                # Build context path (default: .)
+  arch: amd64               # Target architecture
+  build_args:               # Build arguments
+    RUBY_VERSION: "3.2"
+    NODE_VERSION: "18"
+  cache: true               # Use Docker build cache (default: true)
+  push: false               # Auto-push after build (default: false)
+  multiarch: false          # Multi-platform builds with buildx
+  platforms:                # Platforms for multi-arch builds
+    - linux/amd64
+    - linux/arm64
+```
+
+Build strategies:
+- `local` - Build on the local machine (default)
+- `remote` - Build on a remote host via SSH (useful for CI or dedicated build servers)
+
+### registry
+
+Docker registry credentials for pushing images:
+
+```yaml
+registry:
+  server: docker.io         # Registry server (optional, defaults to Docker Hub)
+  username: myuser          # Registry username
+  password: mypassword      # Registry password (consider using secrets)
+```
+
+For better security, you can store registry credentials in your encrypted secrets file and reference them.
 
 ## How It Works
 

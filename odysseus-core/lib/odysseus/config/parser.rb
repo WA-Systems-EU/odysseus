@@ -49,7 +49,8 @@ module Odysseus
           secrets_file: config['secrets_file'],
           ssh: parse_ssh(config['ssh']),
           accessories: parse_accessories(config['accessories']),
-          builder: config['builder'] || {}
+          builder: parse_builder(config['builder']),
+          registry: parse_registry(config['registry'])
         }
       end
 
@@ -164,6 +165,35 @@ module Odysseus
           app_port: proxy['app_port'],
           ssl: proxy.key?('ssl') ? proxy['ssl'] : true,
           ssl_email: proxy['ssl_email']
+        }
+      end
+
+      # Parse builder config
+      def parse_builder(builder)
+        return {} unless builder
+
+        {
+          strategy: (builder['strategy'] || 'local').to_sym,
+          host: builder['host'],
+          dockerfile: builder['dockerfile'] || 'Dockerfile',
+          context: builder['context'] || '.',
+          arch: builder['arch'],
+          platforms: builder['platforms'] || [],
+          build_args: symbolize_keys(builder['build_args'] || {}),
+          cache: builder.key?('cache') ? builder['cache'] : true,
+          push: builder['push'] || false,
+          multiarch: builder['multiarch'] || false
+        }
+      end
+
+      # Parse registry config
+      def parse_registry(registry)
+        return {} unless registry
+
+        {
+          server: registry['server'],
+          username: registry['username'],
+          password: registry['password']
         }
       end
 

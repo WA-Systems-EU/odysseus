@@ -8,6 +8,7 @@ require 'odysseus/secrets/loader'
 require 'odysseus/orchestrator/web_deploy'
 require 'odysseus/orchestrator/job_deploy'
 require 'odysseus/orchestrator/accessory_deploy'
+require 'odysseus/builder/client'
 
 module Odysseus
   module Deployer
@@ -23,6 +24,51 @@ module Odysseus
         @config = parser.parse
         @verbose = verbose
         @secrets_loader = Odysseus::Secrets::Loader.new(@config, config_dir: @config_dir)
+      end
+
+      # Build Docker image
+      # @param image_tag [String] docker image tag (e.g., "v1.0.0")
+      # @param push [Boolean] push to registry after build
+      # @param context_path [String] path to build context (defaults to config directory)
+      # @return [Hash] build result
+      def build(image_tag:, push: false, context_path: nil)
+        context = context_path || resolve_build_context
+        full_image = "#{@config[:image]}:#{image_tag}"
+
+        builder = build_builder
+
+        if push
+          builder.build_and_push(
+            context_path: context,
+            image: full_image,
+            registry: @config[:registry]
+          )
+        else
+          builder.build(context_path: context, image: full_image)
+        end
+      end
+
+      # Build and deploy in one step
+      # @param image_tag [String] docker image tag
+      # @param context_path [String] path to build context
+      # @param dry_run [Boolean] if true, don't actually deploy
+      # @return [Hash] results
+      def build_and_deploy(image_tag:, context_path: nil, dry_run: false)
+        # First, build the image
+        build_result = build(image_tag: image_tag, push: true, context_path: context_path)
+
+        unless build_result[:success]
+          return { build: build_result, deploy: nil, success: false }
+        end
+
+        # Then deploy
+        deploy_results = deploy_all(image_tag: image_tag, dry_run: dry_run)
+
+        {
+          build: build_result,
+          deploy: deploy_results,
+          success: deploy_results.values.all? { |r| r[:success] }
+        }
       end
 
       # Deploy all roles to their configured hosts
@@ -192,6 +238,26 @@ module Odysseus
           use_tailscale: true,
           verbose: @verbose
         )
+      end
+
+      def build_builder
+        Odysseus::Builder::Client.new(
+          config: @config[:builder],
+          ssh_config: @config[:ssh],
+          logger: build_logger,
+          verbose: @verbose
+        )
+      end
+
+      def resolve_build_context
+        builder_config = @config[:builder]
+        context = builder_config[:context] || '.'
+
+        if context.start_with?('/')
+          context
+        else
+          File.join(@config_dir, context)
+        end
       end
     end
   end

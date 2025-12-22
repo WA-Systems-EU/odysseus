@@ -43,6 +43,47 @@ module Odysseus
         exit 1
       end
 
+      # Build command - builds Docker image locally or on a build host
+      # Usage: odysseus build [--config FILE] [--image TAG] [--push] [--context PATH] [--verbose]
+      def build(options = {})
+        config_file = options[:config] || 'deploy.yml'
+        image_tag = options[:image] || 'latest'
+        push = options[:push] || false
+        context_path = options[:context]
+        verbose = options[:verbose] || false
+
+        config = load_config(config_file)
+        builder_config = config[:builder] || {}
+        strategy = builder_config[:strategy] || :local
+
+        puts @pastel.cyan("Odysseus Build")
+        puts @pastel.blue("Service: #{config[:service]}")
+        puts @pastel.blue("Image: #{config[:image]}:#{image_tag}")
+        puts @pastel.blue("Strategy: #{strategy}")
+        puts @pastel.blue("Build host: #{builder_config[:host]}") if builder_config[:host]
+        puts @pastel.blue("Push: #{push ? 'yes' : 'no'}")
+        puts ""
+
+        executor = Odysseus::Deployer::Executor.new(config_file, verbose: verbose)
+        result = executor.build(image_tag: image_tag, push: push, context_path: context_path)
+
+        if result[:success]
+          puts ""
+          puts @pastel.green("Build complete!")
+          puts @pastel.blue("Image: #{result[:image]}")
+          if result[:pushed]
+            puts @pastel.blue("Pushed to registry: yes")
+          end
+        else
+          puts ""
+          puts @pastel.red("Build failed: #{result[:error]}")
+          exit 1
+        end
+      rescue Odysseus::Error => e
+        puts @pastel.red("Error: #{e.message}")
+        exit 1
+      end
+
       # Status command - show full service status on a server
       # Usage: odysseus status <server> [--config FILE]
       def status(server, options = {})

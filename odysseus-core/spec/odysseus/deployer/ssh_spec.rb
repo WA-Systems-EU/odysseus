@@ -80,7 +80,7 @@ RSpec.describe Odysseus::Deployer::SSH do
 
       it 'raises SSHConnectionError' do
         expect { ssh.execute('test') }
-          .to raise_error(Odysseus::SSHConnectionError, /SSH connection failed/)
+          .to raise_error(Odysseus::SSHConnectionError, /Connection refused/)
       end
     end
   end
