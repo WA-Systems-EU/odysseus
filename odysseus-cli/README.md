@@ -1,0 +1,254 @@
+# Odysseus CLI
+
+Command-line interface for deploying Docker containers with zero-downtime using Caddy as a reverse proxy.
+
+## Installation
+
+```bash
+gem install odysseus-cli
+```
+
+Or add to your Gemfile:
+
+```ruby
+gem 'odysseus-cli'
+```
+
+## Quick Start
+
+1. Create a `deploy.yml` in your project:
+
+```yaml
+service: myapp
+image: myregistry/myapp
+
+servers:
+  web:
+    hosts:
+      - server1.example.com
+  jobs:
+    hosts:
+      - server1.example.com
+    cmd: bundle exec good_job
+
+proxy:
+  hosts:
+    - myapp.example.com
+  app_port: 3000
+  ssl: true
+  ssl_email: admin@example.com
+  healthcheck:
+    path: /health
+    interval: 10
+    timeout: 5
+
+env:
+  clear:
+    RAILS_ENV: production
+  secret:
+    - DATABASE_URL
+    - RAILS_MASTER_KEY
+
+ssh:
+  user: root
+  keys:
+    - ~/.ssh/id_ed25519
+```
+
+2. Deploy:
+
+```bash
+odysseus deploy --image v1.0.0
+```
+
+## Commands
+
+### deploy
+
+Deploy all roles to their configured hosts.
+
+```bash
+odysseus deploy [options]
+```
+
+Options:
+- `--config FILE` - Path to deploy.yml (default: deploy.yml)
+- `--image TAG` - Docker image tag (default: latest)
+- `--dry-run` - Show what would be deployed without doing it
+- `-v, --verbose` - Show SSH commands being executed
+
+### status
+
+Show service status on a server.
+
+```bash
+odysseus status <server> [--config FILE]
+```
+
+### containers
+
+List containers for the service on a server.
+
+```bash
+odysseus containers <server> [--config FILE] [--service NAME]
+```
+
+### logs
+
+Show logs for a service.
+
+```bash
+odysseus logs <server> [options]
+```
+
+Options:
+- `--role ROLE` - Role to show logs for: web, jobs, etc (default: web)
+- `-f, --follow` - Follow log output
+- `-n, --lines N` - Number of lines to show (default: 100)
+- `--since TIME` - Show logs since timestamp (e.g., '10m', '2h')
+
+### cleanup
+
+Clean up old containers and optionally prune images.
+
+```bash
+odysseus cleanup <server> [--prune-images]
+```
+
+### validate
+
+Validate your deploy.yml configuration.
+
+```bash
+odysseus validate [--config FILE]
+```
+
+### accessory
+
+Manage accessories (databases, Redis, etc).
+
+```bash
+odysseus accessory boot <server> --name db
+odysseus accessory boot-all <server>
+odysseus accessory remove <server> --name db
+odysseus accessory restart <server> --name db
+odysseus accessory upgrade <server> --name db
+odysseus accessory status <server>
+odysseus accessory logs <server> --name db [-f] [-n 100]
+odysseus accessory exec <server> --name db --command "psql -U postgres"
+odysseus accessory shell <server> --name db
+```
+
+### app
+
+Run commands in app containers.
+
+```bash
+odysseus app shell <server>
+odysseus app exec <server> --command "rails db:migrate"
+odysseus app console <server> [--cmd "rails c"]
+```
+
+## Configuration Reference
+
+### service
+
+The name of your service. Used for container naming and Caddy routing.
+
+### image
+
+The Docker image name (without tag). Tags are specified at deploy time.
+
+### servers
+
+Define roles and their target hosts:
+
+```yaml
+servers:
+  web:
+    hosts:
+      - web1.example.com
+      - web2.example.com
+    options:
+      memory: 4g
+  jobs:
+    hosts:
+      - worker1.example.com
+    cmd: bundle exec good_job
+```
+
+### proxy
+
+Caddy reverse proxy configuration:
+
+```yaml
+proxy:
+  hosts:
+    - myapp.example.com
+    - www.myapp.example.com
+  app_port: 3000
+  ssl: true
+  ssl_email: admin@example.com
+  healthcheck:
+    path: /health
+    interval: 10
+    timeout: 5
+```
+
+### env
+
+Environment variables:
+
+```yaml
+env:
+  clear:
+    RAILS_ENV: production
+  secret:
+    - DATABASE_URL      # Fetched from server environment
+    - RAILS_MASTER_KEY
+```
+
+### accessories
+
+Long-running services like databases:
+
+```yaml
+accessories:
+  db:
+    image: postgres:16
+    volumes:
+      - /var/lib/odysseus/myapp/postgres:/var/lib/postgresql/data
+    env:
+      clear:
+        POSTGRES_USER: myapp
+        POSTGRES_DB: myapp_production
+    healthcheck:
+      cmd: pg_isready -U myapp
+      interval: 10
+      timeout: 5
+```
+
+### ssh
+
+SSH connection settings:
+
+```yaml
+ssh:
+  user: root
+  keys:
+    - ~/.ssh/id_ed25519
+```
+
+## How It Works
+
+1. **Deploy** starts a new container with the specified image tag
+2. **Health check** waits for the container to become healthy
+3. **Caddy update** adds the new container to the upstream pool
+4. **Drain** removes old containers from Caddy and waits for connections to close
+5. **Cleanup** stops old containers and removes all but the 2 most recent
+
+This ensures zero-downtime deployments with automatic rollback if health checks fail.
+
+## License
+
+MIT
