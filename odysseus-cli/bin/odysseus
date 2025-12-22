@@ -12,7 +12,6 @@ def main
 
   commands = {
     'deploy' => { method: :deploy, needs_server: true },
-    'deploy-all' => { method: :deploy_all, needs_server: true },
     'status' => { method: :status, needs_server: true },
     'containers' => { method: :containers, needs_server: true },
     'logs' => { method: :logs, needs_server: true },
@@ -47,9 +46,10 @@ def main
   OptionParser.new do |opts|
     opts.on('--config FILE', 'Path to deploy.yml') { |v| options[:config] = v }
     opts.on('--image TAG', 'Docker image tag') { |v| options[:image] = v }
-    opts.on('--role ROLE', 'Role to deploy/logs') { |v| options[:role] = v }
+    opts.on('--role ROLE', 'Role for logs command') { |v| options[:role] = v }
     opts.on('--service NAME', 'Service name') { |v| options[:service] = v }
     opts.on('--dry-run', 'Don\'t actually deploy') { |v| options[:'dry-run'] = v }
+    opts.on('-v', '--verbose', 'Show commands being executed') { |v| options[:verbose] = v }
     # Cleanup options
     opts.on('--prune-images', 'Also prune dangling images') { |v| options[:all] = v }
     # Logs options
@@ -179,8 +179,7 @@ def print_help
   puts "Usage: odysseus <command> [options]"
   puts ""
   puts "Commands:"
-  puts "  deploy <server>           Deploy a role to server (default: web)"
-  puts "  deploy-all <server>       Deploy all roles to server"
+  puts "  deploy <server>           Deploy all roles to server"
   puts "  status <server>           Show service status on server"
   puts "  containers <server>       List containers for service on server"
   puts "  logs <server>             Show logs for a service"
@@ -192,11 +191,12 @@ def print_help
   puts "Options:"
   puts "  --config FILE             Path to deploy.yml (default: deploy.yml)"
   puts "  --image TAG               Docker image tag (default: latest)"
-  puts "  --role ROLE               Role to deploy/logs: web, jobs, worker, etc (default: web)"
   puts "  --service NAME            Service name (for containers command)"
   puts "  --dry-run                 Don't actually deploy"
+  puts "  -v, --verbose             Show commands being executed"
   puts ""
   puts "Logs options:"
+  puts "  --role ROLE               Role for logs: web, jobs, worker, etc (default: web)"
   puts "  -f, --follow              Follow log output"
   puts "  -n, --lines N             Number of lines to show (default: 100)"
   puts "  --since TIME              Show logs since timestamp (e.g., '10m', '2h')"

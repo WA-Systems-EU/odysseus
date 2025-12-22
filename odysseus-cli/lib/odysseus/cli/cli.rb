@@ -15,47 +15,29 @@ module Odysseus
         @pastel = Pastel.new
       end
 
-      # Deploy command
-      # Usage: odysseus deploy <server> [--config FILE] [--image TAG] [--role ROLE] [--dry-run]
+      # Deploy command - deploys all roles defined in config
+      # Usage: odysseus deploy <server> [--config FILE] [--image TAG] [--dry-run] [--verbose]
       def deploy(server, options = {})
         config_file = options[:config] || 'deploy.yml'
         image_tag = options[:image] || 'latest'
-        role = (options[:role] || 'web').to_sym
         dry_run = options[:'dry-run'] || false
+        verbose = options[:verbose] || false
+
+        config = load_config(config_file)
+        roles = config[:servers].keys
 
         puts @pastel.cyan("Odysseus Deploy")
         puts @pastel.blue("Server: #{server}")
         puts @pastel.blue("Config: #{config_file}")
         puts @pastel.blue("Image tag: #{image_tag}")
-        puts @pastel.blue("Role: #{role}")
+        puts @pastel.blue("Roles: #{roles.join(', ')}")
         puts ""
 
-        executor = Odysseus::Deployer::Executor.new(config_file)
-        executor.deploy(server: server, image_tag: image_tag, role: role, dry_run: dry_run)
-
-        puts @pastel.green("Deploy complete!")
-      rescue Odysseus::Error => e
-        puts @pastel.red("Error: #{e.message}")
-        exit 1
-      end
-
-      # Deploy all roles
-      # Usage: odysseus deploy-all <server> [--config FILE] [--image TAG] [--dry-run]
-      def deploy_all(server, options = {})
-        config_file = options[:config] || 'deploy.yml'
-        image_tag = options[:image] || 'latest'
-        dry_run = options[:'dry-run'] || false
-
-        puts @pastel.cyan("Odysseus Deploy All")
-        puts @pastel.blue("Server: #{server}")
-        puts @pastel.blue("Config: #{config_file}")
-        puts @pastel.blue("Image tag: #{image_tag}")
-        puts ""
-
-        executor = Odysseus::Deployer::Executor.new(config_file)
+        executor = Odysseus::Deployer::Executor.new(config_file, verbose: verbose)
         executor.deploy_all(server: server, image_tag: image_tag, dry_run: dry_run)
 
-        puts @pastel.green("All deploys complete!")
+        puts ""
+        puts @pastel.green("Deploy complete!")
       rescue Odysseus::Error => e
         puts @pastel.red("Error: #{e.message}")
         exit 1

@@ -55,7 +55,8 @@ RSpec.describe Odysseus::Deployer::Executor do
           host: 'test-server',
           user: 'root',
           keys: ['~/.ssh/id_ed25519'],
-          use_tailscale: true
+          use_tailscale: true,
+          verbose: false
         ).and_return(mock_ssh)
 
         executor.deploy(server: 'test-server', image_tag: 'v1.0')
@@ -64,7 +65,8 @@ RSpec.describe Odysseus::Deployer::Executor do
       it 'creates orchestrator with SSH and config' do
         expect(Odysseus::Orchestrator::WebDeploy).to receive(:new).with(
           ssh: mock_ssh,
-          config: hash_including(service: 'df', image: 'myapp-production')
+          config: hash_including(service: 'df', image: 'myapp-production'),
+          logger: anything
         ).and_return(mock_orchestrator)
 
         executor.deploy(server: 'test-server', image_tag: 'v1.0')
@@ -94,7 +96,7 @@ RSpec.describe Odysseus::Deployer::Executor do
         mock_job_orchestrator = instance_double(Odysseus::Orchestrator::JobDeploy)
 
         expect(Odysseus::Orchestrator::JobDeploy).to receive(:new)
-          .with(ssh: mock_ssh, config: anything)
+          .with(ssh: mock_ssh, config: anything, logger: anything)
           .and_return(mock_job_orchestrator)
         allow(mock_job_orchestrator).to receive(:deploy).and_return({ success: true })
 

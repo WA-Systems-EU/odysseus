@@ -11,12 +11,14 @@ module Odysseus
       # @param port [Integer] SSH port (default: 22)
       # @param keys [Array<String>] SSH key paths
       # @param use_tailscale [Boolean] if true, assume Tailscale hostname
-      def initialize(host:, user: 'root', port: 22, keys: [], use_tailscale: true)
+      # @param verbose [Boolean] log commands being executed
+      def initialize(host:, user: 'root', port: 22, keys: [], use_tailscale: true, verbose: false)
         @host = host
         @user = user
         @port = port
         @keys = keys.map { |k| File.expand_path(k) }
         @use_tailscale = use_tailscale
+        @verbose = verbose
         @session = nil
       end
 
@@ -25,6 +27,7 @@ module Odysseus
       # @return [String] command output
       # @raise [Odysseus::SSHError] if command fails
       def execute(command)
+        puts "  > #{command}" if @verbose
         with_connection do |session|
           output = ""
           session.open_channel do |channel|

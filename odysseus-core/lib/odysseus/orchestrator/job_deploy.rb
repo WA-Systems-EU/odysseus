@@ -63,8 +63,6 @@ module Odysseus
         log "Cleaning up old containers..."
         @docker.cleanup_old_containers(service: role_name, keep: 2)
 
-        log "Deploy complete!"
-
         {
           success: true,
           container_id: new_container_id,

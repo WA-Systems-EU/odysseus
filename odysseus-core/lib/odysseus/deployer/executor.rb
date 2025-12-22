@@ -14,9 +14,11 @@ module Odysseus
       WEB_ROLE = :web
 
       # @param config_path [String] path to deploy.yml
-      def initialize(config_path)
+      # @param verbose [Boolean] show commands being executed
+      def initialize(config_path, verbose: false)
         parser = Odysseus::Config::Parser.new(config_path)
         @config = parser.parse
+        @verbose = verbose
       end
 
       # Execute full deploy
@@ -25,8 +27,6 @@ module Odysseus
       # @param dry_run [Boolean] if true, don't actually deploy
       # @param role [Symbol] server role (default: :web)
       def deploy(server:, image_tag:, dry_run: false, role: :web)
-        puts "Preparing deploy for #{server}..."
-
         if dry_run
           puts "Dry run - would deploy #{@config[:image]}:#{image_tag} to #{server}"
           puts "Service: #{@config[:service]}"
@@ -41,9 +41,7 @@ module Odysseus
 
         begin
           orchestrator = build_orchestrator(ssh, role)
-          result = orchestrator.deploy(image_tag: image_tag, role: role)
-          puts "Deploy complete!"
-          result
+          orchestrator.deploy(image_tag: image_tag, role: role)
         ensure
           ssh.close
         end
@@ -57,7 +55,7 @@ module Odysseus
         results = {}
 
         @config[:servers].each_key do |role|
-          puts "\n=== Deploying #{role} ==="
+          puts "\n=== Deploying role: #{role} ==="
           results[role] = deploy(server: server, image_tag: image_tag, dry_run: dry_run, role: role)
         end
 
@@ -157,10 +155,22 @@ module Odysseus
       private
 
       def build_orchestrator(ssh, role)
+        logger = build_logger
         if role == WEB_ROLE
-          Odysseus::Orchestrator::WebDeploy.new(ssh: ssh, config: @config)
+          Odysseus::Orchestrator::WebDeploy.new(ssh: ssh, config: @config, logger: logger)
         else
-          Odysseus::Orchestrator::JobDeploy.new(ssh: ssh, config: @config)
+          Odysseus::Orchestrator::JobDeploy.new(ssh: ssh, config: @config, logger: logger)
+        end
+      end
+
+      def build_logger
+        verbose = @verbose
+        Object.new.tap do |l|
+          l.define_singleton_method(:info) { |msg| puts msg }
+          l.define_singleton_method(:warn) { |msg| puts "[WARN] #{msg}" }
+          l.define_singleton_method(:error) { |msg| puts "[ERROR] #{msg}" }
+          l.define_singleton_method(:debug) { |msg| puts "  > #{msg}" if verbose }
+          l.define_singleton_method(:verbose?) { verbose }
         end
       end
 
@@ -169,7 +179,8 @@ module Odysseus
           host: server,
           user: @config[:ssh][:user],
           keys: @config[:ssh][:keys],
-          use_tailscale: true
+          use_tailscale: true,
+          verbose: @verbose
         )
       end
     end
