@@ -104,7 +104,8 @@ RSpec.describe Odysseus::Deployer::Executor do
         expect(Odysseus::Orchestrator::WebDeploy).to receive(:new).with(
           ssh: mock_ssh,
           config: hash_including(service: 'df', image: 'myapp-production'),
-          logger: anything
+          logger: anything,
+          secrets_loader: instance_of(Odysseus::Secrets::Loader)
         ).and_return(mock_orchestrator)
 
         executor.deploy_role(host: 'test-server', image_tag: 'v1.0', role: :web)
@@ -134,7 +135,7 @@ RSpec.describe Odysseus::Deployer::Executor do
         mock_job_orchestrator = instance_double(Odysseus::Orchestrator::JobDeploy)
 
         expect(Odysseus::Orchestrator::JobDeploy).to receive(:new)
-          .with(ssh: mock_ssh, config: anything, logger: anything)
+          .with(ssh: mock_ssh, config: anything, logger: anything, secrets_loader: anything)
           .and_return(mock_job_orchestrator)
         allow(mock_job_orchestrator).to receive(:deploy).and_return({ success: true })
 

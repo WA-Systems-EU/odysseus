@@ -4,6 +4,7 @@ require 'odysseus/config/parser'
 require 'odysseus/deployer/ssh'
 require 'odysseus/docker/client'
 require 'odysseus/caddy/client'
+require 'odysseus/secrets/loader'
 require 'odysseus/orchestrator/web_deploy'
 require 'odysseus/orchestrator/job_deploy'
 require 'odysseus/orchestrator/accessory_deploy'
@@ -16,9 +17,12 @@ module Odysseus
       # @param config_path [String] path to deploy.yml
       # @param verbose [Boolean] show commands being executed
       def initialize(config_path, verbose: false)
+        @config_path = config_path
+        @config_dir = File.dirname(config_path)
         parser = Odysseus::Config::Parser.new(config_path)
         @config = parser.parse
         @verbose = verbose
+        @secrets_loader = Odysseus::Secrets::Loader.new(@config, config_dir: @config_dir)
       end
 
       # Deploy all roles to their configured hosts
@@ -159,9 +163,13 @@ module Odysseus
       def build_orchestrator(ssh, role)
         logger = build_logger
         if role == WEB_ROLE
-          Odysseus::Orchestrator::WebDeploy.new(ssh: ssh, config: @config, logger: logger)
+          Odysseus::Orchestrator::WebDeploy.new(
+            ssh: ssh, config: @config, logger: logger, secrets_loader: @secrets_loader
+          )
         else
-          Odysseus::Orchestrator::JobDeploy.new(ssh: ssh, config: @config, logger: logger)
+          Odysseus::Orchestrator::JobDeploy.new(
+            ssh: ssh, config: @config, logger: logger, secrets_loader: @secrets_loader
+          )
         end
       end
 

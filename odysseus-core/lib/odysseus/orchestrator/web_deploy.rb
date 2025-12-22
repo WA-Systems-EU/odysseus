@@ -6,10 +6,12 @@ module Odysseus
       # @param ssh [Odysseus::Deployer::SSH] SSH connection
       # @param config [Hash] parsed deploy config
       # @param logger [Object] logger (optional)
-      def initialize(ssh:, config:, logger: nil)
+      # @param secrets_loader [Odysseus::Secrets::Loader] secrets loader (optional)
+      def initialize(ssh:, config:, logger: nil, secrets_loader: nil)
         @ssh = ssh
         @config = config
         @logger = logger || default_logger
+        @secrets_loader = secrets_loader
         @docker = Odysseus::Docker::Client.new(ssh)
         @caddy = Odysseus::Caddy::Client.new(ssh: ssh, docker: @docker)
       end
@@ -125,11 +127,20 @@ module Odysseus
           env[key.to_s] = value.to_s
         end
 
-        # Secret env vars (from server environment)
+        # Secret env vars - first try encrypted file, then server environment
         @config[:env][:secret]&.each do |key|
-          # Get value from server's environment
+          # Try encrypted secrets file first
+          if @secrets_loader&.configured?
+            value = @secrets_loader.get(key)
+            if value
+              env[key.to_s] = value.to_s
+              next
+            end
+          end
+
+          # Fall back to server's environment
           value = @ssh.execute("echo $#{key}").strip
-          env[key] = value unless value.empty?
+          env[key.to_s] = value unless value.empty?
         end
 
         env

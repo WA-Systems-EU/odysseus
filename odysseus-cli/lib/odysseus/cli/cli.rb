@@ -6,7 +6,10 @@ require 'odysseus/config/parser'
 require 'odysseus/deployer/ssh'
 require 'odysseus/docker/client'
 require 'odysseus/caddy/client'
+require 'odysseus/secrets/encrypted_file'
 require 'pastel'
+require 'yaml'
+require 'tempfile'
 
 module Odysseus
   module CLI
@@ -743,6 +746,146 @@ module Odysseus
         ensure
           ssh.close
         end
+      rescue Odysseus::Error => e
+        puts @pastel.red("Error: #{e.message}")
+        exit 1
+      end
+
+      # Generate a new master key for encrypting secrets
+      # Usage: odysseus secrets generate-key
+      def secrets_generate_key(_options = {})
+        puts @pastel.cyan("Odysseus Secrets: Generate Key")
+        puts ""
+
+        key = Odysseus::Secrets::EncryptedFile.generate_key
+
+        puts @pastel.green("Generated master key:")
+        puts ""
+        puts "  #{key}"
+        puts ""
+        puts @pastel.yellow("Save this key securely!")
+        puts @pastel.dim("Set it as ODYSSEUS_MASTER_KEY environment variable for encrypt/decrypt operations.")
+      end
+
+      # Encrypt a secrets file
+      # Usage: odysseus secrets encrypt --input secrets.yml --file secrets.yml.enc
+      def secrets_encrypt(options = {})
+        input_file = options[:input]
+        output_file = options[:file] || 'secrets.yml.enc'
+
+        unless input_file
+          puts @pastel.red("Error: input file required (--input)")
+          exit 1
+        end
+
+        unless File.exist?(input_file)
+          puts @pastel.red("Error: input file not found: #{input_file}")
+          exit 1
+        end
+
+        puts @pastel.cyan("Odysseus Secrets: Encrypt")
+        puts @pastel.blue("Input: #{input_file}")
+        puts @pastel.blue("Output: #{output_file}")
+        puts ""
+
+        secrets = YAML.load_file(input_file)
+        encrypted_file = Odysseus::Secrets::EncryptedFile.new(output_file)
+        encrypted_file.write(secrets)
+
+        puts @pastel.green("Secrets encrypted to #{output_file}")
+        puts ""
+        puts @pastel.dim("You can now delete the plaintext file: rm #{input_file}")
+        puts @pastel.dim("Add to deploy.yml: secrets_file: #{output_file}")
+      rescue Odysseus::Secrets::EncryptedFile::MissingKeyError => e
+        puts @pastel.red("Error: #{e.message}")
+        puts @pastel.dim("Generate a key with: odysseus secrets generate-key")
+        exit 1
+      rescue Odysseus::Error => e
+        puts @pastel.red("Error: #{e.message}")
+        exit 1
+      end
+
+      # Decrypt and display secrets
+      # Usage: odysseus secrets decrypt --file secrets.yml.enc
+      def secrets_decrypt(options = {})
+        secrets_file = options[:file] || 'secrets.yml.enc'
+
+        unless File.exist?(secrets_file)
+          puts @pastel.red("Error: secrets file not found: #{secrets_file}")
+          exit 1
+        end
+
+        puts @pastel.cyan("Odysseus Secrets: Decrypt")
+        puts @pastel.blue("File: #{secrets_file}")
+        puts ""
+
+        encrypted_file = Odysseus::Secrets::EncryptedFile.new(secrets_file)
+        secrets = encrypted_file.read
+
+        puts @pastel.yellow("Decrypted secrets:")
+        puts ""
+        secrets.each do |key, value|
+          # Mask values for display
+          masked_value = value.to_s.length > 4 ? "#{value[0..3]}#{'*' * (value.length - 4)}" : '****'
+          puts "  #{key}: #{masked_value}"
+        end
+        puts ""
+        puts @pastel.dim("(Values are masked for security)")
+      rescue Odysseus::Secrets::EncryptedFile::MissingKeyError => e
+        puts @pastel.red("Error: #{e.message}")
+        exit 1
+      rescue Odysseus::Secrets::EncryptedFile::DecryptionError => e
+        puts @pastel.red("Error: #{e.message}")
+        exit 1
+      rescue Odysseus::Error => e
+        puts @pastel.red("Error: #{e.message}")
+        exit 1
+      end
+
+      # Edit encrypted secrets using $EDITOR
+      # Usage: odysseus secrets edit --file secrets.yml.enc
+      def secrets_edit(options = {})
+        secrets_file = options[:file] || 'secrets.yml.enc'
+        editor = ENV['EDITOR'] || 'vi'
+
+        puts @pastel.cyan("Odysseus Secrets: Edit")
+        puts @pastel.blue("File: #{secrets_file}")
+        puts @pastel.blue("Editor: #{editor}")
+        puts ""
+
+        encrypted_file = Odysseus::Secrets::EncryptedFile.new(secrets_file)
+
+        # Load existing secrets or start with empty hash
+        secrets = if encrypted_file.exists?
+          encrypted_file.read
+        else
+          {}
+        end
+
+        # Write to temp file for editing
+        temp_file = Tempfile.new(['secrets', '.yml'])
+        begin
+          temp_file.write(YAML.dump(secrets))
+          temp_file.close
+
+          # Open in editor
+          system("#{editor} #{temp_file.path}")
+
+          # Read back and encrypt
+          edited_secrets = YAML.load_file(temp_file.path)
+          encrypted_file.write(edited_secrets)
+
+          puts @pastel.green("Secrets updated and encrypted to #{secrets_file}")
+        ensure
+          temp_file.unlink
+        end
+      rescue Odysseus::Secrets::EncryptedFile::MissingKeyError => e
+        puts @pastel.red("Error: #{e.message}")
+        puts @pastel.dim("Generate a key with: odysseus secrets generate-key")
+        exit 1
+      rescue Odysseus::Secrets::EncryptedFile::DecryptionError => e
+        puts @pastel.red("Error: #{e.message}")
+        exit 1
       rescue Odysseus::Error => e
         puts @pastel.red("Error: #{e.message}")
         exit 1

@@ -46,6 +46,7 @@ module Odysseus
           servers: parse_servers(config['servers']),
           proxy: parse_proxy(config['proxy']),
           env: parse_env(config['env']),
+          secrets_file: config['secrets_file'],
           ssh: parse_ssh(config['ssh']),
           accessories: parse_accessories(config['accessories']),
           builder: config['builder'] || {}

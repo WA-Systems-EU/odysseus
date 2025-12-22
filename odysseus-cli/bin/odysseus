@@ -18,7 +18,8 @@ def main
     'cleanup' => { method: :cleanup, needs_server: true },
     'validate' => { method: :validate, needs_server: false },
     'accessory' => { method: :accessory_dispatch, needs_server: false },
-    'app' => { method: :app_dispatch, needs_server: false }
+    'app' => { method: :app_dispatch, needs_server: false },
+    'secrets' => { method: :secrets_dispatch, needs_server: false }
   }
 
   command = ARGV[0]
@@ -33,6 +34,12 @@ def main
   # Handle app subcommands
   if command == 'app'
     handle_app_command(cli, command_args)
+    return
+  end
+
+  # Handle secrets subcommands
+  if command == 'secrets'
+    handle_secrets_command(cli, command_args)
     return
   end
 
@@ -175,6 +182,45 @@ def handle_app_command(cli, args)
   cli.send(app_commands[subcommand], server, options)
 end
 
+def handle_secrets_command(cli, args)
+  subcommand = args[0]
+  subcommand_args = args[1..-1] || []
+
+  secrets_commands = {
+    'generate-key' => :secrets_generate_key,
+    'encrypt' => :secrets_encrypt,
+    'decrypt' => :secrets_decrypt,
+    'edit' => :secrets_edit
+  }
+
+  unless subcommand && secrets_commands[subcommand]
+    puts "Usage: odysseus secrets <subcommand> [options]"
+    puts ""
+    puts "Subcommands:"
+    puts "  generate-key          Generate a new master key"
+    puts "  encrypt               Encrypt a secrets file"
+    puts "  decrypt               Decrypt and display secrets"
+    puts "  edit                  Edit encrypted secrets"
+    puts ""
+    puts "Options:"
+    puts "  --file FILE           Path to secrets file (default: secrets.yml.enc)"
+    puts "  --input FILE          Input file to encrypt (encrypt only)"
+    puts ""
+    puts "Environment:"
+    puts "  ODYSSEUS_MASTER_KEY   Master key for encryption/decryption"
+    exit 1
+  end
+
+  options = {}
+
+  OptionParser.new do |opts|
+    opts.on('--file FILE', 'Path to secrets file') { |v| options[:file] = v }
+    opts.on('--input FILE', 'Input file to encrypt') { |v| options[:input] = v }
+  end.parse!(subcommand_args)
+
+  cli.send(secrets_commands[subcommand], options)
+end
+
 def print_help
   puts "Usage: odysseus <command> [options]"
   puts ""
@@ -187,6 +233,7 @@ def print_help
   puts "  validate                  Validate deploy.yml"
   puts "  accessory <subcommand>    Manage accessories"
   puts "  app <subcommand>          Run commands in app containers"
+  puts "  secrets <subcommand>      Manage encrypted secrets"
   puts ""
   puts "Options:"
   puts "  --config FILE             Path to deploy.yml (default: deploy.yml)"
