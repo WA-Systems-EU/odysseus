@@ -352,8 +352,8 @@ module Odysseus
       end
 
       # Accessory boot command
-      # Usage: odysseus accessory boot <server> <name> [--config FILE]
-      def accessory_boot(server, options = {})
+      # Usage: odysseus accessory boot --name NAME [--config FILE]
+      def accessory_boot(options = {})
         config_file = options[:config] || 'deploy.yml'
         name = options[:name]
 
@@ -363,12 +363,11 @@ module Odysseus
         end
 
         puts @pastel.cyan("Odysseus Accessory Boot")
-        puts @pastel.blue("Server: #{server}")
         puts @pastel.blue("Accessory: #{name}")
         puts ""
 
         executor = Odysseus::Deployer::Executor.new(config_file)
-        executor.deploy_accessory(server: server, name: name)
+        executor.deploy_accessory(name: name)
 
         puts @pastel.green("Accessory #{name} deployed!")
       rescue Odysseus::Error => e
@@ -377,16 +376,15 @@ module Odysseus
       end
 
       # Boot all accessories
-      # Usage: odysseus accessory boot-all <server> [--config FILE]
-      def accessory_boot_all(server, options = {})
+      # Usage: odysseus accessory boot-all [--config FILE]
+      def accessory_boot_all(options = {})
         config_file = options[:config] || 'deploy.yml'
 
         puts @pastel.cyan("Odysseus Accessory Boot All")
-        puts @pastel.blue("Server: #{server}")
         puts ""
 
         executor = Odysseus::Deployer::Executor.new(config_file)
-        executor.boot_accessories(server: server)
+        executor.boot_accessories
 
         puts @pastel.green("All accessories deployed!")
       rescue Odysseus::Error => e
@@ -395,8 +393,8 @@ module Odysseus
       end
 
       # Accessory remove command
-      # Usage: odysseus accessory remove <server> <name> [--config FILE]
-      def accessory_remove(server, options = {})
+      # Usage: odysseus accessory remove --name NAME [--config FILE]
+      def accessory_remove(options = {})
         config_file = options[:config] || 'deploy.yml'
         name = options[:name]
 
@@ -406,12 +404,11 @@ module Odysseus
         end
 
         puts @pastel.cyan("Odysseus Accessory Remove")
-        puts @pastel.blue("Server: #{server}")
         puts @pastel.blue("Accessory: #{name}")
         puts ""
 
         executor = Odysseus::Deployer::Executor.new(config_file)
-        executor.remove_accessory(server: server, name: name)
+        executor.remove_accessory(name: name)
 
         puts @pastel.green("Accessory #{name} removed!")
       rescue Odysseus::Error => e
@@ -420,8 +417,8 @@ module Odysseus
       end
 
       # Accessory restart command
-      # Usage: odysseus accessory restart <server> <name> [--config FILE]
-      def accessory_restart(server, options = {})
+      # Usage: odysseus accessory restart --name NAME [--config FILE]
+      def accessory_restart(options = {})
         config_file = options[:config] || 'deploy.yml'
         name = options[:name]
 
@@ -431,12 +428,11 @@ module Odysseus
         end
 
         puts @pastel.cyan("Odysseus Accessory Restart")
-        puts @pastel.blue("Server: #{server}")
         puts @pastel.blue("Accessory: #{name}")
         puts ""
 
         executor = Odysseus::Deployer::Executor.new(config_file)
-        executor.restart_accessory(server: server, name: name)
+        executor.restart_accessory(name: name)
 
         puts @pastel.green("Accessory #{name} restarted!")
       rescue Odysseus::Error => e
@@ -445,8 +441,8 @@ module Odysseus
       end
 
       # Accessory upgrade command - upgrade to new image version (preserves volumes)
-      # Usage: odysseus accessory upgrade <server> <name> [--config FILE]
-      def accessory_upgrade(server, options = {})
+      # Usage: odysseus accessory upgrade --name NAME [--config FILE]
+      def accessory_upgrade(options = {})
         config_file = options[:config] || 'deploy.yml'
         name = options[:name]
 
@@ -456,12 +452,11 @@ module Odysseus
         end
 
         puts @pastel.cyan("Odysseus Accessory Upgrade")
-        puts @pastel.blue("Server: #{server}")
         puts @pastel.blue("Accessory: #{name}")
         puts ""
 
         executor = Odysseus::Deployer::Executor.new(config_file)
-        executor.upgrade_accessory(server: server, name: name)
+        executor.upgrade_accessory(name: name)
 
         puts @pastel.green("Accessory #{name} upgraded!")
       rescue Odysseus::Error => e
@@ -470,23 +465,22 @@ module Odysseus
       end
 
       # Accessory status command
-      # Usage: odysseus accessory status <server> [--config FILE]
-      def accessory_status(server, options = {})
+      # Usage: odysseus accessory status [--config FILE]
+      def accessory_status(options = {})
         config_file = options[:config] || 'deploy.yml'
 
         puts @pastel.cyan("Odysseus Accessory Status")
-        puts @pastel.blue("Server: #{server}")
         puts ""
 
         executor = Odysseus::Deployer::Executor.new(config_file)
-        statuses = executor.accessory_status(server: server)
+        statuses = executor.accessory_status
 
         if statuses.empty?
           puts "No accessories configured"
         else
           statuses.each do |status|
             status_text = status[:running] ? @pastel.green('running') : @pastel.red('stopped')
-            puts "  #{@pastel.yellow(status[:name].to_s)}: #{status_text}"
+            puts "  #{@pastel.yellow(status[:name].to_s)} @ #{status[:host]}: #{status_text}"
             puts "    Image: #{status[:image]}"
             puts "    Container: #{status[:container_id] ? status[:container_id][0..11] : '(none)'}"
             puts "    Has proxy: #{status[:has_proxy] ? 'yes' : 'no'}"

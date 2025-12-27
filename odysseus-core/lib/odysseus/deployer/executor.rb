@@ -178,97 +178,140 @@ module Odysseus
         end
       end
 
-      # Deploy an accessory
-      # @param server [String] target server
+      # Deploy an accessory to all its configured hosts
       # @param name [Symbol] accessory name
-      def deploy_accessory(server:, name:)
-        puts "Deploying accessory #{name} to #{server}..."
+      def deploy_accessory(name:)
+        acc_config = get_accessory_config(name)
+        hosts = acc_config[:hosts] || []
 
-        ssh = connect_to_server(server)
+        raise Odysseus::ConfigError, "No hosts configured for accessory #{name}" if hosts.empty?
 
-        begin
-          orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config)
-          orchestrator.deploy(name: name.to_sym)
-        ensure
-          ssh.close
+        results = {}
+        hosts.each do |host|
+          puts "Deploying accessory #{name} to #{host}..."
+          ssh = connect_to_server(host)
+
+          begin
+            orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config, secrets_loader: @secrets_loader)
+            results[host] = orchestrator.deploy(name: name.to_sym)
+          ensure
+            ssh.close
+          end
         end
+        results
       end
 
-      # Remove an accessory
-      # @param server [String] target server
+      # Remove an accessory from all its configured hosts
       # @param name [Symbol] accessory name
-      def remove_accessory(server:, name:)
-        puts "Removing accessory #{name} from #{server}..."
+      def remove_accessory(name:)
+        acc_config = get_accessory_config(name)
+        hosts = acc_config[:hosts] || []
 
-        ssh = connect_to_server(server)
+        raise Odysseus::ConfigError, "No hosts configured for accessory #{name}" if hosts.empty?
 
-        begin
-          orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config)
-          orchestrator.remove(name: name.to_sym)
-        ensure
-          ssh.close
+        results = {}
+        hosts.each do |host|
+          puts "Removing accessory #{name} from #{host}..."
+          ssh = connect_to_server(host)
+
+          begin
+            orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config, secrets_loader: @secrets_loader)
+            results[host] = orchestrator.remove(name: name.to_sym)
+          ensure
+            ssh.close
+          end
         end
+        results
       end
 
-      # Restart an accessory
-      # @param server [String] target server
+      # Restart an accessory on all its configured hosts
       # @param name [Symbol] accessory name
-      def restart_accessory(server:, name:)
-        puts "Restarting accessory #{name} on #{server}..."
+      def restart_accessory(name:)
+        acc_config = get_accessory_config(name)
+        hosts = acc_config[:hosts] || []
 
-        ssh = connect_to_server(server)
+        raise Odysseus::ConfigError, "No hosts configured for accessory #{name}" if hosts.empty?
 
-        begin
-          orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config)
-          orchestrator.restart(name: name.to_sym)
-        ensure
-          ssh.close
+        results = {}
+        hosts.each do |host|
+          puts "Restarting accessory #{name} on #{host}..."
+          ssh = connect_to_server(host)
+
+          begin
+            orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config, secrets_loader: @secrets_loader)
+            results[host] = orchestrator.restart(name: name.to_sym)
+          ensure
+            ssh.close
+          end
         end
+        results
       end
 
-      # Upgrade an accessory to a new image version (preserves volumes)
-      # @param server [String] target server
+      # Upgrade an accessory to a new image version on all its configured hosts
       # @param name [Symbol] accessory name
-      def upgrade_accessory(server:, name:)
-        puts "Upgrading accessory #{name} on #{server}..."
+      def upgrade_accessory(name:)
+        acc_config = get_accessory_config(name)
+        hosts = acc_config[:hosts] || []
 
-        ssh = connect_to_server(server)
+        raise Odysseus::ConfigError, "No hosts configured for accessory #{name}" if hosts.empty?
 
-        begin
-          orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config)
-          orchestrator.upgrade(name: name.to_sym)
-        ensure
-          ssh.close
+        results = {}
+        hosts.each do |host|
+          puts "Upgrading accessory #{name} on #{host}..."
+          ssh = connect_to_server(host)
+
+          begin
+            orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config, secrets_loader: @secrets_loader)
+            results[host] = orchestrator.upgrade(name: name.to_sym)
+          ensure
+            ssh.close
+          end
         end
+        results
       end
 
-      # List accessory status
-      # @param server [String] target server
-      def accessory_status(server:)
-        ssh = connect_to_server(server)
-
-        begin
-          orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config)
-          orchestrator.list_status
-        ensure
-          ssh.close
-        end
-      end
-
-      # Boot all accessories
-      # @param server [String] target server
-      def boot_accessories(server:)
+      # List accessory status on all configured hosts
+      def accessory_status
         return [] unless @config[:accessories]&.any?
+
+        all_statuses = []
+        @config[:accessories].each do |name, acc_config|
+          hosts = acc_config[:hosts] || []
+          hosts.each do |host|
+            ssh = connect_to_server(host)
+            begin
+              orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config, secrets_loader: @secrets_loader)
+              status = orchestrator.get_status(name: name.to_sym)
+              status[:host] = host
+              all_statuses << status
+            ensure
+              ssh.close
+            end
+          end
+        end
+        all_statuses
+      end
+
+      # Boot all accessories to their configured hosts
+      def boot_accessories
+        return {} unless @config[:accessories]&.any?
 
         results = {}
         @config[:accessories].each_key do |name|
           puts "\n=== Booting accessory: #{name} ==="
-          results[name] = deploy_accessory(server: server, name: name)
+          results[name] = deploy_accessory(name: name)
         end
         results
       end
 
       private
+
+      def get_accessory_config(name)
+        name_sym = name.to_sym
+        acc_config = @config[:accessories]&.[](name_sym)
+        raise Odysseus::ConfigError, "Accessory '#{name}' not found in config" unless acc_config
+        acc_config
+      end
 
       def build_orchestrator(ssh, role)
         logger = build_logger

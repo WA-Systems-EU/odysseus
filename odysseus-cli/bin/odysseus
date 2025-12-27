@@ -87,28 +87,37 @@ def handle_accessory_command(cli, args)
   subcommand = args[0]
   subcommand_args = args[1..-1] || []
 
-  accessory_commands = {
+  # Commands that don't need a server argument (hosts come from config)
+  accessory_commands_no_server = {
     'boot' => :accessory_boot,
     'boot-all' => :accessory_boot_all,
     'remove' => :accessory_remove,
     'restart' => :accessory_restart,
     'upgrade' => :accessory_upgrade,
-    'status' => :accessory_status,
+    'status' => :accessory_status
+  }
+
+  # Commands that need a server argument (for interactive/logs on specific host)
+  accessory_commands_with_server = {
     'logs' => :accessory_logs,
     'exec' => :accessory_exec,
     'shell' => :accessory_shell
   }
 
-  unless subcommand && accessory_commands[subcommand]
-    puts "Usage: odysseus accessory <subcommand> <server> [options]"
+  all_commands = accessory_commands_no_server.merge(accessory_commands_with_server)
+
+  unless subcommand && all_commands[subcommand]
+    puts "Usage: odysseus accessory <subcommand> [options]"
     puts ""
-    puts "Subcommands:"
-    puts "  boot <server>         Boot an accessory (requires --name)"
-    puts "  boot-all <server>     Boot all accessories"
-    puts "  remove <server>       Remove an accessory (requires --name)"
-    puts "  restart <server>      Restart an accessory (requires --name)"
-    puts "  upgrade <server>      Upgrade accessory to new image (requires --name)"
-    puts "  status <server>       Show accessory status"
+    puts "Subcommands (hosts from config):"
+    puts "  boot                  Boot an accessory (requires --name)"
+    puts "  boot-all              Boot all accessories"
+    puts "  remove                Remove an accessory (requires --name)"
+    puts "  restart               Restart an accessory (requires --name)"
+    puts "  upgrade               Upgrade accessory to new image (requires --name)"
+    puts "  status                Show accessory status"
+    puts ""
+    puts "Subcommands (require server):"
     puts "  logs <server>         Show accessory logs (requires --name)"
     puts "  exec <server>         Execute command in accessory (requires --name)"
     puts "  shell <server>        Open interactive shell in accessory (requires --name)"
@@ -134,13 +143,18 @@ def handle_accessory_command(cli, args)
     opts.on('--command CMD', 'Command to execute') { |v| options[:command] = v }
   end.parse!(subcommand_args)
 
-  server = subcommand_args[0]
-  unless server
-    puts "Error: accessory #{subcommand} requires a server argument"
-    exit 1
+  if accessory_commands_with_server[subcommand]
+    # These commands need a server argument
+    server = subcommand_args[0]
+    unless server
+      puts "Error: accessory #{subcommand} requires a server argument"
+      exit 1
+    end
+    cli.send(all_commands[subcommand], server, options)
+  else
+    # These commands get hosts from config
+    cli.send(all_commands[subcommand], options)
   end
-
-  cli.send(accessory_commands[subcommand], server, options)
 end
 
 def handle_app_command(cli, args)
