@@ -64,6 +64,7 @@ module Odysseus
             aws: parse_aws_config(config['aws']),
             options: symbolize_keys(config['options'] || {}),
             cmd: config['cmd'],
+            volumes: config['volumes'],
             healthcheck: parse_server_healthcheck(config['healthcheck'])
           }
         end
@@ -147,6 +148,7 @@ module Odysseus
         accessories.each_with_object({}) do |(name, config), acc|
           acc[name.to_sym] = {
             image: config['image'],
+            hosts: config['hosts'],
             cmd: config['cmd'],
             ports: config['ports'],
             volumes: config['volumes'],

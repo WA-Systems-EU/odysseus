@@ -98,6 +98,7 @@ module Odysseus
             version: timestamp,
             ports: internal_port_mapping(proxy_config[:app_port]),
             env: build_environment,
+            volumes: server_config[:volumes],
             memory: options[:memory],
             memory_reservation: options[:memory_reservation],
             cpus: options[:cpus],
