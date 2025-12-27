@@ -1,9 +1,7 @@
 #!/usr/bin/env ruby
 # odysseus-cli/bin/odysseus
 
-$LOAD_PATH.unshift File.expand_path('../../odysseus-core/lib', __dir__)
-$LOAD_PATH.unshift File.expand_path('../lib', __dir__)
-
+require 'odysseus'
 require 'odysseus/cli/cli'
 require 'optparse'
 
@@ -270,4 +268,4 @@ def print_help
   puts "  --prune-images            Also prune dangling images after removing containers"
 end
 
-main if $0 == __FILE__
+main

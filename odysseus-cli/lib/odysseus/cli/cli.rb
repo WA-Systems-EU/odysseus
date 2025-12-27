@@ -1,12 +1,6 @@
 # odysseus-cli/lib/odysseus/cli/cli.rb
 
 require 'odysseus'
-require 'odysseus/deployer/executor'
-require 'odysseus/config/parser'
-require 'odysseus/deployer/ssh'
-require 'odysseus/docker/client'
-require 'odysseus/caddy/client'
-require 'odysseus/secrets/encrypted_file'
 require 'pastel'
 require 'yaml'
 require 'tempfile'
