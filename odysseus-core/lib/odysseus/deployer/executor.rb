@@ -1,15 +1,5 @@
 # lib/odysseus/deployer/executor.rb
 
-require 'odysseus/config/parser'
-require 'odysseus/deployer/ssh'
-require 'odysseus/docker/client'
-require 'odysseus/caddy/client'
-require 'odysseus/secrets/loader'
-require 'odysseus/orchestrator/web_deploy'
-require 'odysseus/orchestrator/job_deploy'
-require 'odysseus/orchestrator/accessory_deploy'
-require 'odysseus/builder/client'
-
 module Odysseus
   module Deployer
     class Executor
@@ -152,7 +142,7 @@ module Odysseus
         results = {}
 
         @config[:servers].each do |role, role_config|
-          hosts = role_config[:hosts] || []
+          hosts = resolve_hosts(role_config)
           hosts.each do |host|
             puts "\n=== Deploying #{role} to #{host} ==="
             results["#{role}@#{host}"] = deploy_role(host: host, image_tag: image_tag, dry_run: dry_run, role: role)
@@ -338,11 +328,18 @@ module Odysseus
         hosts = []
 
         @config[:servers].each do |_role, role_config|
-          role_hosts = role_config[:hosts] || []
+          role_hosts = resolve_hosts(role_config)
           hosts.concat(role_hosts)
         end
 
         hosts.uniq
+      end
+
+      # Resolve hosts for a role using the appropriate provider
+      # @param role_config [Hash] role configuration
+      # @return [Array<String>] list of hosts
+      def resolve_hosts(role_config)
+        Odysseus::HostProviders.resolve(role_config)
       end
     end
   end

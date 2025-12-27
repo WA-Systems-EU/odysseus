@@ -1,7 +1,5 @@
 # lib/odysseus/secrets/loader.rb
 
-require 'odysseus/secrets/encrypted_file'
-
 module Odysseus
   module Secrets
     class Loader

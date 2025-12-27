@@ -1,8 +1,6 @@
 # spec/odysseus/secrets/loader_spec.rb
 
 require 'spec_helper'
-require 'odysseus/secrets/loader'
-require 'odysseus/secrets/encrypted_file'
 require 'tempfile'
 require 'fileutils'
 

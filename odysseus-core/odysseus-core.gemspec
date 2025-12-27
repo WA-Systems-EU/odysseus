@@ -36,4 +36,5 @@ Gem::Specification.new do |spec|
   spec.add_dependency "net-ssh", "~> 7.2"
   spec.add_dependency "net-scp", "~> 4.0"
   spec.add_dependency "base64"  # Required in Ruby 3.4+
+  spec.add_dependency "zeitwerk", "~> 2.6"
 end

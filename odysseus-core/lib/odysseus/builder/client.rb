@@ -1,8 +1,5 @@
 # lib/odysseus/builder/client.rb
 
-require 'odysseus/errors'
-require 'odysseus/deployer/ssh'
-
 module Odysseus
   module Builder
     class Client

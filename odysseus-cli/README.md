@@ -288,6 +288,40 @@ Available options:
 - `cpus` - CPU limit (e.g., `2` for 2 cores, `1.5` for 1.5 cores)
 - `cpu_shares` - Relative CPU weight (default: 1024)
 
+#### Dynamic hosts with AWS Auto Scaling Groups
+
+Instead of a static `hosts` list, you can configure Odysseus to resolve hosts dynamically from an AWS Auto Scaling Group:
+
+```yaml
+servers:
+  web:
+    aws:
+      asg: my-web-asg           # ASG name (required)
+      region: us-east-1         # AWS region (required)
+      use_private_ip: false     # Use private IPs instead of public (default: false)
+      state: InService          # Instance lifecycle state filter (default: InService)
+    options:
+      memory: 4g
+```
+
+**AWS credentials** are loaded from the standard AWS credential chain:
+- Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
+- Shared credentials file (`~/.aws/credentials`)
+- IAM instance profile (when running on EC2)
+
+**Prerequisites:** Install the AWS SDK gems:
+```bash
+gem install aws-sdk-autoscaling aws-sdk-ec2
+```
+
+Or add to your Gemfile:
+```ruby
+gem 'aws-sdk-autoscaling'
+gem 'aws-sdk-ec2'
+```
+
+**SSH configuration** (bastions, ProxyJump, etc.) is your responsibility. Odysseus only needs the hostnames/IPs and relies on your local SSH config.
+
 ### proxy
 
 Caddy reverse proxy configuration:

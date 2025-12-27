@@ -1,19 +1,26 @@
 # frozen_string_literal: true
 
-require_relative 'odysseus/version'
-require_relative 'odysseus/errors'
-require_relative 'odysseus/config/parser'
-require_relative 'odysseus/validators/config'
-require_relative 'odysseus/secrets/encrypted_file'
-require_relative 'odysseus/secrets/loader'
-require_relative 'odysseus/deployer/ssh'
-require_relative 'odysseus/docker/client'
-require_relative 'odysseus/caddy/client'
-require_relative 'odysseus/builder/client'
-require_relative 'odysseus/orchestrator/web_deploy'
-require_relative 'odysseus/orchestrator/job_deploy'
-require_relative 'odysseus/orchestrator/accessory_deploy'
-require_relative 'odysseus/deployer/executor'
+require 'zeitwerk'
 
 module Odysseus
+  class << self
+    def loader
+      @loader ||= begin
+        loader = Zeitwerk::Loader.for_gem(warn_on_extra_files: false)
+        loader.inflector.inflect(
+          'ssh' => 'SSH',
+          'aws_asg' => 'AwsAsg'
+        )
+        # errors.rb doesn't follow Zeitwerk conventions (plural, defines multiple classes)
+        loader.ignore("#{__dir__}/odysseus/errors.rb")
+        loader.setup
+        loader
+      end
+    end
+  end
 end
+
+# Load errors manually before Zeitwerk (needed by other classes)
+require_relative 'odysseus/errors'
+
+Odysseus.loader

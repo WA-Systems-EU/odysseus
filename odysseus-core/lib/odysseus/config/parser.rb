@@ -1,8 +1,6 @@
 # lib/odysseus/config/parser.rb
 
 require 'yaml'
-require 'odysseus/errors'
-require 'odysseus/validators/config'
 
 module Odysseus
   module Config
@@ -63,11 +61,26 @@ module Odysseus
         servers.each_with_object({}) do |(role, config), acc|
           acc[role.to_sym] = {
             hosts: config['hosts'] || [],
+            aws: parse_aws_config(config['aws']),
             options: symbolize_keys(config['options'] || {}),
             cmd: config['cmd'],
             healthcheck: parse_server_healthcheck(config['healthcheck'])
           }
         end
+      end
+
+      # Parse AWS host provider config
+      # @param aws [Hash] aws block from server config
+      # @return [Hash, nil] normalized aws config or nil
+      def parse_aws_config(aws)
+        return nil unless aws
+
+        {
+          asg: aws['asg'],
+          region: aws['region'],
+          use_private_ip: aws['use_private_ip'] || false,
+          state: aws['state'] || 'InService'
+        }
       end
 
       # Parse server-level healthcheck (for workers/jobs)

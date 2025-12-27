@@ -5,8 +5,6 @@ ENV['RACK_ENV'] = 'test'
 require 'rspec'
 require 'rspec/mocks'
 require 'odysseus'
-require 'odysseus/config/parser'
-require 'odysseus/validators/config'
 
 Dir[File.expand_path('support/**/*.rb', __dir__)].each { |f| require f }
 

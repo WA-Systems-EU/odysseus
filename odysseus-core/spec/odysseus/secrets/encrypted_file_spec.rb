@@ -1,7 +1,6 @@
 # spec/odysseus/secrets/encrypted_file_spec.rb
 
 require 'spec_helper'
-require 'odysseus/secrets/encrypted_file'
 require 'tempfile'
 
 RSpec.describe Odysseus::Secrets::EncryptedFile do
