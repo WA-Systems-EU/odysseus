@@ -26,7 +26,7 @@ bundle install
 ## Deploy
 
 ```bash
-odysseus deploy app1.example.com --image myapp:v1.2.3
+odysseus deploy --image v1.2.3 --build
 odysseus generate docker-compose
 odysseus generate caddyfile
 ```

@@ -103,7 +103,7 @@ RSpec.describe Odysseus::Deployer::Executor do
       it 'creates orchestrator with SSH and config' do
         expect(Odysseus::Orchestrator::WebDeploy).to receive(:new).with(
           ssh: mock_ssh,
-          config: hash_including(service: 'df', image: 'myapp-production'),
+          config: hash_including(service: 'myapp', image: 'myapp-production'),
           logger: anything,
           secrets_loader: instance_of(Odysseus::Secrets::Loader)
         ).and_return(mock_orchestrator)

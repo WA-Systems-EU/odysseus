@@ -10,7 +10,7 @@ RSpec.describe Odysseus::Config::Parser do
     it 'parses valid deploy.yml' do
       config = parser.parse
 
-      expect(config[:service]).to eq('df')
+      expect(config[:service]).to eq('myapp')
       expect(config[:image]).to eq('myapp-production')
     end
 
@@ -34,7 +34,7 @@ RSpec.describe Odysseus::Config::Parser do
       config = parser.parse
 
       expect(config[:proxy][:healthcheck][:interval]).to eq(3)
-      expect(config[:proxy][:healthcheck][:path]).to eq('/releases/current')
+      expect(config[:proxy][:healthcheck][:path]).to eq('/health')
       expect(config[:proxy][:healthcheck][:timeout]).to eq(3)
     end
 

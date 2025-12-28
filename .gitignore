@@ -1,5 +1,29 @@
+# Claude Code
 CONTENTS.txt
 CLAUDE-CODE-QUICK-REF.md
 HANDOFF-COMPLETE-CONTEXT.md
 README-WEEKEND-PLAN.md
 SYSTEM-PROMPT-FOR-CLAUDE-CODE.md
+.claude/
+
+# Deploy configurations (keep local, may contain sensitive hostnames)
+deploy.yml
+deploy-*.yml
+**/deploy.yml
+**/deploy-*.yml
+
+# Secrets
+*.enc
+secrets.yml
+.env
+.env.*
+
+# Test directories with real configs
+test-deploy/
+test-ghost/
+
+# Infrastructure
+tofu/
+
+# Tool versions (local preference)
+.tool-versions
