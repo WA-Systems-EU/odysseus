@@ -176,6 +176,10 @@ bundle exec rspec
 
 Caddy is automatically deployed as a container - no manual installation needed.
 
+## Roadmap
+
+- **Odysseus Pro** (coming soon) - Web dashboard, team management, deployment history, and more
+
 ## License
 
 MIT
