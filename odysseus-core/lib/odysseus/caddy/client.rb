@@ -141,6 +141,33 @@ module Odysseus
         remove_upstream(service: service, upstream: upstream)
       end
 
+      # Remove stale upstreams that point to stopped/non-existent containers
+      # @param service [String] service name
+      # @return [Array<String>] list of removed upstreams
+      def cleanup_stale_upstreams(service:)
+        routes = api_request('GET', '/config/apps/http/servers/srv0/routes') || []
+        route_idx = routes.find_index { |r| r['@id'] == "route-#{service}" }
+        return [] unless route_idx
+
+        upstreams = routes[route_idx].dig('handle', 0, 'upstreams') || []
+        removed = []
+
+        upstreams.each do |upstream|
+          dial = upstream['dial']
+          # Extract container name from upstream (format: container_name:port)
+          container_name = dial.split(':').first
+          next if container_name.nil? || container_name.empty?
+
+          # Check if container is running
+          unless @docker.running?(container_name)
+            remove_upstream(service: service, upstream: dial)
+            removed << dial
+          end
+        end
+
+        removed
+      end
+
       # Get current Caddy config
       # @return [Hash] current config
       def config

@@ -62,6 +62,11 @@ module Odysseus
         log "Cleaning up old containers..."
         @docker.cleanup_old_containers(service: service, keep: 2)
 
+        # Step 8: Cleanup stale Caddy upstreams (in case any were missed)
+        log "Cleaning up stale Caddy routes..."
+        removed_upstreams = @caddy.cleanup_stale_upstreams(service: service)
+        log "Removed #{removed_upstreams.size} stale upstream(s)" if removed_upstreams.any?
+
         {
           success: true,
           container_id: new_container_id,
