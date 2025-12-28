@@ -58,6 +58,7 @@ RSpec.describe Odysseus::Orchestrator::WebDeploy do
     allow(mock_caddy).to receive(:add_upstream)
     allow(mock_ssh).to receive(:execute).and_return("/myapp-20231215\n")
     allow(mock_docker).to receive(:cleanup_old_containers)
+    allow(mock_caddy).to receive(:cleanup_stale_upstreams).and_return([])
   end
 
   describe '#deploy' do
