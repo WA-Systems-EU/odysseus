@@ -461,14 +461,19 @@ registry:
 
 For better security, you can store registry credentials in your encrypted secrets file and reference them.
 
+## Server Requirements
+
+Your target servers only need **Docker** installed. Odysseus automatically deploys and manages Caddy as a container (`odysseus-caddy`) - no manual Caddy installation required.
+
 ## How It Works
 
-1. **Deploy** starts a new container with the specified image tag
-2. **Health check** waits for the container to become healthy
-3. **Caddy update** adds the new container to the upstream pool
-4. **Drain** removes old containers from Caddy and waits for connections to close
-5. **Cleanup** stops old containers and removes all but the 2 most recent
-6. **Stale upstream cleanup** removes any Caddy routes pointing to stopped containers
+1. **Ensure Caddy** starts the Caddy container if not running
+2. **Deploy** starts a new container with the specified image tag
+3. **Health check** waits for the container to become healthy
+4. **Caddy update** adds the new container to the upstream pool
+5. **Drain** removes old containers from Caddy and waits for connections to close
+6. **Cleanup** stops old containers and removes all but the 2 most recent
+7. **Stale upstream cleanup** removes any Caddy routes pointing to stopped containers
 
 This ensures zero-downtime deployments with automatic rollback if health checks fail.
 
