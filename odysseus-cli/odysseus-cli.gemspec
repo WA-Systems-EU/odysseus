@@ -6,7 +6,7 @@ Gem::Specification.new do |spec|
   spec.summary       = "CLI for Odysseus deployment tool"
   spec.description   = "Command-line interface for deploying with Odysseus"
   spec.homepage      = "https://github.com/WaSystems/odysseus"
-  spec.license       = "MIT"
+  spec.license       = "LGPL-3.0-only"
 
   spec.files         = Dir["lib/**/*", "bin/*", "README.md", "LICENSE"]
   spec.executables   = ["odysseus"]

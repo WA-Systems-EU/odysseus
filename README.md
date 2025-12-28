@@ -152,8 +152,7 @@ See [odysseus-cli/README.md](odysseus-cli/README.md) for complete CLI documentat
 ```
 odysseus/
 ├── odysseus-core/    # Core library (config parsing, deployers, orchestrators)
-├── odysseus-cli/     # Command-line interface
-└── doc-site/         # Documentation website
+└── odysseus-cli/     # Command-line interface
 ```
 
 ## Development
