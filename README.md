@@ -2,6 +2,8 @@
 
 Zero-downtime Docker deployments over SSH with automatic HTTPS.
 
+> **Beta:** Odysseus is under active development. APIs and configuration may change. Feedback and contributions welcome!
+
 Odysseus deploys containerized applications to your own servers using SSH, Docker, and Caddy. No Kubernetes. No container orchestration platform. Just simple, reliable deployments.
 
 ## Why Odysseus?
