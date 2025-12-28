@@ -209,16 +209,21 @@ odysseus validate [--config FILE]
 Manage accessories (databases, Redis, etc).
 
 ```bash
-odysseus accessory boot <server> --name db
-odysseus accessory boot-all <server>
-odysseus accessory remove <server> --name db
-odysseus accessory restart <server> --name db
-odysseus accessory upgrade <server> --name db
-odysseus accessory status <server>
+# These commands use hosts from accessory config (no server argument needed)
+odysseus accessory boot --name db
+odysseus accessory boot-all
+odysseus accessory remove --name db
+odysseus accessory restart --name db
+odysseus accessory upgrade --name db
+odysseus accessory status
+
+# These commands require a server argument
 odysseus accessory logs <server> --name db [-f] [-n 100]
 odysseus accessory exec <server> --name db --command "psql -U postgres"
 odysseus accessory shell <server> --name db
 ```
+
+Accessory commands like `boot`, `remove`, `restart`, `upgrade`, and `status` read the target hosts from the accessory's `hosts` configuration in deploy.yml, similar to how `deploy` works. Only `logs`, `exec`, and `shell` require a server argument since they operate on a specific host.
 
 ### app
 
@@ -338,6 +343,7 @@ proxy:
     path: /health
     interval: 10
     timeout: 5
+    expect_status: 200  # Optional: expected HTTP status (default: 2xx)
 ```
 
 ### env
@@ -382,6 +388,8 @@ Long-running services like databases:
 accessories:
   db:
     image: postgres:16
+    hosts:
+      - db.example.com
     volumes:
       - /var/lib/odysseus/myapp/postgres:/var/lib/postgresql/data
     env:
@@ -393,6 +401,8 @@ accessories:
       interval: 10
       timeout: 5
 ```
+
+Each accessory must define `hosts` - the servers where it should run.
 
 ### ssh
 
@@ -458,6 +468,7 @@ For better security, you can store registry credentials in your encrypted secret
 3. **Caddy update** adds the new container to the upstream pool
 4. **Drain** removes old containers from Caddy and waits for connections to close
 5. **Cleanup** stops old containers and removes all but the 2 most recent
+6. **Stale upstream cleanup** removes any Caddy routes pointing to stopped containers
 
 This ensures zero-downtime deployments with automatic rollback if health checks fail.
 

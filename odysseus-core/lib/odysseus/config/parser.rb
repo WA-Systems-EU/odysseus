@@ -117,7 +117,8 @@ module Odysseus
         {
           interval: healthcheck['interval'] || 5,
           path: healthcheck['path'] || '/',
-          timeout: healthcheck['timeout'] || 5
+          timeout: healthcheck['timeout'] || 5,
+          expect_status: healthcheck['expect_status'] # e.g., 200, 301, or "2xx"
         }
       end
 

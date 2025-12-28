@@ -155,8 +155,29 @@ module Odysseus
       def build_healthcheck(hc_config)
         return nil unless hc_config && hc_config[:path]
 
+        port = @config[:proxy][:app_port]
+        path = hc_config[:path]
+        expect_status = hc_config[:expect_status]
+
+        # Build curl command based on expected status
+        cmd = if expect_status
+                # Check for specific status code or range (e.g., 301, "2xx", "3xx")
+                status_str = expect_status.to_s
+                if status_str.end_with?('xx')
+                  # Range like "2xx" or "3xx" - check first digit
+                  first_digit = status_str[0]
+                  "curl -s -o /dev/null -w '%{http_code}' http://localhost:#{port}#{path} | grep -q '^#{first_digit}' || exit 1"
+                else
+                  # Specific status code like 200 or 301
+                  "curl -s -o /dev/null -w '%{http_code}' http://localhost:#{port}#{path} | grep -q '^#{expect_status}$' || exit 1"
+                end
+              else
+                # Default: accept 2xx (use -f flag which fails on 4xx/5xx)
+                "curl -sf http://localhost:#{port}#{path} || exit 1"
+              end
+
         {
-          cmd: "curl -sf http://localhost:#{@config[:proxy][:app_port]}#{hc_config[:path]} || exit 1",
+          cmd: cmd,
           interval: hc_config[:interval] || 10,
           timeout: hc_config[:timeout] || 5,
           retries: 3

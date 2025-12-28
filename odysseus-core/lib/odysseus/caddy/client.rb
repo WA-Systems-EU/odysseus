@@ -299,13 +299,21 @@ module Odysseus
 
         # Add health checks if configured
         if healthcheck
-          route['handle'][0]['health_checks'] = {
-            'active' => {
-              'uri' => healthcheck[:path] || '/health',
-              'interval' => "#{healthcheck[:interval] || 10}s",
-              'timeout' => "#{healthcheck[:timeout] || 5}s"
-            }
+          active_check = {
+            'uri' => healthcheck[:path] || '/health',
+            'interval' => "#{healthcheck[:interval] || 10}s",
+            'timeout' => "#{healthcheck[:timeout] || 5}s"
           }
+
+          # Add expected status code if specified (e.g., 200, 301, or 2 for 2xx)
+          if healthcheck[:expect_status]
+            status = healthcheck[:expect_status].to_s
+            # Caddy expects just the first digit for ranges like "2xx"
+            expect_value = status.end_with?('xx') ? status[0].to_i : status.to_i
+            active_check['expect_status'] = expect_value
+          end
+
+          route['handle'][0]['health_checks'] = { 'active' => active_check }
         end
 
         route
