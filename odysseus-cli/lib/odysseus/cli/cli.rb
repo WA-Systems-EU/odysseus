@@ -4,12 +4,22 @@ require 'odysseus'
 require 'pastel'
 require 'yaml'
 require 'tempfile'
+require_relative 'gum'
 
 module Odysseus
   module CLI
     class CLI
-      def initialize
+      def initialize(charm_mode: false)
         @pastel = Pastel.new
+        @charm = charm_mode && Gum.available?
+        if charm_mode && !Gum.available?
+          warn @pastel.yellow("Warning: --charm mode requested but 'gum' is not installed")
+          warn @pastel.dim("Install gum: https://github.com/charmbracelet/gum")
+        end
+      end
+
+      def charm?
+        @charm
       end
 
       # Deploy command - deploys all roles to their configured hosts
@@ -24,7 +34,12 @@ module Odysseus
         config = load_config(config_file)
         uses_registry = config[:registry] && config[:registry][:server]
 
-        puts @pastel.cyan("Odysseus Deploy")
+        # Header
+        if charm?
+          puts Gum.style("⛵ Odysseus Deploy", border: 'rounded', foreground: '212', padding: '0 1')
+        else
+          puts @pastel.cyan("Odysseus Deploy")
+        end
         puts @pastel.blue("Service: #{config[:service]}")
         puts @pastel.blue("Image: #{config[:image]}:#{image_tag}")
         if should_build
@@ -37,33 +52,39 @@ module Odysseus
 
         # Build and distribute image if requested
         if should_build
-          puts @pastel.cyan("=== Building and distributing image ===")
-          result = executor.build_and_distribute(image_tag: image_tag)
+          if charm?
+            result = Gum.spin(title: 'Building and distributing image...') do
+              executor.build_and_distribute(image_tag: image_tag)
+            end
+          else
+            puts @pastel.cyan("=== Building and distributing image ===")
+            result = executor.build_and_distribute(image_tag: image_tag)
+          end
 
           if result[:build][:success]
-            puts @pastel.green("Build complete!")
+            puts @pastel.green("✓ Build complete!")
           else
-            puts @pastel.red("Build failed: #{result[:build][:error]}")
+            puts @pastel.red("✗ Build failed: #{result[:build][:error]}")
             exit 1
           end
 
           # Handle distribution result (either pussh or registry push)
           if uses_registry
             if result[:push][:success]
-              puts @pastel.green("Pushed to registry!")
+              puts @pastel.green("✓ Pushed to registry!")
             else
-              puts @pastel.red("Push to registry failed!")
+              puts @pastel.red("✗ Push to registry failed!")
               exit 1
             end
           else
             if result[:pussh][:success]
-              puts @pastel.green("Pussh complete!")
+              puts @pastel.green("✓ Pussh complete!")
               result[:pussh][:results]&.each do |host, host_result|
                 status = host_result[:success] ? @pastel.green('✓') : @pastel.red('✗')
                 puts "  #{status} #{host}"
               end
             else
-              puts @pastel.red("Pussh failed!")
+              puts @pastel.red("✗ Pussh failed!")
               result[:pussh][:results]&.each do |host, host_result|
                 status = host_result[:success] ? @pastel.green('✓') : @pastel.red('✗')
                 puts "  #{status} #{host}"
@@ -75,10 +96,20 @@ module Odysseus
           puts ""
         end
 
-        executor.deploy_all(image_tag: image_tag, dry_run: dry_run)
+        if charm?
+          Gum.spin(title: 'Deploying to servers...') do
+            executor.deploy_all(image_tag: image_tag, dry_run: dry_run)
+          end
+        else
+          executor.deploy_all(image_tag: image_tag, dry_run: dry_run)
+        end
 
         puts ""
-        puts @pastel.green("Deploy complete!")
+        if charm?
+          puts Gum.style("✓ Deploy complete!", foreground: '82', bold: true)
+        else
+          puts @pastel.green("Deploy complete!")
+        end
       rescue Odysseus::Error => e
         puts @pastel.red("Error: #{e.message}")
         exit 1
@@ -97,7 +128,11 @@ module Odysseus
         builder_config = config[:builder] || {}
         strategy = builder_config[:strategy] || :local
 
-        puts @pastel.cyan("Odysseus Build")
+        if charm?
+          puts Gum.style("🔨 Odysseus Build", border: 'rounded', foreground: '212', padding: '0 1')
+        else
+          puts @pastel.cyan("Odysseus Build")
+        end
         puts @pastel.blue("Service: #{config[:service]}")
         puts @pastel.blue("Image: #{config[:image]}:#{image_tag}")
         puts @pastel.blue("Strategy: #{strategy}")
@@ -106,18 +141,29 @@ module Odysseus
         puts ""
 
         executor = Odysseus::Deployer::Executor.new(config_file, verbose: verbose)
-        result = executor.build(image_tag: image_tag, push: push, context_path: context_path)
+
+        if charm?
+          result = Gum.spin(title: 'Building image...') do
+            executor.build(image_tag: image_tag, push: push, context_path: context_path)
+          end
+        else
+          result = executor.build(image_tag: image_tag, push: push, context_path: context_path)
+        end
 
         if result[:success]
           puts ""
-          puts @pastel.green("Build complete!")
+          if charm?
+            puts Gum.style("✓ Build complete!", foreground: '82', bold: true)
+          else
+            puts @pastel.green("Build complete!")
+          end
           puts @pastel.blue("Image: #{result[:image]}")
           if result[:pushed]
             puts @pastel.blue("Pushed to registry: yes")
           end
         else
           puts ""
-          puts @pastel.red("Build failed: #{result[:error]}")
+          puts @pastel.red("✗ Build failed: #{result[:error]}")
           exit 1
         end
       rescue Odysseus::Error => e
@@ -135,7 +181,11 @@ module Odysseus
 
         config = load_config(config_file)
 
-        puts @pastel.cyan("Odysseus Pussh")
+        if charm?
+          puts Gum.style("📦 Odysseus Pussh", border: 'rounded', foreground: '212', padding: '0 1')
+        else
+          puts @pastel.cyan("Odysseus Pussh")
+        end
         puts @pastel.blue("Service: #{config[:service]}")
         puts @pastel.blue("Image: #{config[:image]}:#{image_tag}")
         puts @pastel.blue("Build first: #{should_build ? 'yes' : 'no'}")
@@ -144,30 +194,46 @@ module Odysseus
         executor = Odysseus::Deployer::Executor.new(config_file, verbose: verbose)
 
         if should_build
-          result = executor.build_and_pussh(image_tag: image_tag)
+          if charm?
+            result = Gum.spin(title: 'Building and pushing image via SSH...') do
+              executor.build_and_pussh(image_tag: image_tag)
+            end
+          else
+            result = executor.build_and_pussh(image_tag: image_tag)
+          end
 
           if result[:build][:success]
-            puts @pastel.green("Build complete!")
+            puts @pastel.green("✓ Build complete!")
           else
-            puts @pastel.red("Build failed: #{result[:build][:error]}")
+            puts @pastel.red("✗ Build failed: #{result[:build][:error]}")
             exit 1
           end
         else
-          result = executor.pussh(image_tag: image_tag)
+          if charm?
+            result = Gum.spin(title: 'Pushing image via SSH...') do
+              executor.pussh(image_tag: image_tag)
+            end
+          else
+            result = executor.pussh(image_tag: image_tag)
+          end
         end
 
         pussh_result = should_build ? result[:pussh] : result
 
         if pussh_result[:success]
           puts ""
-          puts @pastel.green("Pussh complete!")
+          if charm?
+            puts Gum.style("✓ Pussh complete!", foreground: '82', bold: true)
+          else
+            puts @pastel.green("Pussh complete!")
+          end
           pussh_result[:results]&.each do |host, host_result|
             status = host_result[:success] ? @pastel.green('✓') : @pastel.red('✗')
             puts "  #{status} #{host}"
           end
         else
           puts ""
-          puts @pastel.red("Pussh failed!")
+          puts @pastel.red("✗ Pussh failed!")
           pussh_result[:results]&.each do |host, host_result|
             status = host_result[:success] ? @pastel.green('✓') : @pastel.red('✗')
             puts "  #{status} #{host}"
@@ -188,7 +254,12 @@ module Odysseus
         config = load_config(config_file)
         service_name = config[:service]
 
-        puts @pastel.cyan("Odysseus Status: #{service_name}")
+        if charm?
+          puts Gum.style("⛵ Odysseus Status", border: 'rounded', foreground: '212', padding: '0 1')
+        else
+          puts @pastel.cyan("Odysseus Status: #{service_name}")
+        end
+        puts @pastel.blue("Service: #{service_name}")
         puts @pastel.blue("Server: #{server}")
         puts ""
 
@@ -199,10 +270,20 @@ module Odysseus
           caddy = Odysseus::Caddy::Client.new(ssh: ssh, docker: docker)
 
           # Web containers
-          puts @pastel.cyan("Web:")
+          if charm?
+            puts Gum.style(" Web ", foreground: '212', bold: true)
+          else
+            puts @pastel.cyan("Web:")
+          end
           web_containers = docker.list(service: service_name)
           if web_containers.empty?
             puts "  (no containers running)"
+          elsif charm?
+            rows = web_containers.map do |c|
+              health = c['Status'].include?('healthy') ? '✓' : ''
+              [c['Names'], c['State'], c['Image'], health]
+            end
+            puts Gum.table(headers: ['Name', 'State', 'Image', 'Health'], rows: rows)
           else
             web_containers.each do |c|
               status_color = c['State'] == 'running' ? :green : :red
@@ -227,17 +308,38 @@ module Odysseus
           # Job/worker containers (non-web roles)
           non_web_roles = config[:servers].keys.reject { |r| r == :web }
           if non_web_roles.any?
-            puts @pastel.cyan("Jobs/Workers:")
-            non_web_roles.each do |role|
-              role_service = "#{service_name}-#{role}"
-              containers = docker.list(service: role_service)
-              if containers.empty?
-                puts "  #{@pastel.yellow(role.to_s)}: #{@pastel.red('not running')}"
-              else
-                containers.each do |c|
-                  status_color = c['State'] == 'running' ? :green : :red
-                  puts "  #{@pastel.yellow(role.to_s)}: #{@pastel.send(status_color, c['State'])} #{c['Names']}"
-                  puts "    Image: #{c['Image']}"
+            if charm?
+              puts Gum.style(" Jobs/Workers ", foreground: '212', bold: true)
+            else
+              puts @pastel.cyan("Jobs/Workers:")
+            end
+
+            if charm?
+              rows = []
+              non_web_roles.each do |role|
+                role_service = "#{service_name}-#{role}"
+                containers = docker.list(service: role_service)
+                if containers.empty?
+                  rows << [role.to_s, 'stopped', '-', '-']
+                else
+                  containers.each do |c|
+                    rows << [role.to_s, c['State'], c['Names'], c['Image']]
+                  end
+                end
+              end
+              puts Gum.table(headers: ['Role', 'State', 'Name', 'Image'], rows: rows)
+            else
+              non_web_roles.each do |role|
+                role_service = "#{service_name}-#{role}"
+                containers = docker.list(service: role_service)
+                if containers.empty?
+                  puts "  #{@pastel.yellow(role.to_s)}: #{@pastel.red('not running')}"
+                else
+                  containers.each do |c|
+                    status_color = c['State'] == 'running' ? :green : :red
+                    puts "  #{@pastel.yellow(role.to_s)}: #{@pastel.send(status_color, c['State'])} #{c['Names']}"
+                    puts "    Image: #{c['Image']}"
+                  end
                 end
               end
             end
@@ -246,20 +348,36 @@ module Odysseus
 
           # Accessories
           if config[:accessories]&.any?
-            puts @pastel.cyan("Accessories:")
-            config[:accessories].each do |name, acc_config|
-              acc_service = "#{service_name}-#{name}"
-              containers = docker.list(service: acc_service, all: true)
-              running = containers.find { |c| c['State'] == 'running' }
+            if charm?
+              puts Gum.style(" Accessories ", foreground: '212', bold: true)
+              rows = config[:accessories].map do |name, acc_config|
+                acc_service = "#{service_name}-#{name}"
+                containers = docker.list(service: acc_service, all: true)
+                running = containers.find { |c| c['State'] == 'running' }
+                if running
+                  health = running['Status'].include?('healthy') ? '✓' : ''
+                  [name.to_s, 'running', acc_config[:image], running['ID'][0..11], health]
+                else
+                  [name.to_s, 'stopped', acc_config[:image], '-', '']
+                end
+              end
+              puts Gum.table(headers: ['Name', 'State', 'Image', 'Container', 'Health'], rows: rows)
+            else
+              puts @pastel.cyan("Accessories:")
+              config[:accessories].each do |name, acc_config|
+                acc_service = "#{service_name}-#{name}"
+                containers = docker.list(service: acc_service, all: true)
+                running = containers.find { |c| c['State'] == 'running' }
 
-              if running
-                health = running['Status'].include?('healthy') ? ' (healthy)' : ''
-                puts "  #{@pastel.yellow(name.to_s)}: #{@pastel.green('running')}#{health}"
-                puts "    Image: #{acc_config[:image]}"
-                puts "    Container: #{running['ID'][0..11]}"
-              else
-                puts "  #{@pastel.yellow(name.to_s)}: #{@pastel.red('stopped')}"
-                puts "    Image: #{acc_config[:image]}"
+                if running
+                  health = running['Status'].include?('healthy') ? ' (healthy)' : ''
+                  puts "  #{@pastel.yellow(name.to_s)}: #{@pastel.green('running')}#{health}"
+                  puts "    Image: #{acc_config[:image]}"
+                  puts "    Container: #{running['ID'][0..11]}"
+                else
+                  puts "  #{@pastel.yellow(name.to_s)}: #{@pastel.red('stopped')}"
+                  puts "    Image: #{acc_config[:image]}"
+                end
               end
             end
             puts ""
@@ -267,7 +385,11 @@ module Odysseus
 
           # TLS status for this service's domains
           if config[:proxy][:hosts]&.any?
-            puts @pastel.cyan("TLS:")
+            if charm?
+              puts Gum.style(" TLS ", foreground: '212', bold: true)
+            else
+              puts @pastel.cyan("TLS:")
+            end
             if caddy_status[:running] && caddy_status[:tls][:enabled]
               service_hosts = config[:proxy][:hosts]
               relevant_policy = caddy_status[:tls][:policies].find do |p|
@@ -297,7 +419,11 @@ module Odysseus
       def containers(server, options = {})
         config_file = options[:config] || 'deploy.yml'
 
-        puts @pastel.cyan("Odysseus Containers")
+        if charm?
+          puts Gum.style("📦 Odysseus Containers", border: 'rounded', foreground: '212', padding: '0 1')
+        else
+          puts @pastel.cyan("Odysseus Containers")
+        end
         puts @pastel.blue("Server: #{server}")
         puts ""
 
@@ -311,6 +437,12 @@ module Odysseus
 
           if containers.empty?
             puts "No containers found for service: #{service_name}"
+          elsif charm?
+            puts Gum.style(" #{service_name} ", foreground: '212', bold: true)
+            rows = containers.map do |c|
+              [c['ID'][0..11], c['State'], c['Names'], c['Image'], c['Status']]
+            end
+            puts Gum.table(headers: ['ID', 'State', 'Name', 'Image', 'Status'], rows: rows)
           else
             puts @pastel.cyan("Containers for #{service_name}:")
             containers.each do |c|
@@ -362,14 +494,25 @@ module Odysseus
           exit 1
         end
 
-        puts @pastel.cyan("Odysseus Accessory Boot")
+        if charm?
+          puts Gum.style("🔌 Accessory Boot", border: 'rounded', foreground: '212', padding: '0 1')
+        else
+          puts @pastel.cyan("Odysseus Accessory Boot")
+        end
         puts @pastel.blue("Accessory: #{name}")
         puts ""
 
         executor = Odysseus::Deployer::Executor.new(config_file)
-        executor.deploy_accessory(name: name)
 
-        puts @pastel.green("Accessory #{name} deployed!")
+        if charm?
+          Gum.spin(title: "Booting #{name}...") do
+            executor.deploy_accessory(name: name)
+          end
+          puts Gum.style("✓ Accessory #{name} deployed!", foreground: '82', bold: true)
+        else
+          executor.deploy_accessory(name: name)
+          puts @pastel.green("Accessory #{name} deployed!")
+        end
       rescue Odysseus::Error => e
         puts @pastel.red("Error: #{e.message}")
         exit 1
@@ -380,13 +523,24 @@ module Odysseus
       def accessory_boot_all(options = {})
         config_file = options[:config] || 'deploy.yml'
 
-        puts @pastel.cyan("Odysseus Accessory Boot All")
+        if charm?
+          puts Gum.style("🔌 Accessory Boot All", border: 'rounded', foreground: '212', padding: '0 1')
+        else
+          puts @pastel.cyan("Odysseus Accessory Boot All")
+        end
         puts ""
 
         executor = Odysseus::Deployer::Executor.new(config_file)
-        executor.boot_accessories
 
-        puts @pastel.green("All accessories deployed!")
+        if charm?
+          Gum.spin(title: 'Booting all accessories...') do
+            executor.boot_accessories
+          end
+          puts Gum.style("✓ All accessories deployed!", foreground: '82', bold: true)
+        else
+          executor.boot_accessories
+          puts @pastel.green("All accessories deployed!")
+        end
       rescue Odysseus::Error => e
         puts @pastel.red("Error: #{e.message}")
         exit 1
@@ -403,14 +557,33 @@ module Odysseus
           exit 1
         end
 
-        puts @pastel.cyan("Odysseus Accessory Remove")
+        if charm?
+          puts Gum.style("🗑️  Accessory Remove", border: 'rounded', foreground: '212', padding: '0 1')
+        else
+          puts @pastel.cyan("Odysseus Accessory Remove")
+        end
         puts @pastel.blue("Accessory: #{name}")
         puts ""
 
-        executor = Odysseus::Deployer::Executor.new(config_file)
-        executor.remove_accessory(name: name)
+        # Charm mode: ask for confirmation
+        if charm?
+          unless Gum.confirm("Remove accessory #{name}?")
+            puts @pastel.yellow("Cancelled.")
+            return
+          end
+        end
 
-        puts @pastel.green("Accessory #{name} removed!")
+        executor = Odysseus::Deployer::Executor.new(config_file)
+
+        if charm?
+          Gum.spin(title: "Removing #{name}...") do
+            executor.remove_accessory(name: name)
+          end
+          puts Gum.style("✓ Accessory #{name} removed!", foreground: '82', bold: true)
+        else
+          executor.remove_accessory(name: name)
+          puts @pastel.green("Accessory #{name} removed!")
+        end
       rescue Odysseus::Error => e
         puts @pastel.red("Error: #{e.message}")
         exit 1
@@ -427,14 +600,25 @@ module Odysseus
           exit 1
         end
 
-        puts @pastel.cyan("Odysseus Accessory Restart")
+        if charm?
+          puts Gum.style("🔄 Accessory Restart", border: 'rounded', foreground: '212', padding: '0 1')
+        else
+          puts @pastel.cyan("Odysseus Accessory Restart")
+        end
         puts @pastel.blue("Accessory: #{name}")
         puts ""
 
         executor = Odysseus::Deployer::Executor.new(config_file)
-        executor.restart_accessory(name: name)
 
-        puts @pastel.green("Accessory #{name} restarted!")
+        if charm?
+          Gum.spin(title: "Restarting #{name}...") do
+            executor.restart_accessory(name: name)
+          end
+          puts Gum.style("✓ Accessory #{name} restarted!", foreground: '82', bold: true)
+        else
+          executor.restart_accessory(name: name)
+          puts @pastel.green("Accessory #{name} restarted!")
+        end
       rescue Odysseus::Error => e
         puts @pastel.red("Error: #{e.message}")
         exit 1
@@ -451,14 +635,25 @@ module Odysseus
           exit 1
         end
 
-        puts @pastel.cyan("Odysseus Accessory Upgrade")
+        if charm?
+          puts Gum.style("⬆️  Accessory Upgrade", border: 'rounded', foreground: '212', padding: '0 1')
+        else
+          puts @pastel.cyan("Odysseus Accessory Upgrade")
+        end
         puts @pastel.blue("Accessory: #{name}")
         puts ""
 
         executor = Odysseus::Deployer::Executor.new(config_file)
-        executor.upgrade_accessory(name: name)
 
-        puts @pastel.green("Accessory #{name} upgraded!")
+        if charm?
+          Gum.spin(title: "Upgrading #{name}...") do
+            executor.upgrade_accessory(name: name)
+          end
+          puts Gum.style("✓ Accessory #{name} upgraded!", foreground: '82', bold: true)
+        else
+          executor.upgrade_accessory(name: name)
+          puts @pastel.green("Accessory #{name} upgraded!")
+        end
       rescue Odysseus::Error => e
         puts @pastel.red("Error: #{e.message}")
         exit 1
@@ -469,7 +664,11 @@ module Odysseus
       def accessory_status(options = {})
         config_file = options[:config] || 'deploy.yml'
 
-        puts @pastel.cyan("Odysseus Accessory Status")
+        if charm?
+          puts Gum.style("🔌 Accessory Status", border: 'rounded', foreground: '212', padding: '0 1')
+        else
+          puts @pastel.cyan("Odysseus Accessory Status")
+        end
         puts ""
 
         executor = Odysseus::Deployer::Executor.new(config_file)
@@ -477,6 +676,14 @@ module Odysseus
 
         if statuses.empty?
           puts "No accessories configured"
+        elsif charm?
+          rows = statuses.map do |status|
+            state = status[:running] ? 'running' : 'stopped'
+            container = status[:container_id] ? status[:container_id][0..11] : '-'
+            proxy = status[:has_proxy] ? '✓' : ''
+            [status[:name].to_s, status[:host], state, status[:image], container, proxy]
+          end
+          puts Gum.table(headers: ['Name', 'Host', 'State', 'Image', 'Container', 'Proxy'], rows: rows)
         else
           statuses.each do |status|
             status_text = status[:running] ? @pastel.green('running') : @pastel.red('stopped')
@@ -742,7 +949,12 @@ module Odysseus
         config = load_config(config_file)
         service_name = config[:service]
 
-        puts @pastel.cyan("Odysseus Cleanup: #{service_name}")
+        if charm?
+          puts Gum.style("🧹 Odysseus Cleanup", border: 'rounded', foreground: '212', padding: '0 1')
+        else
+          puts @pastel.cyan("Odysseus Cleanup: #{service_name}")
+        end
+        puts @pastel.blue("Service: #{service_name}")
         puts @pastel.blue("Server: #{server}")
         puts ""
 
@@ -764,6 +976,19 @@ module Odysseus
           end
           config[:accessories]&.each_key do |name|
             service_names << "#{service_name}-#{name}"
+          end
+
+          # Count containers to be removed
+          total_to_remove = service_names.sum do |svc|
+            docker.list(service: svc, all: true).size
+          end
+
+          # Charm mode: ask for confirmation
+          if charm? && total_to_remove > 0
+            unless Gum.confirm("Remove #{total_to_remove} container(s) for #{service_name}?")
+              puts @pastel.yellow("Cleanup cancelled.")
+              return
+            end
           end
 
           puts @pastel.yellow("Removing containers for #{service_name}...")
@@ -828,7 +1053,11 @@ module Odysseus
         end
 
         puts ""
-        puts @pastel.green("Cleanup complete!")
+        if charm?
+          puts Gum.style("✓ Cleanup complete!", foreground: '82', bold: true)
+        else
+          puts @pastel.green("Cleanup complete!")
+        end
       rescue Odysseus::Error => e
         puts @pastel.red("Error: #{e.message}")
         exit 1

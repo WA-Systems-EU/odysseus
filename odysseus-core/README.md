@@ -1,43 +1,88 @@
-# Odysseus::Core
+# Odysseus Core
 
-TODO: Delete this and the text below, and describe your gem
-
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/odysseus/core`. To experiment with that code, run `bin/console` for an interactive prompt.
+Core library for [Odysseus](https://github.com/WA-Systems-EU/odysseus), a zero-downtime Docker deployment tool with Caddy reverse proxy integration.
 
 ## Installation
 
-TODO: Replace `UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG` with your gem name right after releasing it to RubyGems.org. Please do not do it earlier due to security reasons. Alternatively, replace this section with instructions to install your gem from git if you don't plan to release to RubyGems.org.
-
-Install the gem and add to the application's Gemfile by executing:
-
 ```bash
-bundle add UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+gem install odysseus-core
 ```
 
-If bundler is not being used to manage dependencies, install the gem by executing:
+Or add to your Gemfile:
 
-```bash
-gem install UPDATE_WITH_YOUR_GEM_NAME_IMMEDIATELY_AFTER_RELEASE_TO_RUBYGEMS_ORG
+```ruby
+gem 'odysseus-core'
 ```
+
+## Overview
+
+Odysseus Core provides the foundational components for Docker container deployment:
+
+- **Configuration parsing** - YAML-based deploy.yml configuration
+- **Docker client** - Container lifecycle management via SSH
+- **Caddy client** - Reverse proxy configuration and routing
+- **Deployer** - Zero-downtime deployment orchestration
+- **Secrets** - Encrypted secrets file support
 
 ## Usage
 
-TODO: Write usage instructions here
+This gem is primarily used by [odysseus-cli](https://rubygems.org/gems/odysseus-cli). For direct usage:
 
-## Development
+```ruby
+require 'odysseus'
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
+# Parse configuration
+parser = Odysseus::Config::Parser.new('deploy.yml')
+config = parser.parse
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version, push git commits and the created tag, and push the `.gem` file to [rubygems.org](https://rubygems.org).
+# Create executor
+executor = Odysseus::Deployer::Executor.new('deploy.yml')
 
-## Contributing
+# Deploy
+executor.deploy_all(image_tag: 'v1.0.0')
+```
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/[USERNAME]/odysseus-core. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [code of conduct](https://github.com/[USERNAME]/odysseus-core/blob/trunk/CODE_OF_CONDUCT.md).
+## Components
+
+### Odysseus::Config::Parser
+
+Parses deploy.yml configuration files with support for:
+- Server roles (web, jobs, workers)
+- Proxy configuration (Caddy)
+- Accessories (databases, Redis, etc.)
+- Environment variables and secrets
+- AWS Auto Scaling Group integration
+
+### Odysseus::Docker::Client
+
+Docker operations via SSH:
+- Container lifecycle (run, stop, remove)
+- Image management
+- Health checks
+- Log streaming
+
+### Odysseus::Caddy::Client
+
+Caddy reverse proxy management:
+- Dynamic upstream configuration
+- Zero-downtime routing updates
+- TLS certificate management
+
+### Odysseus::Deployer::Executor
+
+Deployment orchestration:
+- Build and distribute images
+- Zero-downtime container replacement
+- Health check verification
+- Automatic rollback on failure
+
+### Odysseus::Secrets::EncryptedFile
+
+Encrypted secrets management:
+- AES-256-GCM encryption
+- Environment variable injection
+- Secure key management
 
 ## License
 
-The gem is available as open source under the terms of the [MIT License](https://opensource.org/licenses/MIT).
-
-## Code of Conduct
-
-Everyone interacting in the Odysseus::Core project's codebases, issue trackers, chat rooms and mailing lists is expected to follow the [code of conduct](https://github.com/[USERNAME]/odysseus-core/blob/trunk/CODE_OF_CONDUCT.md).
+LGPL-3.0-only

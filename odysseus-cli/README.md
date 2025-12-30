@@ -461,6 +461,50 @@ registry:
 
 For better security, you can store registry credentials in your encrypted secrets file and reference them.
 
+## Charm Mode (TUI)
+
+Odysseus CLI supports an optional **Charm mode** for a more glamorous terminal experience with spinners, styled output, tables, and interactive confirmations.
+
+### Enabling Charm Mode
+
+```bash
+# Via command-line flag
+odysseus deploy --charm --build
+
+# Via environment variable
+ODYSSEUS_CHARM=1 odysseus deploy --build
+```
+
+### Features in Charm Mode
+
+- **Styled headers** with rounded borders and colors
+- **Spinners** for long-running operations (build, deploy, pussh)
+- **Tables** for container and accessory status listings
+- **Confirmation dialogs** for destructive operations (cleanup, accessory remove)
+
+### Installing gum
+
+Charm mode requires [gum](https://github.com/charmbracelet/gum) to be installed:
+
+```bash
+# macOS
+brew install gum
+
+# Arch Linux
+pacman -S gum
+
+# Ubuntu/Debian (via charm tap)
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
+echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list
+sudo apt update && sudo apt install gum
+
+# From source
+go install github.com/charmbracelet/gum@latest
+```
+
+If gum is not installed, Odysseus will warn you and fall back to standard output.
+
 ## Server Requirements
 
 Your target servers only need **Docker** installed. Odysseus automatically deploys and manages Caddy as a container (`odysseus-caddy`) - no manual Caddy installation required.

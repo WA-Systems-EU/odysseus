@@ -6,7 +6,11 @@ require 'odysseus/cli/cli'
 require 'optparse'
 
 def main
-  cli = Odysseus::CLI::CLI.new
+  # Check for charm mode via env var or flag
+  charm_mode = ENV['ODYSSEUS_CHARM'] == '1' || ARGV.include?('--charm')
+  ARGV.delete('--charm') # Remove so it doesn't interfere with command parsing
+
+  cli = Odysseus::CLI::CLI.new(charm_mode: charm_mode)
 
   commands = {
     'deploy' => { method: :deploy, needs_server: false },
@@ -240,6 +244,10 @@ end
 
 def print_help
   puts "Usage: odysseus <command> [options]"
+  puts ""
+  puts "Global options:"
+  puts "  --charm                   Enable Charm TUI mode (requires gum)"
+  puts "                            Or set ODYSSEUS_CHARM=1 environment variable"
   puts ""
   puts "Commands:"
   puts "  deploy                    Deploy all roles to servers defined in config"
