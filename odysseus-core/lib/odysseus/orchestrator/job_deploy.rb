@@ -1,8 +1,12 @@
 # lib/odysseus/orchestrator/job_deploy.rb
 
+require_relative '../core/volume_namespacer'
+
 module Odysseus
   module Orchestrator
     class JobDeploy
+      include Odysseus::Core::VolumeNamespacer
+
       # @param ssh [Odysseus::Deployer::SSH] SSH connection
       # @param config [Hash] parsed deploy config
       # @param logger [Object] logger (optional)
@@ -24,46 +28,54 @@ module Odysseus
         role_name = "#{service}-#{role}"
         image = "#{@config[:image]}:#{image_tag}"
 
-        log "Starting deploy of #{role_name} with #{image}"
+        log "Deploying #{role_name}"
+        log "  Image: #{image}"
+
+        server_config = @config[:servers][role] || {}
+        log "  Command: #{server_config[:cmd]}" if server_config[:cmd]
 
         # Step 1: Find existing containers for this role
-        log "Checking for existing containers..."
         old_containers = @docker.list(service: role_name)
-        log "Found #{old_containers.size} existing container(s)"
+        log "  Found #{old_containers.size} existing container(s)"
 
         # Step 2: Start new container
         log "Starting new container..."
         new_container_id = start_new_container(image: image, role: role)
-        log "Started container: #{new_container_id[0..11]}"
+        log "  Container started: #{new_container_id[0..11]}"
 
         # Step 3: Wait for healthy (if healthcheck configured)
-        server_config = @config[:servers][role] || {}
         if server_config[:healthcheck]
-          log "Waiting for container to be healthy..."
+          hc = server_config[:healthcheck]
+          log "Waiting for health check... (cmd: #{hc[:cmd]}, interval: #{hc[:interval]}s)"
           unless wait_for_healthy(new_container_id)
+            log_health_failure(new_container_id)
             handle_failed_deploy(new_container_id)
             raise Odysseus::DeployError, "Container failed health checks"
           end
-          log "Container is healthy!"
+          log "  Health check passed"
         else
-          # No healthcheck - just wait a few seconds for startup
-          log "No healthcheck configured, waiting for startup..."
+          log "No health check configured, waiting 5s for startup..."
           sleep 5
           unless @docker.running?(new_container_id)
+            log_health_failure(new_container_id)
             handle_failed_deploy(new_container_id)
             raise Odysseus::DeployError, "Container failed to start"
           end
+          log "  Container is running"
         end
 
         # Step 4: Stop old containers gracefully
         old_containers.each do |old|
-          log "Stopping old container: #{old['ID'][0..11]}..."
+          log "Stopping old container #{old['ID'][0..11]} (30s grace period)..."
           graceful_stop(old['ID'])
+          log "  Old container removed"
         end
 
         # Step 5: Cleanup old stopped containers
-        log "Cleaning up old containers..."
-        @docker.cleanup_old_containers(service: role_name, keep: 2)
+        cleaned = @docker.cleanup_old_containers(service: role_name, keep: 2)
+        log "  Cleaned up #{cleaned.size} old container(s)" if cleaned.any?
+
+        log "Deploy complete for #{role_name}"
 
         {
           success: true,
@@ -72,7 +84,7 @@ module Odysseus
           image: image
         }
       rescue StandardError => e
-        log "Deploy failed: #{e.message}", :error
+        log "Deploy FAILED: #{e.message}", :error
         raise
       end
 
@@ -87,13 +99,26 @@ module Odysseus
         server_config = @config[:servers][role] || {}
         options = server_config[:options] || {}
 
+        env = build_environment
+        log "  Environment: #{env.size} variable(s) injected"
+
+        volumes = namespace_volumes(server_config[:volumes], service: role_name)
+        if volumes&.any?
+          log "  Volumes: #{volumes.join(', ')}"
+        end
+
+        if options[:memory] || options[:cpus]
+          log "  Resources: memory=#{options[:memory] || 'default'}, cpus=#{options[:cpus] || 'default'}"
+        end
+
         @docker.run(
           name: container_name,
           image: image,
           options: {
             service: role_name,
             version: timestamp,
-            env: build_environment,
+            env: env,
+            volumes: volumes,
             memory: options[:memory],
             memory_reservation: options[:memory_reservation],
             cpus: options[:cpus],
@@ -157,7 +182,28 @@ module Odysseus
         log "Rolling back failed deploy...", :warn
         @docker.stop(new_container_id)
         @docker.remove(new_container_id, force: true)
-        log "Rollback complete"
+        log "Rollback complete — failed container removed"
+      end
+
+      def log_health_failure(container_id)
+        log "Health check FAILED for container #{container_id[0..11]}", :error
+
+        begin
+          recent_logs = @docker.logs(container_id, tail: 30)
+          unless recent_logs.strip.empty?
+            log "  Container logs (last 30 lines):", :error
+            recent_logs.each_line { |line| log "    #{line.rstrip}", :error }
+          end
+        rescue StandardError => e
+          log "  Could not fetch container logs: #{e.message}", :warn
+        end
+
+        begin
+          status = @docker.health_status(container_id)
+          log "  Health status: #{status}", :error
+        rescue StandardError
+          # ignore
+        end
       end
 
       def default_logger

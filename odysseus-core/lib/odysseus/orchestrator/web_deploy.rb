@@ -1,8 +1,12 @@
 # lib/odysseus/orchestrator/web_deploy.rb
 
+require_relative '../core/volume_namespacer'
+
 module Odysseus
   module Orchestrator
     class WebDeploy
+      include Odysseus::Core::VolumeNamespacer
+
       # @param ssh [Odysseus::Deployer::SSH] SSH connection
       # @param config [Hash] parsed deploy config
       # @param logger [Object] logger (optional)
@@ -24,48 +28,55 @@ module Odysseus
         service = @config[:service]
         image = "#{@config[:image]}:#{image_tag}"
 
-        log "Starting deploy of #{service} with #{image}"
+        log "Deploying #{service} (role: #{role})"
+        log "  Image: #{image}"
 
         # Step 1: Ensure Caddy is running
         log "Ensuring Caddy proxy is running..."
         ensure_caddy!
+        log "  Caddy is ready"
 
         # Step 2: Find existing containers
-        log "Checking for existing containers..."
         old_containers = @docker.list(service: service)
-        log "Found #{old_containers.size} existing container(s)"
+        log "  Found #{old_containers.size} existing container(s)"
 
         # Step 3: Start new container
         log "Starting new container..."
         new_container_id = start_new_container(image: image, role: role)
-        log "Started container: #{new_container_id[0..11]}"
+        log "  Container started: #{new_container_id[0..11]}"
 
         # Step 4: Wait for healthy
-        log "Waiting for container to be healthy..."
+        healthcheck_desc = describe_healthcheck(@config[:proxy]&.dig(:healthcheck))
+        log "Waiting for health check... #{healthcheck_desc}"
         unless wait_for_healthy(new_container_id)
+          log_health_failure(new_container_id)
           handle_failed_deploy(new_container_id, old_containers)
           raise Odysseus::DeployError, "Container failed health checks"
         end
-        log "Container is healthy!"
+        log "  Health check passed"
 
         # Step 5: Add new container to Caddy
-        log "Adding container to Caddy..."
+        proxy_hosts = @config[:proxy][:hosts]&.join(', ')
+        log "Adding to Caddy proxy (hosts: #{proxy_hosts})..."
         add_to_caddy(new_container_id)
+        log "  Caddy routing configured"
 
         # Step 6: Remove old containers from Caddy and stop them
         old_containers.each do |old|
-          log "Draining old container: #{old['ID'][0..11]}..."
+          log "Draining old container #{old['ID'][0..11]}..."
           drain_and_remove(old['ID'])
+          log "  Old container removed"
         end
 
         # Step 7: Cleanup old stopped containers
-        log "Cleaning up old containers..."
-        @docker.cleanup_old_containers(service: service, keep: 2)
+        cleaned = @docker.cleanup_old_containers(service: service, keep: 2)
+        log "  Cleaned up #{cleaned.size} old container(s)" if cleaned.any?
 
         # Step 8: Cleanup stale Caddy upstreams (in case any were missed)
-        log "Cleaning up stale Caddy routes..."
         removed_upstreams = @caddy.cleanup_stale_upstreams(service: service)
-        log "Removed #{removed_upstreams.size} stale upstream(s)" if removed_upstreams.any?
+        log "  Removed #{removed_upstreams.size} stale upstream(s)" if removed_upstreams.any?
+
+        log "Deploy complete for #{service}"
 
         {
           success: true,
@@ -74,7 +85,7 @@ module Odysseus
           image: image
         }
       rescue StandardError => e
-        log "Deploy failed: #{e.message}", :error
+        log "Deploy FAILED: #{e.message}", :error
         raise
       end
 
@@ -95,6 +106,18 @@ module Odysseus
         options = server_config[:options] || {}
         proxy_config = @config[:proxy] || {}
 
+        env = build_environment
+        log "  Environment: #{env.size} variable(s) injected"
+
+        volumes = namespace_volumes(server_config[:volumes], service: service)
+        if volumes&.any?
+          log "  Volumes: #{volumes.join(', ')}"
+        end
+
+        if options[:memory] || options[:cpus]
+          log "  Resources: memory=#{options[:memory] || 'default'}, cpus=#{options[:cpus] || 'default'}"
+        end
+
         @docker.run(
           name: container_name,
           image: image,
@@ -102,8 +125,8 @@ module Odysseus
             service: service,
             version: timestamp,
             ports: internal_port_mapping(proxy_config[:app_port]),
-            env: build_environment,
-            volumes: server_config[:volumes],
+            env: env,
+            volumes: volumes,
             memory: options[:memory],
             memory_reservation: options[:memory_reservation],
             cpus: options[:cpus],
@@ -234,7 +257,41 @@ module Odysseus
         @docker.remove(new_container_id, force: true)
 
         # Old containers should still be running and in Caddy
-        log "Rollback complete - old containers still serving traffic"
+        if old_containers.any?
+          log "Rollback complete — #{old_containers.size} old container(s) still serving traffic"
+        else
+          log "Rollback complete — no previous containers to fall back to", :warn
+        end
+      end
+
+      def log_health_failure(container_id)
+        log "Health check FAILED for container #{container_id[0..11]}", :error
+
+        # Fetch recent container logs to help diagnose the failure
+        begin
+          recent_logs = @docker.logs(container_id, tail: 30)
+          unless recent_logs.strip.empty?
+            log "  Container logs (last 30 lines):", :error
+            recent_logs.each_line { |line| log "    #{line.rstrip}", :error }
+          end
+        rescue StandardError => e
+          log "  Could not fetch container logs: #{e.message}", :warn
+        end
+
+        # Show the health check status
+        begin
+          status = @docker.health_status(container_id)
+          log "  Health status: #{status}", :error
+        rescue StandardError
+          # ignore
+        end
+      end
+
+      def describe_healthcheck(hc_config)
+        return "(no health check configured)" unless hc_config && hc_config[:path]
+
+        port = @config[:proxy][:app_port]
+        "(GET http://localhost:#{port}#{hc_config[:path]}, interval: #{hc_config[:interval] || 10}s)"
       end
 
       def default_logger

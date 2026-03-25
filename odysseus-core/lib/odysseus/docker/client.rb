@@ -254,6 +254,14 @@ module Odysseus
         results
       end
 
+      # Check if a Docker named volume exists
+      # @param name [String] volume name
+      # @return [Boolean]
+      def volume_exists?(name)
+        output = @ssh.execute("docker volume inspect #{name} 2>/dev/null && echo 'yes' || echo 'no'")
+        output.strip.end_with?('yes')
+      end
+
       # Get disk usage info
       # @return [String] docker system df output
       def disk_usage

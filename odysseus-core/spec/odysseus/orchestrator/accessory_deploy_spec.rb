@@ -43,12 +43,21 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
     }
   end
 
-  let(:orchestrator) { described_class.new(ssh: mock_ssh, config: config) }
+  let(:silent_logger) do
+    Object.new.tap do |l|
+      def l.info(_msg); end
+      def l.warn(_msg); end
+      def l.error(_msg); end
+    end
+  end
+
+  let(:orchestrator) { described_class.new(ssh: mock_ssh, config: config, logger: silent_logger) }
 
   before do
     allow(Odysseus::Docker::Client).to receive(:new).with(mock_ssh).and_return(mock_docker)
     allow(Odysseus::Caddy::Client).to receive(:new).with(ssh: mock_ssh, docker: mock_docker).and_return(mock_caddy)
     allow(orchestrator).to receive(:sleep)
+    allow(mock_docker).to receive(:volume_exists?).and_return(false)
   end
 
   describe '#deploy' do

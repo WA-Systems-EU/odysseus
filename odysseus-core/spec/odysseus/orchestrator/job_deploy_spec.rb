@@ -30,11 +30,20 @@ RSpec.describe Odysseus::Orchestrator::JobDeploy do
     }
   end
 
-  let(:orchestrator) { described_class.new(ssh: mock_ssh, config: config) }
+  let(:silent_logger) do
+    Object.new.tap do |l|
+      def l.info(_msg); end
+      def l.warn(_msg); end
+      def l.error(_msg); end
+    end
+  end
+
+  let(:orchestrator) { described_class.new(ssh: mock_ssh, config: config, logger: silent_logger) }
 
   before do
     allow(Odysseus::Docker::Client).to receive(:new).with(mock_ssh).and_return(mock_docker)
     allow(orchestrator).to receive(:sleep) # Don't actually sleep
+    allow(mock_docker).to receive(:volume_exists?).and_return(false)
   end
 
   describe '#deploy' do
@@ -45,7 +54,7 @@ RSpec.describe Odysseus::Orchestrator::JobDeploy do
         allow(mock_docker).to receive(:list).and_return([])
         allow(mock_docker).to receive(:run).and_return(new_container_id)
         allow(mock_docker).to receive(:wait_healthy).and_return(true)
-        allow(mock_docker).to receive(:cleanup_old_containers)
+        allow(mock_docker).to receive(:cleanup_old_containers).and_return([])
       end
 
       it 'starts a new container with job config' do
@@ -86,14 +95,14 @@ RSpec.describe Odysseus::Orchestrator::JobDeploy do
         )
       end
 
-      let(:orchestrator) { described_class.new(ssh: mock_ssh, config: config_no_healthcheck) }
+      let(:orchestrator) { described_class.new(ssh: mock_ssh, config: config_no_healthcheck, logger: silent_logger) }
       let(:new_container_id) { 'abc123def456' * 4 }
 
       before do
         allow(mock_docker).to receive(:list).and_return([])
         allow(mock_docker).to receive(:run).and_return(new_container_id)
         allow(mock_docker).to receive(:running?).and_return(true)
-        allow(mock_docker).to receive(:cleanup_old_containers)
+        allow(mock_docker).to receive(:cleanup_old_containers).and_return([])
       end
 
       it 'checks running status instead of healthcheck' do
@@ -111,7 +120,7 @@ RSpec.describe Odysseus::Orchestrator::JobDeploy do
         allow(mock_docker).to receive(:list).and_return([old_container])
         allow(mock_docker).to receive(:run).and_return(new_container_id)
         allow(mock_docker).to receive(:wait_healthy).and_return(true)
-        allow(mock_docker).to receive(:cleanup_old_containers)
+        allow(mock_docker).to receive(:cleanup_old_containers).and_return([])
       end
 
       it 'gracefully stops old containers' do
@@ -128,6 +137,11 @@ RSpec.describe Odysseus::Orchestrator::JobDeploy do
         allow(mock_docker).to receive(:list).and_return([])
         allow(mock_docker).to receive(:run).and_return(new_container_id)
         allow(mock_docker).to receive(:wait_healthy).and_return(false)
+      end
+
+      before do
+        allow(mock_docker).to receive(:logs).and_return('')
+        allow(mock_docker).to receive(:health_status).and_return('unhealthy')
       end
 
       it 'rolls back and raises error' do

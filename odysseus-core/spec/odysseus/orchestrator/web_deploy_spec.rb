@@ -57,8 +57,9 @@ RSpec.describe Odysseus::Orchestrator::WebDeploy do
     allow(mock_docker).to receive(:wait_healthy).and_return(true)
     allow(mock_caddy).to receive(:add_upstream)
     allow(mock_ssh).to receive(:execute).and_return("/myapp-20231215\n")
-    allow(mock_docker).to receive(:cleanup_old_containers)
+    allow(mock_docker).to receive(:cleanup_old_containers).and_return([])
     allow(mock_caddy).to receive(:cleanup_stale_upstreams).and_return([])
+    allow(mock_docker).to receive(:volume_exists?).and_return(false)
   end
 
   describe '#deploy' do
@@ -103,6 +104,8 @@ RSpec.describe Odysseus::Orchestrator::WebDeploy do
       allow(mock_docker).to receive(:wait_healthy).and_return(false)
       allow(mock_docker).to receive(:stop)
       allow(mock_docker).to receive(:remove)
+      allow(mock_docker).to receive(:logs).and_return('')
+      allow(mock_docker).to receive(:health_status).and_return('unhealthy')
 
       expect { orchestrator.deploy(image_tag: 'v1.0') }
         .to raise_error(Odysseus::DeployError, /failed health checks/)
@@ -174,6 +177,8 @@ RSpec.describe Odysseus::Orchestrator::WebDeploy do
       allow(mock_docker).to receive(:wait_healthy).and_return(false)
       allow(mock_docker).to receive(:stop)
       allow(mock_docker).to receive(:remove)
+      allow(mock_docker).to receive(:logs).and_return('')
+      allow(mock_docker).to receive(:health_status).and_return('unhealthy')
     end
 
     it 'stops failed container' do
