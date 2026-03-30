@@ -65,9 +65,46 @@ module Odysseus
             options: symbolize_keys(config['options'] || {}),
             cmd: config['cmd'],
             volumes: config['volumes'],
-            healthcheck: parse_server_healthcheck(config['healthcheck'])
+            healthcheck: parse_server_healthcheck(config['healthcheck']),
+            containers: parse_containers(config['containers']),
+            deploy: parse_deploy(config['deploy'])
           }
         end
+      end
+
+      # Parse containers config (for multi-container per host)
+      def parse_containers(containers)
+        return nil unless containers
+
+        {
+          count: containers['count'] || 1,
+          name_pattern: containers['name_pattern']
+        }
+      end
+
+      # Parse deploy strategy config
+      def parse_deploy(deploy)
+        return nil unless deploy
+
+        {
+          strategy: deploy['strategy']&.to_sym,
+          drain_timeout: deploy['drain_timeout'] || 30,
+          stop_timeout: deploy['stop_timeout'] || 10,
+          boot_timeout: deploy['boot_timeout'] || 60,
+          health_check: parse_deploy_health_check(deploy['health_check'])
+        }
+      end
+
+      # Parse deploy-level health check (HTTP polling with threshold)
+      def parse_deploy_health_check(hc)
+        return nil unless hc
+
+        {
+          path: hc['path'] || '/up',
+          interval: hc['interval'] || 2,
+          threshold: hc['threshold'] || 3,
+          timeout: hc['timeout'] || 5
+        }
       end
 
       # Parse AWS host provider config

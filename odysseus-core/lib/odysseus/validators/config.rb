@@ -38,6 +38,9 @@ module Odysseus
           raise Odysseus::ConfigValidationError,
                 "server role '#{role}' must have 'hosts' array" \
                 unless config.is_a?(Hash) && config['hosts'].is_a?(Array)
+
+          validate_containers!(role, config['containers']) if config['containers']
+          validate_deploy!(role, config['deploy']) if config['deploy']
         end
       end
 
@@ -65,6 +68,36 @@ module Odysseus
         secret = env['secret']
         unless secret.nil? || secret.is_a?(Array)
           raise Odysseus::ConfigValidationError, "env.secret must be an array"
+        end
+      end
+
+      def validate_containers!(role, containers)
+        return unless containers.is_a?(Hash)
+
+        count = containers['count']
+        if count && (!count.is_a?(Integer) || count < 1)
+          raise Odysseus::ConfigValidationError,
+                "servers.#{role}.containers.count must be an integer >= 1"
+        end
+      end
+
+      def validate_deploy!(role, deploy)
+        return unless deploy.is_a?(Hash)
+
+        strategy = deploy['strategy']
+        if strategy && !Odysseus::Sails.registered?(strategy.to_sym)
+          raise Odysseus::ConfigValidationError,
+                "servers.#{role}.deploy.strategy '#{strategy}' is not registered — is the sail plugin gem loaded?"
+        end
+
+        %w[drain_timeout stop_timeout boot_timeout].each do |key|
+          val = deploy[key]
+          next unless val
+
+          unless val.is_a?(Integer) && val > 0
+            raise Odysseus::ConfigValidationError,
+                  "servers.#{role}.deploy.#{key} must be a positive integer"
+          end
         end
       end
 

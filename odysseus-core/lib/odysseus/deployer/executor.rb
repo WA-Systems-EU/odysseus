@@ -315,7 +315,16 @@ module Odysseus
 
       def build_orchestrator(ssh, role)
         logger = build_logger
-        if role == WEB_ROLE
+        role_config = @config[:servers][role] || {}
+        strategy = role_config.dig(:deploy, :strategy)
+
+        # Check if a sail plugin provides this strategy
+        if strategy && Odysseus::Sails.registered?(strategy)
+          sail_klass = Odysseus::Sails.resolve(strategy)
+          sail_klass.new(
+            ssh: ssh, config: @config, logger: logger, secrets_loader: @secrets_loader
+          )
+        elsif role == WEB_ROLE
           Odysseus::Orchestrator::WebDeploy.new(
             ssh: ssh, config: @config, logger: logger, secrets_loader: @secrets_loader
           )
