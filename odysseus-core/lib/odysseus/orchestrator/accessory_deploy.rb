@@ -33,6 +33,9 @@ module Odysseus
         log "Deploying accessory: #{service_name}"
         log "  Image: #{image}"
 
+        # Ensure the Docker network exists (accessories may boot before any service deploy)
+        ensure_network!
+
         # Check if accessory is already running
         existing = @docker.list(service: service_name)
         if existing.any? { |c| c['State'] == 'running' }
@@ -137,6 +140,9 @@ module Odysseus
         log "Upgrading accessory: #{service_name}"
         log "  Image: #{image}"
 
+        # Ensure the Docker network exists
+        ensure_network!
+
         # Pull the new image first (before stopping anything)
         log "Pulling new image..."
         @docker.pull(image)
@@ -236,6 +242,11 @@ module Odysseus
 
       def accessory_name(name)
         "#{@config[:service]}-#{name}"
+      end
+
+      def ensure_network!
+        log "Ensuring Docker network exists..."
+        @docker.ensure_network('odysseus', labels: { 'odysseus.managed' => 'true' })
       end
 
       def start_accessory(name:, config:)

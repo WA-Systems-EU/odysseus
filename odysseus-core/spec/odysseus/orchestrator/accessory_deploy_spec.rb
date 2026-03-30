@@ -58,6 +58,7 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
     allow(Odysseus::Caddy::Client).to receive(:new).with(ssh: mock_ssh, docker: mock_docker).and_return(mock_caddy)
     allow(orchestrator).to receive(:sleep)
     allow(mock_docker).to receive(:volume_exists?).and_return(false)
+    allow(mock_docker).to receive(:ensure_network)
   end
 
   describe '#deploy' do
@@ -68,6 +69,12 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
         allow(mock_docker).to receive(:list).and_return([])
         allow(mock_docker).to receive(:run).and_return(container_id)
         allow(mock_docker).to receive(:wait_healthy).and_return(true)
+      end
+
+      it 'ensures the Docker network exists before starting' do
+        expect(mock_docker).to receive(:ensure_network).with('odysseus', labels: { 'odysseus.managed' => 'true' }).ordered
+        expect(mock_docker).to receive(:run).ordered
+        orchestrator.deploy(name: :redis)
       end
 
       it 'starts the accessory container' do

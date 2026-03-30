@@ -262,6 +262,14 @@ module Odysseus
         output.strip.end_with?('yes')
       end
 
+      # Ensure a Docker network exists, creating it if missing
+      # @param name [String] network name
+      # @param labels [Hash] labels to apply when creating
+      def ensure_network(name, labels: {})
+        label_flags = labels.map { |k, v| "--label #{k}=#{v}" }.join(' ')
+        @ssh.execute("docker network inspect #{name} >/dev/null 2>&1 || docker network create #{label_flags} #{name}".strip)
+      end
+
       # Get disk usage info
       # @return [String] docker system df output
       def disk_usage
