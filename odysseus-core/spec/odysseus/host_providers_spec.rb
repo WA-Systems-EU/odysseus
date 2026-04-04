@@ -12,30 +12,35 @@ RSpec.describe Odysseus::HostProviders do
       expect(provider.resolve).to eq(['host1', 'host2'])
     end
 
-    it 'returns AwsAsg provider when aws config is specified' do
+    it 'raises error when aws config specified but provider not loaded' do
       role_config = {
         aws: {
           asg: 'my-asg',
           region: 'us-east-1'
         }
       }
-      provider = described_class.build(role_config)
 
-      expect(provider).to be_a(Odysseus::HostProviders::AwsAsg)
-      expect(provider.name).to eq('aws_asg(my-asg)')
+      expect { described_class.build(role_config) }
+        .to raise_error(Odysseus::ConfigError, /odysseus-sail-aws-asg gem loaded/)
     end
 
-    it 'prefers AWS provider when both aws and hosts are specified' do
-      role_config = {
-        hosts: ['static-host'],
-        aws: {
-          asg: 'my-asg',
-          region: 'us-east-1'
-        }
-      }
+    it 'uses registered aws_asg provider when available' do
+      mock_provider_class = Class.new(Odysseus::HostProviders::Base) do
+        def initialize(config); super; @asg = config[:asg]; end
+        def resolve; ['10.0.0.1']; end
+        def name; "aws_asg(#{@asg})"; end
+      end
+
+      described_class.register(:aws_asg, mock_provider_class)
+
+      role_config = { aws: { asg: 'my-asg', region: 'us-east-1' } }
       provider = described_class.build(role_config)
 
-      expect(provider).to be_a(Odysseus::HostProviders::AwsAsg)
+      expect(provider.name).to eq('aws_asg(my-asg)')
+      expect(provider.resolve).to eq(['10.0.0.1'])
+
+      # Clean up
+      described_class.providers.delete(:aws_asg)
     end
 
     it 'returns empty Static provider when no hosts configured' do

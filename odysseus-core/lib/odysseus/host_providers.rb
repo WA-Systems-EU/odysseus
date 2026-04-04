@@ -6,8 +6,7 @@ module Odysseus
       # Registry of available host providers
       def providers
         @providers ||= {
-          static: Static,
-          aws_asg: AwsAsg
+          static: Static
         }
       end
 
@@ -15,14 +14,14 @@ module Odysseus
       # @param role_config [Hash] role configuration from deploy.yml
       # @return [Base] host provider instance
       def build(role_config)
-        if role_config[:aws]
-          # AWS ASG provider
-          AwsAsg.new(role_config[:aws])
+        if role_config[:aws] && providers[:aws_asg]
+          providers[:aws_asg].new(role_config[:aws])
+        elsif role_config[:aws]
+          raise Odysseus::ConfigError,
+                "AWS ASG host provider not available — is the odysseus-sail-aws-asg gem loaded?"
         elsif role_config[:hosts]
-          # Static hosts (default)
           Static.new(hosts: role_config[:hosts])
         else
-          # No hosts configured
           Static.new(hosts: [])
         end
       end
