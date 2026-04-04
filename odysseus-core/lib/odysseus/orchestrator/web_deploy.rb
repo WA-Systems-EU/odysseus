@@ -33,8 +33,12 @@ module Odysseus
 
         # Step 1: Ensure Caddy is running
         log "Ensuring Caddy proxy is running..."
-        ensure_caddy!
-        log "  Caddy is ready"
+        if @caddy.running?
+          log "  Caddy already running"
+        else
+          @caddy.ensure_running
+          log "  Caddy started"
+        end
 
         # Step 2: Find existing containers
         old_containers = @docker.list(service: service)
