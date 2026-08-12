@@ -151,6 +151,10 @@ bundle install
 bundle exec rspec
 ```
 
+Both gems have their own bundle and test suite. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for setup, how changes are expected to
+arrive, and the release process.
+
 ## Requirements
 
 **Local machine:**
