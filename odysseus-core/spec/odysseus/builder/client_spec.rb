@@ -148,7 +148,7 @@ RSpec.describe Odysseus::Builder::Client do
 
       it 'returns failure result when build fails' do
         allow(client).to receive(:execute_local).and_raise(
-          Odysseus::BuildError.new("Build failed")
+          Odysseus::BuildError.new('Build failed')
         )
 
         result = client.build(context_path: context_path, image: image)
@@ -212,7 +212,7 @@ RSpec.describe Odysseus::Builder::Client do
       it 'cleans up remote directory after build' do
         allow(mock_ssh).to receive(:execute)
 
-        expect(mock_ssh).to receive(:execute).with(/rm -rf \/tmp\/odysseus-build/)
+        expect(mock_ssh).to receive(:execute).with(%r{rm -rf /tmp/odysseus-build})
 
         client.build(context_path: context_path, image: image)
       end
@@ -223,9 +223,9 @@ RSpec.describe Odysseus::Builder::Client do
           logger: mock_logger
         )
 
-        expect {
+        expect do
           client.build(context_path: context_path, image: image)
-        }.to raise_error(Odysseus::BuildError, /host/)
+        end.to raise_error(Odysseus::BuildError, /host/)
       end
     end
 
@@ -379,12 +379,12 @@ RSpec.describe Odysseus::Builder::Client do
 
     it 'returns failure when pussh fails' do
       allow(client).to receive(:execute_local_command).and_raise(
-        Odysseus::BuildError.new("Connection refused")
+        Odysseus::BuildError.new('Connection refused')
       )
 
       result = client.pussh(image: image, host: host)
       expect(result[:success]).to be false
-      expect(result[:error]).to include("Connection refused")
+      expect(result[:error]).to include('Connection refused')
     end
   end
 
@@ -408,11 +408,9 @@ RSpec.describe Odysseus::Builder::Client do
       call_count = 0
       allow(client).to receive(:execute_local_command) do
         call_count += 1
-        if call_count == 1
-          "Success\n"
-        else
-          raise Odysseus::BuildError.new("Failed")
-        end
+        raise Odysseus::BuildError, 'Failed' unless call_count == 1
+
+        "Success\n"
       end
 
       result = client.pussh_to_hosts(image: image, hosts: hosts)

@@ -1,11 +1,51 @@
-AllCops:
-  TargetRubyVersion: 3.4
+inherit_from: .rubocop_todo.yml
 
+AllCops:
+  TargetRubyVersion: 3.2
+  NewCops: enable
+
+# The codebase is single-quoted throughout; the previous double_quotes setting
+# accounted for 1,630 of 2,086 offences on its own.
 Style/StringLiterals:
-  EnforcedStyle: double_quotes
+  EnforcedStyle: single_quotes
 
 Style/StringLiteralsInInterpolation:
-  EnforcedStyle: double_quotes
+  EnforcedStyle: single_quotes
 
 Layout/LineLength:
-  Max: 100
+  Max: 140
+
+# RSpec describe/context blocks are long by nature.
+Metrics/BlockLength:
+  Exclude:
+    - 'spec/**/*'
+    - '*.gemspec'
+
+# Comments here explain why code does what it does; a mandatory banner on every
+# class and module would be noise.
+Style/Documentation:
+  Enabled: false
+
+# The format tokens in this codebase belong to curl and docker, not to Ruby.
+# Autocorrecting curl's `%{http_code}` to Ruby's `%<http_code>s` silently broke
+# both the container health check and the Caddy admin API status parsing; the
+# specs now pin curl's syntax, and this cop stays off so it cannot happen again.
+Style/FormatStringToken:
+  Enabled: false
+
+# `$?` reads naturally straight after a backtick call, and requiring the English
+# stdlib for two call sites is not worth it.
+Style/SpecialGlobalVars:
+  Enabled: false
+
+# ensure_running and ensure_network are commands whose return value is
+# informational; naming them with a `?` would misdescribe what they do.
+Naming/PredicateMethod:
+  Enabled: false
+
+# Adding `# frozen_string_literal: true` to 36 files is an unsafe correction:
+# any literal that is mutated in place would start raising at runtime, and this
+# gem runs other people's deploys. Worth doing behind an audit of string
+# mutation, not behind an autocorrect. Tracked in ../TODO.md.
+Style/FrozenStringLiteralComment:
+  Enabled: false

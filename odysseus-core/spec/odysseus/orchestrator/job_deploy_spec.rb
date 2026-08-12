@@ -148,9 +148,9 @@ RSpec.describe Odysseus::Orchestrator::JobDeploy do
         expect(mock_docker).to receive(:stop).with(new_container_id)
         expect(mock_docker).to receive(:remove).with(new_container_id, force: true)
 
-        expect {
+        expect do
           orchestrator.deploy(image_tag: 'v1', role: :jobs)
-        }.to raise_error(Odysseus::DeployError, /failed health checks/)
+        end.to raise_error(Odysseus::DeployError, /failed health checks/)
       end
     end
   end

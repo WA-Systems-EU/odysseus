@@ -23,7 +23,7 @@ RSpec.describe Odysseus::Validators::Config do
       expect { validate(valid_config) }.not_to raise_error
     end
 
-    ['service', 'image', 'servers'].each do |key|
+    %w[service image servers].each do |key|
       it "rejects a config missing #{key}" do
         expect { validate(valid_config.reject { |k, _| k == key }) }
           .to raise_error(Odysseus::ConfigValidationError, /Missing required keys: #{key}/)
@@ -70,9 +70,9 @@ RSpec.describe Odysseus::Validators::Config do
 
     it 'accepts multiple roles' do
       config = valid_config.merge('servers' => {
-        'web' => { 'hosts' => ['web1.example.com'] },
-        'jobs' => { 'hosts' => ['worker1.example.com'], 'cmd' => 'bundle exec good_job' }
-      })
+                                    'web' => { 'hosts' => ['web1.example.com'] },
+                                    'jobs' => { 'hosts' => ['worker1.example.com'], 'cmd' => 'bundle exec good_job' }
+                                  })
 
       expect { validate(config) }.not_to raise_error
     end
@@ -119,9 +119,9 @@ RSpec.describe Odysseus::Validators::Config do
 
     it 'accepts clear and secret in their expected shapes' do
       config = valid_config.merge('env' => {
-        'clear' => { 'RAILS_ENV' => 'production' },
-        'secret' => ['DATABASE_URL']
-      })
+                                    'clear' => { 'RAILS_ENV' => 'production' },
+                                    'secret' => ['DATABASE_URL']
+                                  })
 
       expect { validate(config) }.not_to raise_error
     end
@@ -148,8 +148,8 @@ RSpec.describe Odysseus::Validators::Config do
   describe 'containers' do
     def config_with_containers(containers)
       valid_config.merge('servers' => {
-        'web' => { 'hosts' => ['web1.example.com'], 'containers' => containers }
-      })
+                           'web' => { 'hosts' => ['web1.example.com'], 'containers' => containers }
+                         })
     end
 
     it 'rejects a count below one' do
@@ -175,8 +175,8 @@ RSpec.describe Odysseus::Validators::Config do
   describe 'deploy' do
     def config_with_deploy(deploy)
       valid_config.merge('servers' => {
-        'web' => { 'hosts' => ['web1.example.com'], 'deploy' => deploy }
-      })
+                           'web' => { 'hosts' => ['web1.example.com'], 'deploy' => deploy }
+                         })
     end
 
     around do |example|
@@ -200,7 +200,7 @@ RSpec.describe Odysseus::Validators::Config do
       expect { validate(config_with_deploy('drain_timeout' => 30)) }.not_to raise_error
     end
 
-    ['drain_timeout', 'stop_timeout', 'boot_timeout'].each do |key|
+    %w[drain_timeout stop_timeout boot_timeout].each do |key|
       it "rejects a non-integer #{key}" do
         expect { validate(config_with_deploy(key => '30')) }
           .to raise_error(Odysseus::ConfigValidationError, /#{key} must be a positive integer/)

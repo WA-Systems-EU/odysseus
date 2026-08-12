@@ -47,9 +47,7 @@ module Odysseus
         # First, build the image
         build_result = build(image_tag: image_tag, push: true, context_path: context_path)
 
-        unless build_result[:success]
-          return { build: build_result, deploy: nil, success: false }
-        end
+        return { build: build_result, deploy: nil, success: false } unless build_result[:success]
 
         # Then deploy
         deploy_results = deploy_all(image_tag: image_tag, dry_run: dry_run)
@@ -68,9 +66,7 @@ module Odysseus
         full_image = "#{@config[:image]}:#{image_tag}"
         hosts = collect_all_hosts
 
-        if hosts.empty?
-          return { success: false, error: "No hosts configured" }
-        end
+        return { success: false, error: 'No hosts configured' } if hosts.empty?
 
         builder = build_builder
         builder.pussh_to_hosts(
@@ -88,9 +84,7 @@ module Odysseus
         # First, build the image locally
         build_result = build(image_tag: image_tag, push: false, context_path: context_path)
 
-        unless build_result[:success]
-          return { build: build_result, pussh: nil, success: false }
-        end
+        return { build: build_result, pussh: nil, success: false } unless build_result[:success]
 
         # Then pussh to all hosts
         pussh_result = pussh(image_tag: image_tag)
@@ -157,14 +151,12 @@ module Odysseus
       # @param image_tag [String] docker image tag (e.g., "v1.2.3")
       # @param dry_run [Boolean] if true, don't actually deploy
       # @param role [Symbol] server role
-      def deploy_role(host:, image_tag:, dry_run: false, role:)
+      def deploy_role(host:, image_tag:, role:, dry_run: false)
         if dry_run
           puts "Dry run - would deploy #{@config[:image]}:#{image_tag} to #{host}"
           puts "Service: #{@config[:service]}"
           puts "Role: #{role}"
-          if role == WEB_ROLE
-            puts "Proxy hosts: #{@config[:proxy][:hosts].join(', ')}"
-          end
+          puts "Proxy hosts: #{@config[:proxy][:hosts].join(', ')}" if role == WEB_ROLE
           return { success: true, dry_run: true }
         end
 
@@ -192,7 +184,8 @@ module Odysseus
           ssh = connect_to_server(host)
 
           begin
-            orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config, secrets_loader: @secrets_loader)
+            orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config,
+                                                                       secrets_loader: @secrets_loader)
             results[host] = orchestrator.deploy(name: name.to_sym)
           ensure
             ssh.close
@@ -215,7 +208,8 @@ module Odysseus
           ssh = connect_to_server(host)
 
           begin
-            orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config, secrets_loader: @secrets_loader)
+            orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config,
+                                                                       secrets_loader: @secrets_loader)
             results[host] = orchestrator.remove(name: name.to_sym)
           ensure
             ssh.close
@@ -238,7 +232,8 @@ module Odysseus
           ssh = connect_to_server(host)
 
           begin
-            orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config, secrets_loader: @secrets_loader)
+            orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config,
+                                                                       secrets_loader: @secrets_loader)
             results[host] = orchestrator.restart(name: name.to_sym)
           ensure
             ssh.close
@@ -261,7 +256,8 @@ module Odysseus
           ssh = connect_to_server(host)
 
           begin
-            orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config, secrets_loader: @secrets_loader)
+            orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config,
+                                                                       secrets_loader: @secrets_loader)
             results[host] = orchestrator.upgrade(name: name.to_sym)
           ensure
             ssh.close
@@ -280,7 +276,8 @@ module Odysseus
           hosts.each do |host|
             ssh = connect_to_server(host)
             begin
-              orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config, secrets_loader: @secrets_loader)
+              orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config,
+                                                                         secrets_loader: @secrets_loader)
               status = orchestrator.get_status(name: name.to_sym)
               status[:host] = host
               all_statuses << status
@@ -310,6 +307,7 @@ module Odysseus
         name_sym = name.to_sym
         acc_config = @config[:accessories]&.[](name_sym)
         raise Odysseus::ConfigError, "Accessory '#{name}' not found in config" unless acc_config
+
         acc_config
       end
 
@@ -379,7 +377,7 @@ module Odysseus
       def collect_all_hosts
         hosts = []
 
-        @config[:servers].each do |_role, role_config|
+        @config[:servers].each_value do |role_config|
           role_hosts = resolve_hosts(role_config)
           hosts.concat(role_hosts)
         end

@@ -36,7 +36,7 @@ RSpec.describe Odysseus::Secrets::Loader do
   end
 
   around do |example|
-    original_key = ENV['ODYSSEUS_MASTER_KEY']
+    original_key = ENV.fetch('ODYSSEUS_MASTER_KEY', nil)
     ENV['ODYSSEUS_MASTER_KEY'] = master_key
     example.run
     ENV['ODYSSEUS_MASTER_KEY'] = original_key
@@ -133,7 +133,7 @@ RSpec.describe Odysseus::Secrets::Loader do
       create_encrypted_secrets(secrets)
 
       loader = described_class.new(
-        { secrets_file: secrets_file_path },  # absolute path
+        { secrets_file: secrets_file_path }, # absolute path
         config_dir: '/some/other/dir'
       )
 

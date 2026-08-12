@@ -39,7 +39,7 @@ module Odysseus
         # Check if accessory is already running
         existing = @docker.list(service: service_name)
         if existing.any? { |c| c['State'] == 'running' }
-          log "  Already running — skipping"
+          log '  Already running — skipping'
           return { success: true, already_running: true, service: service_name }
         end
 
@@ -56,17 +56,17 @@ module Odysseus
             log_health_failure(container_id)
             @docker.stop(container_id)
             @docker.remove(container_id, force: true)
-            raise Odysseus::DeployError, "Accessory failed health checks"
+            raise Odysseus::DeployError, 'Accessory failed health checks'
           end
-          log "  Health check passed"
+          log '  Health check passed'
         else
-          log "No health check configured, waiting 3s for startup..."
+          log 'No health check configured, waiting 3s for startup...'
           sleep 3
           unless @docker.running?(container_id)
             log_health_failure(container_id)
-            raise Odysseus::DeployError, "Accessory failed to start"
+            raise Odysseus::DeployError, 'Accessory failed to start'
           end
-          log "  Container is running"
+          log '  Container is running'
         end
 
         # Add to Caddy if proxy config is present
@@ -74,7 +74,7 @@ module Odysseus
           proxy_hosts = accessory_config[:proxy][:hosts]&.join(', ')
           log "Configuring proxy (hosts: #{proxy_hosts})..."
           add_to_caddy(name: name, container_id: container_id, config: accessory_config)
-          log "  Proxy configured"
+          log '  Proxy configured'
         end
 
         log "Accessory #{service_name} deployed"
@@ -144,9 +144,9 @@ module Odysseus
         ensure_network!
 
         # Pull the new image first (before stopping anything)
-        log "Pulling new image..."
+        log 'Pulling new image...'
         @docker.pull(image)
-        log "  Image pulled"
+        log '  Image pulled'
 
         # Check for existing container
         existing = @docker.list(service: service_name, all: true)
@@ -156,9 +156,9 @@ module Odysseus
         if accessory_config[:proxy] && old_container && old_container['State'] == 'running'
           container_name = old_container['Names'].delete_prefix('/')
           port = accessory_config[:proxy][:app_port]
-          log "Draining from proxy..."
+          log 'Draining from proxy...'
           @caddy.drain_upstream(service: service_name, upstream: "#{container_name}:#{port}")
-          log "  Drained from proxy"
+          log '  Drained from proxy'
         end
 
         # Stop and remove old container if exists
@@ -166,11 +166,11 @@ module Odysseus
           log "Stopping old container #{old_container['ID'][0..11]} (30s grace period)..."
           @docker.stop(old_container['ID'], timeout: 30) if old_container['State'] == 'running'
           @docker.remove(old_container['ID'], force: true)
-          log "  Old container removed"
+          log '  Old container removed'
         end
 
         # Start the accessory with the new image (volumes are preserved on host)
-        log "Starting new container..."
+        log 'Starting new container...'
         container_id = start_accessory(name: name, config: accessory_config)
         log "  Container started: #{container_id[0..11]}"
 
@@ -182,17 +182,17 @@ module Odysseus
             log_health_failure(container_id)
             @docker.stop(container_id)
             @docker.remove(container_id, force: true)
-            raise Odysseus::DeployError, "Accessory failed health checks after upgrade"
+            raise Odysseus::DeployError, 'Accessory failed health checks after upgrade'
           end
-          log "  Health check passed"
+          log '  Health check passed'
         else
-          log "No health check configured, waiting 3s for startup..."
+          log 'No health check configured, waiting 3s for startup...'
           sleep 3
           unless @docker.running?(container_id)
             log_health_failure(container_id)
-            raise Odysseus::DeployError, "Accessory failed to start after upgrade"
+            raise Odysseus::DeployError, 'Accessory failed to start after upgrade'
           end
-          log "  Container is running"
+          log '  Container is running'
         end
 
         # Add to Caddy if proxy config is present
@@ -200,7 +200,7 @@ module Odysseus
           proxy_hosts = accessory_config[:proxy][:hosts]&.join(', ')
           log "Configuring proxy (hosts: #{proxy_hosts})..."
           add_to_caddy(name: name, container_id: container_id, config: accessory_config)
-          log "  Proxy configured"
+          log '  Proxy configured'
         end
 
         log "Accessory #{service_name} upgraded"
@@ -245,7 +245,7 @@ module Odysseus
       end
 
       def ensure_network!
-        log "Ensuring Docker network exists..."
+        log 'Ensuring Docker network exists...'
         @docker.ensure_network('odysseus', labels: { 'odysseus.managed' => 'true' })
       end
 
@@ -256,13 +256,9 @@ module Odysseus
         log "  Environment: #{env.size} variable(s) injected" if env.any?
 
         volumes = namespace_volumes(config[:volumes], service: service_name)
-        if volumes&.any?
-          log "  Volumes: #{volumes.join(', ')}"
-        end
+        log "  Volumes: #{volumes.join(', ')}" if volumes&.any?
 
-        if config[:ports]&.any?
-          log "  Ports: #{config[:ports].join(', ')}"
-        end
+        log "  Ports: #{config[:ports].join(', ')}" if config[:ports]&.any?
 
         @docker.run(
           name: service_name,
@@ -343,7 +339,7 @@ module Odysseus
         begin
           recent_logs = @docker.logs(container_id, tail: 30)
           unless recent_logs.strip.empty?
-            log "  Container logs (last 30 lines):", :error
+            log '  Container logs (last 30 lines):', :error
             recent_logs.each_line { |line| log "    #{line.rstrip}", :error }
           end
         rescue StandardError => e
@@ -360,9 +356,9 @@ module Odysseus
 
       def default_logger
         @default_logger ||= Object.new.tap do |l|
-          def l.info(msg); puts msg; end
-          def l.warn(msg); puts "[WARN] #{msg}"; end
-          def l.error(msg); puts "[ERROR] #{msg}"; end
+          def l.info(msg) = puts(msg)
+          def l.warn(msg) = puts("[WARN] #{msg}")
+          def l.error(msg) = puts("[ERROR] #{msg}")
         end
       end
 

@@ -90,7 +90,8 @@ RSpec.describe Odysseus::Deployer::SSH do
         allow(mock_channel).to receive(:on_extended_data)
           .and_yield(mock_channel, nil, "No such container: abc123\n")
         allow(mock_channel).to receive(:on_request).with('exit-status')
-          .and_yield(mock_channel, instance_double(Net::SSH::Buffer, read_long: 1))
+                                                   .and_yield(mock_channel, instance_double(Net::SSH::Buffer,
+                                                                                            read_long: 1))
       end
 
       it 'raises SSHCommandError naming the command and exit status' do
@@ -112,7 +113,8 @@ RSpec.describe Odysseus::Deployer::SSH do
         allow(mock_channel).to receive(:on_extended_data)
           .and_yield(mock_channel, nil, "warning: something\n")
         allow(mock_channel).to receive(:on_request).with('exit-status')
-          .and_yield(mock_channel, instance_double(Net::SSH::Buffer, read_long: 0))
+                                                   .and_yield(mock_channel, instance_double(Net::SSH::Buffer,
+                                                                                            read_long: 0))
       end
 
       it 'returns stdout without stderr mixed in' do

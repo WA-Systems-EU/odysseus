@@ -96,14 +96,14 @@ module Odysseus
       end
 
       # Parse deploy-level health check (HTTP polling with threshold)
-      def parse_deploy_health_check(hc)
-        return nil unless hc
+      def parse_deploy_health_check(health_check)
+        return nil unless health_check
 
         {
-          path: hc['path'] || '/up',
-          interval: hc['interval'] || 2,
-          threshold: hc['threshold'] || 3,
-          timeout: hc['timeout'] || 5
+          path: health_check['path'] || '/up',
+          interval: health_check['interval'] || 2,
+          threshold: health_check['threshold'] || 3,
+          timeout: health_check['timeout'] || 5
         }
       end
 

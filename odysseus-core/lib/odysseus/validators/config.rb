@@ -3,7 +3,7 @@
 module Odysseus
   module Validators
     class Config
-      REQUIRED_KEYS = ['service', 'image', 'servers'].freeze
+      REQUIRED_KEYS = %w[service image servers].freeze
 
       def initialize(config)
         @config = config
@@ -31,13 +31,16 @@ module Odysseus
 
       def validate_servers!
         servers = @config['servers']
-        raise Odysseus::ConfigValidationError,
-              "servers must be a hash" unless servers.is_a?(Hash)
+        unless servers.is_a?(Hash)
+          raise Odysseus::ConfigValidationError,
+                'servers must be a hash'
+        end
 
         servers.each do |role, config|
-          raise Odysseus::ConfigValidationError,
-                "server role '#{role}' must have 'hosts' array" \
-                unless config.is_a?(Hash) && config['hosts'].is_a?(Array)
+          unless config.is_a?(Hash) && config['hosts'].is_a?(Array)
+            raise Odysseus::ConfigValidationError,
+                  "server role '#{role}' must have 'hosts' array"
+          end
 
           validate_containers!(role, config['containers']) if config['containers']
           validate_deploy!(role, config['deploy']) if config['deploy']
@@ -48,37 +51,35 @@ module Odysseus
         proxy = @config['proxy']
         return if proxy.nil?
 
+        return if proxy['app_port']
+
         raise Odysseus::ConfigValidationError,
-              "proxy must have 'app_port'" unless proxy['app_port']
+              "proxy must have 'app_port'"
       end
 
       def validate_env!
         env = @config['env']
         return if env.nil?
 
-        unless env.is_a?(Hash)
-          raise Odysseus::ConfigValidationError, "env must be a hash"
-        end
+        raise Odysseus::ConfigValidationError, 'env must be a hash' unless env.is_a?(Hash)
 
         clear = env['clear']
-        unless clear.nil? || clear.is_a?(Hash)
-          raise Odysseus::ConfigValidationError, "env.clear must be a hash"
-        end
+        raise Odysseus::ConfigValidationError, 'env.clear must be a hash' unless clear.nil? || clear.is_a?(Hash)
 
         secret = env['secret']
-        unless secret.nil? || secret.is_a?(Array)
-          raise Odysseus::ConfigValidationError, "env.secret must be an array"
-        end
+        return if secret.nil? || secret.is_a?(Array)
+
+        raise Odysseus::ConfigValidationError, 'env.secret must be an array'
       end
 
       def validate_containers!(role, containers)
         return unless containers.is_a?(Hash)
 
         count = containers['count']
-        if count && (!count.is_a?(Integer) || count < 1)
-          raise Odysseus::ConfigValidationError,
-                "servers.#{role}.containers.count must be an integer >= 1"
-        end
+        return unless count && (!count.is_a?(Integer) || count < 1)
+
+        raise Odysseus::ConfigValidationError,
+              "servers.#{role}.containers.count must be an integer >= 1"
       end
 
       def validate_deploy!(role, deploy)
@@ -94,7 +95,7 @@ module Odysseus
           val = deploy[key]
           next unless val
 
-          unless val.is_a?(Integer) && val > 0
+          unless val.is_a?(Integer) && val.positive?
             raise Odysseus::ConfigValidationError,
                   "servers.#{role}.deploy.#{key} must be a positive integer"
           end
@@ -105,13 +106,16 @@ module Odysseus
         ssh = @config['ssh']
         return if ssh.nil?
 
-        raise Odysseus::ConfigValidationError,
-              "ssh must be a hash" unless ssh.is_a?(Hash)
+        unless ssh.is_a?(Hash)
+          raise Odysseus::ConfigValidationError,
+                'ssh must be a hash'
+        end
 
         keys = ssh['keys']
+        return if keys.nil? || keys.is_a?(Array)
+
         raise Odysseus::ConfigValidationError,
-              "ssh.keys must be an array" \
-              unless keys.nil? || keys.is_a?(Array)
+              'ssh.keys must be an array'
       end
     end
   end

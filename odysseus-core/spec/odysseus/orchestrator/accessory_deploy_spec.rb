@@ -72,7 +72,8 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
       end
 
       it 'ensures the Docker network exists before starting' do
-        expect(mock_docker).to receive(:ensure_network).with('odysseus', labels: { 'odysseus.managed' => 'true' }).ordered
+        expect(mock_docker).to receive(:ensure_network).with('odysseus',
+                                                             labels: { 'odysseus.managed' => 'true' }).ordered
         expect(mock_docker).to receive(:run).ordered
         orchestrator.deploy(name: :redis)
       end
@@ -106,8 +107,8 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
     context 'when accessory is already running' do
       before do
         allow(mock_docker).to receive(:list).and_return([
-          { 'ID' => 'existing123', 'State' => 'running' }
-        ])
+                                                          { 'ID' => 'existing123', 'State' => 'running' }
+                                                        ])
       end
 
       it 'does not start a new container' do
@@ -146,9 +147,9 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
 
     context 'when accessory does not exist in config' do
       it 'raises ConfigError' do
-        expect {
+        expect do
           orchestrator.deploy(name: :nonexistent)
-        }.to raise_error(Odysseus::ConfigError, /not found/)
+        end.to raise_error(Odysseus::ConfigError, /not found/)
       end
     end
   end
@@ -156,8 +157,9 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
   describe '#remove' do
     before do
       allow(mock_docker).to receive(:list).and_return([
-        { 'ID' => 'redis123', 'Names' => 'myapp-redis', 'State' => 'running' }
-      ])
+                                                        { 'ID' => 'redis123', 'Names' => 'myapp-redis',
+                                                          'State' => 'running' }
+                                                      ])
       allow(mock_docker).to receive(:stop)
       allow(mock_docker).to receive(:remove)
     end
@@ -170,8 +172,9 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
 
     it 'removes from Caddy if proxy configured' do
       allow(mock_docker).to receive(:list).and_return([
-        { 'ID' => 'admin123', 'Names' => 'myapp-admin', 'State' => 'running' }
-      ])
+                                                        { 'ID' => 'admin123', 'Names' => 'myapp-admin',
+                                                          'State' => 'running' }
+                                                      ])
 
       expect(mock_caddy).to receive(:drain_upstream).with(
         service: 'myapp-admin',
@@ -189,9 +192,8 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
 
       before do
         allow(mock_docker).to receive(:pull)
-        allow(mock_docker).to receive(:list).with(service: 'myapp-redis', all: true).and_return([
-          { 'ID' => container_id, 'Names' => 'myapp-redis', 'State' => 'running' }
-        ])
+        running = [{ 'ID' => container_id, 'Names' => 'myapp-redis', 'State' => 'running' }]
+        allow(mock_docker).to receive(:list).with(service: 'myapp-redis', all: true).and_return(running)
         allow(mock_docker).to receive(:stop)
         allow(mock_docker).to receive(:remove)
         allow(mock_docker).to receive(:run).and_return(new_container_id)
@@ -262,9 +264,8 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
 
       before do
         allow(mock_docker).to receive(:pull)
-        allow(mock_docker).to receive(:list).with(service: 'myapp-admin', all: true).and_return([
-          { 'ID' => container_id, 'Names' => 'myapp-admin', 'State' => 'running' }
-        ])
+        running = [{ 'ID' => container_id, 'Names' => 'myapp-admin', 'State' => 'running' }]
+        allow(mock_docker).to receive(:list).with(service: 'myapp-admin', all: true).and_return(running)
         allow(mock_docker).to receive(:stop)
         allow(mock_docker).to receive(:remove)
         allow(mock_docker).to receive(:run).and_return(new_container_id)
@@ -301,9 +302,9 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
 
     context 'when accessory does not exist in config' do
       it 'raises ConfigError' do
-        expect {
+        expect do
           orchestrator.upgrade(name: :nonexistent)
-        }.to raise_error(Odysseus::ConfigError, /not found/)
+        end.to raise_error(Odysseus::ConfigError, /not found/)
       end
     end
   end
@@ -311,12 +312,14 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
   describe '#list_status' do
     it 'returns status of all accessories' do
       allow(mock_docker).to receive(:list).with(service: 'myapp-redis', all: true).and_return([
-        { 'ID' => 'redis123', 'State' => 'running' }
-      ])
+                                                                                                { 'ID' => 'redis123',
+                                                                                                  'State' => 'running' }
+                                                                                              ])
       allow(mock_docker).to receive(:list).with(service: 'myapp-db', all: true).and_return([])
       allow(mock_docker).to receive(:list).with(service: 'myapp-admin', all: true).and_return([
-        { 'ID' => 'admin123', 'State' => 'exited' }
-      ])
+                                                                                                { 'ID' => 'admin123',
+                                                                                                  'State' => 'exited' }
+                                                                                              ])
 
       statuses = orchestrator.list_status
 

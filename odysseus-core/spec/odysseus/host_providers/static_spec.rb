@@ -5,8 +5,8 @@ require 'spec_helper'
 RSpec.describe Odysseus::HostProviders::Static do
   describe '#initialize' do
     it 'accepts hosts from config' do
-      provider = described_class.new(hosts: ['host1', 'host2'])
-      expect(provider.resolve).to eq(['host1', 'host2'])
+      provider = described_class.new(hosts: %w[host1 host2])
+      expect(provider.resolve).to eq(%w[host1 host2])
     end
 
     it 'defaults to empty array when no hosts provided' do

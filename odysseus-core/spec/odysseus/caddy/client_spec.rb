@@ -66,7 +66,7 @@ RSpec.describe Odysseus::Caddy::Client do
       it 'creates new route at index 0' do
         # First call: GET routes returns empty array
         expect(mock_ssh).to receive(:execute)
-          .with(/GET.*\/routes/)
+          .with(%r{GET.*/routes})
           .and_return('[]')
           .ordered
 
@@ -88,7 +88,7 @@ RSpec.describe Odysseus::Caddy::Client do
 
       it 'includes healthcheck config when provided' do
         expect(mock_ssh).to receive(:execute)
-          .with(/GET.*\/routes/)
+          .with(%r{GET.*/routes})
           .and_return('[]')
           .ordered
 
@@ -108,11 +108,14 @@ RSpec.describe Odysseus::Caddy::Client do
     end
 
     context 'when route already exists (ssl disabled)' do
-      let(:routes) { [{ '@id' => 'route-myapp', 'match' => [{ 'host' => ['app.example.com'] }], 'handle' => [{ 'upstreams' => [{ 'dial' => 'myapp:3000' }] }] }] }
+      let(:routes) do
+        [{ '@id' => 'route-myapp', 'match' => [{ 'host' => ['app.example.com'] }],
+           'handle' => [{ 'upstreams' => [{ 'dial' => 'myapp:3000' }] }] }]
+      end
 
       it 'adds upstream to existing route' do
         expect(mock_ssh).to receive(:execute)
-          .with(/GET.*\/routes/)
+          .with(%r{GET.*/routes})
           .and_return(routes.to_json)
           .ordered
 
@@ -133,7 +136,7 @@ RSpec.describe Odysseus::Caddy::Client do
 
       it 'does not duplicate existing upstream' do
         expect(mock_ssh).to receive(:execute)
-          .with(/GET.*\/routes/)
+          .with(%r{GET.*/routes})
           .and_return(routes.to_json)
 
         client.add_upstream(
@@ -152,7 +155,7 @@ RSpec.describe Odysseus::Caddy::Client do
         }]
 
         expect(mock_ssh).to receive(:execute)
-          .with(/GET.*\/routes/)
+          .with(%r{GET.*/routes})
           .and_return(routes_with_hosts.to_json)
           .ordered
 
@@ -179,11 +182,11 @@ RSpec.describe Odysseus::Caddy::Client do
         }]
 
         expect(mock_ssh).to receive(:execute)
-          .with(/GET.*\/routes/)
+          .with(%r{GET.*/routes})
           .and_return(routes_with_hosts.to_json)
 
         # Should NOT make any PATCH call for hosts
-        expect(mock_ssh).not_to receive(:execute).with(/PATCH.*\/match/)
+        expect(mock_ssh).not_to receive(:execute).with(%r{PATCH.*/match})
 
         client.add_upstream(
           service: 'myapp',
@@ -198,27 +201,27 @@ RSpec.describe Odysseus::Caddy::Client do
       it 'configures TLS automation before adding route' do
         # GET existing TLS config
         expect(mock_ssh).to receive(:execute)
-          .with(/GET.*\/config\/apps\/tls/)
+          .with(%r{GET.*/config/apps/tls})
           .and_return('{}')
 
         # TLS config PUT
         expect(mock_ssh).to receive(:execute)
-          .with(/PUT.*\/config\/apps\/tls/)
+          .with(%r{PUT.*/config/apps/tls})
           .and_return('{}')
 
         # GET servers for ensure_https_server
         expect(mock_ssh).to receive(:execute)
-          .with(/GET.*\/servers/)
+          .with(%r{GET.*/servers})
           .and_return('{"srv0":{"listen":[":80",":443"]}}')
 
         # GET routes
         expect(mock_ssh).to receive(:execute)
-          .with(/GET.*\/routes/)
+          .with(%r{GET.*/routes})
           .and_return('[]')
 
         # PUT route
         expect(mock_ssh).to receive(:execute)
-          .with(/PUT.*\/routes\/0/)
+          .with(%r{PUT.*/routes/0})
           .and_return('{}')
 
         client.add_upstream(
@@ -239,7 +242,7 @@ RSpec.describe Odysseus::Caddy::Client do
 
         # GET existing TLS config
         expect(mock_ssh).to receive(:execute)
-          .with(/GET.*\/config\/apps\/tls/)
+          .with(%r{GET.*/config/apps/tls})
           .and_return(existing_tls.to_json)
 
         # TLS config PUT - should include both domains
@@ -251,17 +254,17 @@ RSpec.describe Odysseus::Caddy::Client do
 
         # GET servers for ensure_https_server
         expect(mock_ssh).to receive(:execute)
-          .with(/GET.*\/servers/)
+          .with(%r{GET.*/servers})
           .and_return('{"srv0":{"listen":[":80",":443"]}}')
 
         # GET routes
         expect(mock_ssh).to receive(:execute)
-          .with(/GET.*\/routes/)
+          .with(%r{GET.*/routes})
           .and_return('[]')
 
         # PUT route
         expect(mock_ssh).to receive(:execute)
-          .with(/PUT.*\/routes\/0/)
+          .with(%r{PUT.*/routes/0})
           .and_return('{}')
 
         client.add_upstream(
@@ -325,23 +328,23 @@ RSpec.describe Odysseus::Caddy::Client do
       ]
 
       expect(mock_ssh).to receive(:execute)
-        .with(/GET.*\/routes/)
+        .with(%r{GET.*/routes})
         .and_return(routes.to_json)
 
       result = client.list_services
       expect(result.size).to eq(2)
       expect(result[0]).to eq({
-        service: 'myapp',
-        hosts: ['app.example.com'],
-        upstreams: ['myapp:3000'],
-        has_healthcheck: true
-      })
+                                service: 'myapp',
+                                hosts: ['app.example.com'],
+                                upstreams: ['myapp:3000'],
+                                has_healthcheck: true
+                              })
       expect(result[1]).to eq({
-        service: 'api',
-        hosts: ['api.example.com'],
-        upstreams: ['api:8080'],
-        has_healthcheck: false
-      })
+                                service: 'api',
+                                hosts: ['api.example.com'],
+                                upstreams: ['api:8080'],
+                                has_healthcheck: false
+                              })
     end
   end
 
@@ -357,7 +360,7 @@ RSpec.describe Odysseus::Caddy::Client do
       }
 
       expect(mock_ssh).to receive(:execute)
-        .with(/GET.*\/config\/apps\/tls/)
+        .with(%r{GET.*/config/apps/tls})
         .and_return(tls_config.to_json)
 
       result = client.tls_status
@@ -370,7 +373,7 @@ RSpec.describe Odysseus::Caddy::Client do
 
     it 'returns disabled status when no TLS configured' do
       expect(mock_ssh).to receive(:execute)
-        .with(/GET.*\/config\/apps\/tls/)
+        .with(%r{GET.*/config/apps/tls})
         .and_return('{}')
 
       result = client.tls_status
@@ -380,6 +383,19 @@ RSpec.describe Odysseus::Caddy::Client do
   end
 
   describe 'admin API error handling' do
+    # curl's write-out variable is %{http_code}. It looks like a Ruby format
+    # token, and a tool that rewrites it to %<http_code>s leaves curl emitting
+    # the literal text — split_status then finds no status and every failed
+    # write looks like a success again.
+    it "asks curl for the status code in curl's own syntax" do
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(cmd).to include("-w '\\n%{http_code}'")
+        "[]\n200"
+      end
+
+      client.list_services
+    end
+
     # curl is invoked with -w '\n%{http_code}', so a real response is the body
     # followed by the status code on its own line.
     def curl_response(body, status)
@@ -388,20 +404,20 @@ RSpec.describe Odysseus::Caddy::Client do
 
     it 'raises ProxyApiError when a write is rejected' do
       allow(mock_ssh).to receive(:execute)
-        .with(/GET.*\/routes/)
+        .with(%r{GET.*/routes})
         .and_return(curl_response('[]', 200))
       allow(mock_ssh).to receive(:execute)
         .with(/-X PUT/)
         .and_return(curl_response('{"error":"loading new config: invalid upstream"}', 400))
 
-      expect {
+      expect do
         client.add_upstream(
           service: 'myapp',
           hosts: ['app.example.com'],
           upstream: 'myapp:3000',
           ssl: false
         )
-      }.to raise_error(Odysseus::ProxyApiError) { |error|
+      end.to raise_error(Odysseus::ProxyApiError) { |error|
         expect(error.message).to include('400')
         expect(error.message).to include('invalid upstream')
       }
@@ -410,7 +426,7 @@ RSpec.describe Odysseus::Caddy::Client do
     it 'raises ProxyApiError when a route delete is rejected' do
       routes = [{ '@id' => 'route-myapp', 'handle' => [{ 'upstreams' => [{ 'dial' => 'myapp:3000' }] }] }]
       allow(mock_ssh).to receive(:execute)
-        .with(/GET.*\/routes/)
+        .with(%r{GET.*/routes})
         .and_return(curl_response(routes.to_json, 200))
       allow(mock_ssh).to receive(:execute)
         .with(/-X DELETE/)
@@ -423,7 +439,7 @@ RSpec.describe Odysseus::Caddy::Client do
     it 'treats a failed GET as absent config so callers can fall back' do
       # A freshly booted Caddy has no tls app; the admin API answers 500.
       allow(mock_ssh).to receive(:execute)
-        .with(/GET.*\/config\/apps\/tls/)
+        .with(%r{GET.*/config/apps/tls})
         .and_return(curl_response('{"error":"unknown object tls"}', 500))
 
       result = client.tls_status
@@ -433,7 +449,7 @@ RSpec.describe Odysseus::Caddy::Client do
 
     it 'parses a successful response without treating the status code as body' do
       allow(mock_ssh).to receive(:execute)
-        .with(/GET.*\/servers/)
+        .with(%r{GET.*/servers})
         .and_return(curl_response('{"srv0":{"listen":[":80"]}}', 200))
 
       expect(client.listen_addresses).to eq([':80'])
@@ -446,17 +462,17 @@ RSpec.describe Odysseus::Caddy::Client do
 
       # listen_addresses
       expect(mock_ssh).to receive(:execute)
-        .with(/GET.*\/servers/)
+        .with(%r{GET.*/servers})
         .and_return('{"srv0":{"listen":[":80",":443"]}}')
 
       # list_services
       expect(mock_ssh).to receive(:execute)
-        .with(/GET.*\/routes/)
+        .with(%r{GET.*/routes})
         .and_return('[]')
 
       # tls_status
       expect(mock_ssh).to receive(:execute)
-        .with(/GET.*\/config\/apps\/tls/)
+        .with(%r{GET.*/config/apps/tls})
         .and_return('{}')
 
       result = client.status

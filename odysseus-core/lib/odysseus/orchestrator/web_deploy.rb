@@ -8,7 +8,7 @@ module Odysseus
       include Odysseus::Core::VolumeNamespacer
 
       # Probed when a proxy is configured without an explicit healthcheck block.
-      DEFAULT_HEALTHCHECK_PATH = '/'
+      DEFAULT_HEALTHCHECK_PATH = '/'.freeze
 
       # @param ssh [Odysseus::Deployer::SSH] SSH connection
       # @param config [Hash] parsed deploy config
@@ -40,16 +40,16 @@ module Odysseus
         unless app_port
           raise Odysseus::ConfigError,
                 "proxy.app_port is required to deploy the '#{role}' role — " \
-                "set it to the port your app listens on inside the container"
+                'set it to the port your app listens on inside the container'
         end
 
         # Step 1: Ensure Caddy is running
-        log "Ensuring Caddy proxy is running..."
+        log 'Ensuring Caddy proxy is running...'
         if @caddy.running?
-          log "  Caddy already running"
+          log '  Caddy already running'
         else
           ensure_caddy!
-          log "  Caddy started"
+          log '  Caddy started'
         end
 
         # Step 2: Find existing containers
@@ -57,7 +57,7 @@ module Odysseus
         log "  Found #{old_containers.size} existing container(s)"
 
         # Step 3: Start new container
-        log "Starting new container..."
+        log 'Starting new container...'
         new_container_id = start_new_container(image: image, role: role)
         log "  Container started: #{new_container_id[0..11]}"
 
@@ -67,21 +67,21 @@ module Odysseus
         unless wait_for_healthy(new_container_id)
           log_health_failure(new_container_id)
           handle_failed_deploy(new_container_id, old_containers)
-          raise Odysseus::DeployError, "Container failed health checks"
+          raise Odysseus::DeployError, 'Container failed health checks'
         end
-        log "  Health check passed"
+        log '  Health check passed'
 
         # Step 5: Add new container to Caddy
         proxy_hosts = @config[:proxy][:hosts]&.join(', ')
         log "Adding to Caddy proxy (hosts: #{proxy_hosts})..."
         add_to_caddy(new_container_id)
-        log "  Caddy routing configured"
+        log '  Caddy routing configured'
 
         # Step 6: Remove old containers from Caddy and stop them
         old_containers.each do |old|
           log "Draining old container #{old['ID'][0..11]}..."
           drain_and_remove(old['ID'])
-          log "  Old container removed"
+          log '  Old container removed'
         end
 
         # Step 7: Cleanup old stopped containers
@@ -108,9 +108,9 @@ module Odysseus
       private
 
       def ensure_caddy!
-        unless @caddy.ensure_running
-          raise Odysseus::DeployError, "Failed to start Caddy proxy"
-        end
+        return if @caddy.ensure_running
+
+        raise Odysseus::DeployError, 'Failed to start Caddy proxy'
       end
 
       def start_new_container(image:, role:)
@@ -126,9 +126,7 @@ module Odysseus
         log "  Environment: #{env.size} variable(s) injected"
 
         volumes = namespace_volumes(server_config[:volumes], service: service)
-        if volumes&.any?
-          log "  Volumes: #{volumes.join(', ')}"
-        end
+        log "  Volumes: #{volumes.join(', ')}" if volumes&.any?
 
         if options[:memory] || options[:cpus]
           log "  Resources: memory=#{options[:memory] || 'default'}, cpus=#{options[:cpus] || 'default'}"
@@ -273,7 +271,7 @@ module Odysseus
       end
 
       def handle_failed_deploy(new_container_id, old_containers)
-        log "Rolling back failed deploy...", :warn
+        log 'Rolling back failed deploy...', :warn
 
         # Remove the failed new container
         @docker.stop(new_container_id)
@@ -283,7 +281,7 @@ module Odysseus
         if old_containers.any?
           log "Rollback complete — #{old_containers.size} old container(s) still serving traffic"
         else
-          log "Rollback complete — no previous containers to fall back to", :warn
+          log 'Rollback complete — no previous containers to fall back to', :warn
         end
       end
 
@@ -294,7 +292,7 @@ module Odysseus
         begin
           recent_logs = @docker.logs(container_id, tail: 30)
           unless recent_logs.strip.empty?
-            log "  Container logs (last 30 lines):", :error
+            log '  Container logs (last 30 lines):', :error
             recent_logs.each_line { |line| log "    #{line.rstrip}", :error }
           end
         rescue StandardError => e
@@ -325,9 +323,9 @@ module Odysseus
 
       def default_logger
         @default_logger ||= Object.new.tap do |l|
-          def l.info(msg); puts msg; end
-          def l.warn(msg); puts "[WARN] #{msg}"; end
-          def l.error(msg); puts "[ERROR] #{msg}"; end
+          def l.info(msg) = puts(msg)
+          def l.warn(msg) = puts("[WARN] #{msg}")
+          def l.error(msg) = puts("[ERROR] #{msg}")
         end
       end
 
