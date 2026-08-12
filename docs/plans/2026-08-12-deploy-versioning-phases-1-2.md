@@ -620,8 +620,10 @@ Replace the three label lines in `build_run_command`:
 cd odysseus-core && bundle exec rspec spec/odysseus/docker/client_spec.rb
 ```
 
-Expected: PASS. `Shellwords.escape` backslash-escapes rather than wrapping in quotes — it emits
-`odysseus.git_ref=feature/a\ b`. That is why the examples parse the command with
+Expected: PASS. `Shellwords.escape` backslash-escapes rather than wrapping in quotes, and its
+allow-list excludes `=`, so it emits `odysseus.git_ref\=feature/a\ b` — the key's `=` is escaped
+too. The shell strips both backslashes and docker receives one argument. That is why the examples
+parse the command with
 `Shellwords.split` instead of matching quote characters: the requirement is that docker receives
 one argument, not that a particular escaping style was used.
 
