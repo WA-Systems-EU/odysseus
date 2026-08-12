@@ -51,6 +51,7 @@ RSpec.describe Odysseus::Orchestrator::WebDeploy do
     allow(Odysseus::Caddy::Client).to receive(:new).and_return(mock_caddy)
 
     # Default mock behaviors
+    allow(mock_caddy).to receive(:running?).and_return(false)
     allow(mock_caddy).to receive(:ensure_running).and_return(true)
     allow(mock_docker).to receive(:list).and_return([])
     allow(mock_docker).to receive(:run).and_return('new-container-123')

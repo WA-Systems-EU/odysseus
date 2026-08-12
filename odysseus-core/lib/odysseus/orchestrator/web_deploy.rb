@@ -36,7 +36,7 @@ module Odysseus
         if @caddy.running?
           log "  Caddy already running"
         else
-          @caddy.ensure_running
+          ensure_caddy!
           log "  Caddy started"
         end
 
