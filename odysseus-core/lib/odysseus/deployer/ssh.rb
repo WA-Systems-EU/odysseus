@@ -79,11 +79,16 @@ module Odysseus
       end
 
       # Upload string content to remote file
+      #
+      # The mode travels in the SCP protocol itself, so a file holding secrets
+      # is never briefly world-readable the way a write-then-chmod would be.
+      #
       # @param content [String] content to write
       # @param remote_path [String] remote file path
-      def upload_string(content, remote_path)
+      # @param mode [Integer] permissions for the remote file
+      def upload_string(content, remote_path, mode: 0o640)
         with_connection do |session|
-          session.scp.upload!(StringIO.new(content), remote_path)
+          session.scp.upload!(StringIO.new(content), remote_path, mode: mode)
         end
       end
 
