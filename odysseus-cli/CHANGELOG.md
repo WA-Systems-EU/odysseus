@@ -7,18 +7,31 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-12
+
 ### Added
+- `odysseus version` and `--version`, reporting the CLI, odysseus-core and ruby
+  versions. Answered before any config is loaded, so it works without a
+  deploy.yml or a reachable server.
 - `Odysseus::CLI::VERSION`, so the gem version has one source of truth instead
   of being hardcoded in the gemspec.
+- A test suite: RSpec, `.rspec` and a `rake` default task. Argument dispatch and
+  exit codes are covered by running the real executable in a subprocess, the
+  commands are unit-tested against a doubled executor, and the redaction of
+  secrets from streamed output is pinned.
+- RuboCop, sharing odysseus-core's configuration.
 
 ### Changed
-- Requires odysseus-core `~> 0.3, >= 0.3.2`. The dependency was `~> 0.2`, which
-  allowed installing a core old enough to lack the deploy fixes the CLI relies
-  on.
+- Requires odysseus-core `~> 0.4`. The dependency was `~> 0.2`, which allowed
+  installing a core old enough to lack the deploy fixes the CLI relies on.
 - Requires Ruby >= 3.2.0, matching odysseus-core. The gemspec asked for >= 3.0,
   which could not have worked.
 - Licensed under MIT. The gemspec previously said LGPL-3.0-only while the README
   said MIT.
+- `CLEAN_MESSAGES` is a `private_constant`; it sat after a `private` modifier,
+  which does nothing for constants.
+- Development dependencies live in the Gemfile only, as in odysseus-core; the
+  gemspec declared rspec and pry-byebug a second time.
 
 ### Fixed
 - The gem now ships its license file. `spec.files` looked for `LICENSE` while

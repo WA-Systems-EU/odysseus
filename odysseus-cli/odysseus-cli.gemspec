@@ -17,11 +17,11 @@ Gem::Specification.new do |spec|
   spec.metadata['changelog_uri']   = "#{spec.homepage}/blob/trunk/odysseus-cli/CHANGELOG.md"
   spec.metadata['rubygems_mfa_required'] = 'true'
 
-  spec.files         = Dir['lib/**/*', 'bin/*', 'README.md', 'LICENSE.txt']
+  spec.files         = Dir['lib/**/*', 'bin/*', 'README.md', 'LICENSE.txt', 'CHANGELOG.md']
   spec.executables   = ['odysseus']
   spec.require_paths = ['lib']
   spec.required_ruby_version = '>= 3.2.0'
 
-  # Lockstep with core: the CLI relies on deploy behaviour fixed in 0.3.2.
-  spec.add_dependency 'odysseus-core', '~> 0.3', '>= 0.3.2'
+  # Lockstep with core: the CLI relies on the deploy behaviour released in 0.4.0.
+  spec.add_dependency 'odysseus-core', '~> 0.4'
 end
