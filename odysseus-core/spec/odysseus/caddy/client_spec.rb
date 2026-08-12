@@ -108,7 +108,7 @@ RSpec.describe Odysseus::Caddy::Client do
     end
 
     context 'when route already exists (ssl disabled)' do
-      let(:routes) { [{ '@id' => 'route-myapp', 'handle' => [{ 'upstreams' => [{ 'dial' => 'myapp:3000' }] }] }] }
+      let(:routes) { [{ '@id' => 'route-myapp', 'match' => [{ 'host' => ['app.example.com'] }], 'handle' => [{ 'upstreams' => [{ 'dial' => 'myapp:3000' }] }] }] }
 
       it 'adds upstream to existing route' do
         expect(mock_ssh).to receive(:execute)
@@ -135,6 +135,55 @@ RSpec.describe Odysseus::Caddy::Client do
         expect(mock_ssh).to receive(:execute)
           .with(/GET.*\/routes/)
           .and_return(routes.to_json)
+
+        client.add_upstream(
+          service: 'myapp',
+          hosts: ['app.example.com'],
+          upstream: 'myapp:3000',
+          ssl: false
+        )
+      end
+
+      it 'updates hosts when they have changed' do
+        routes_with_hosts = [{
+          '@id' => 'route-myapp',
+          'match' => [{ 'host' => ['old.example.com'] }],
+          'handle' => [{ 'upstreams' => [{ 'dial' => 'myapp:3000' }] }]
+        }]
+
+        expect(mock_ssh).to receive(:execute)
+          .with(/GET.*\/routes/)
+          .and_return(routes_with_hosts.to_json)
+          .ordered
+
+        expect(mock_ssh).to receive(:execute) do |cmd|
+          expect(cmd).to include('-X PATCH')
+          expect(cmd).to include('/match/0/host')
+          expect(cmd).to include('new.example.com')
+          '{}'
+        end.ordered
+
+        client.add_upstream(
+          service: 'myapp',
+          hosts: ['new.example.com'],
+          upstream: 'myapp:3000',
+          ssl: false
+        )
+      end
+
+      it 'does not patch hosts when they are unchanged' do
+        routes_with_hosts = [{
+          '@id' => 'route-myapp',
+          'match' => [{ 'host' => ['app.example.com'] }],
+          'handle' => [{ 'upstreams' => [{ 'dial' => 'myapp:3000' }] }]
+        }]
+
+        expect(mock_ssh).to receive(:execute)
+          .with(/GET.*\/routes/)
+          .and_return(routes_with_hosts.to_json)
+
+        # Should NOT make any PATCH call for hosts
+        expect(mock_ssh).not_to receive(:execute).with(/PATCH.*\/match/)
 
         client.add_upstream(
           service: 'myapp',

@@ -78,6 +78,12 @@ module Odysseus
         existing_idx = routes.find_index { |r| r['@id'] == "route-#{service}" }
 
         if existing_idx
+          # Update hosts if they changed
+          current_hosts = routes[existing_idx].dig('match', 0, 'host') || []
+          if current_hosts.sort != hosts.sort
+            api_request('PATCH', "/config/apps/http/servers/srv0/routes/#{existing_idx}/match/0/host", hosts)
+          end
+
           # Update existing route's upstreams
           current_upstreams = routes[existing_idx].dig('handle', 0, 'upstreams') || []
           unless current_upstreams.any? { |u| u['dial'] == upstream }
