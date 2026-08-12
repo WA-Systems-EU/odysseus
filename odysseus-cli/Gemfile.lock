@@ -1,8 +1,9 @@
 PATH
   remote: ../odysseus-core
   specs:
-    odysseus-core (0.1.0)
+    odysseus-core (0.3.2)
       base64
+      logger
       net-scp (~> 4.0)
       net-ssh (~> 7.2)
       zeitwerk (~> 2.6)
@@ -10,9 +11,8 @@ PATH
 PATH
   remote: .
   specs:
-    odysseus-cli (0.1.0)
-      odysseus-core (~> 0.1)
-      pastel (~> 0.8)
+    odysseus-cli (0.3.0)
+      odysseus-core (~> 0.3, >= 0.3.2)
 
 GEM
   remote: https://rubygems.org/
@@ -21,12 +21,11 @@ GEM
     byebug (12.0.0)
     coderay (1.1.3)
     diff-lcs (1.6.2)
+    logger (1.7.0)
     method_source (1.1.0)
     net-scp (4.1.0)
       net-ssh (>= 2.6.5, < 8.0.0)
     net-ssh (7.3.0)
-    pastel (0.8.0)
-      tty-color (~> 0.5)
     pry (0.15.2)
       coderay (~> 1.1)
       method_source (~> 1.0)
@@ -46,7 +45,6 @@ GEM
       diff-lcs (>= 1.2.0, < 2.0)
       rspec-support (~> 3.13.0)
     rspec-support (3.13.6)
-    tty-color (0.6.0)
     zeitwerk (2.7.4)
 
 PLATFORMS
@@ -60,16 +58,16 @@ DEPENDENCIES
   rspec (~> 3.12)
 
 CHECKSUMS
-  base64 (0.3.0)
+  base64 (0.3.0) sha256=27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b
   byebug (12.0.0) sha256=d4a150d291cca40b66ec9ca31f754e93fed8aa266a17335f71bb0afa7fca1a1e
   coderay (1.1.3) sha256=dc530018a4684512f8f38143cd2a096c9f02a1fc2459edcfe534787a7fc77d4b
   diff-lcs (1.6.2) sha256=9ae0d2cba7d4df3075fe8cd8602a8604993efc0dfa934cff568969efb1909962
+  logger (1.7.0) sha256=196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203
   method_source (1.1.0) sha256=181301c9c45b731b4769bc81e8860e72f9161ad7d66dd99103c9ab84f560f5c5
   net-scp (4.1.0) sha256=a99b0b92a1e5d360b0de4ffbf2dc0c91531502d3d4f56c28b0139a7c093d1a5d
   net-ssh (7.3.0) sha256=172076c4b30ce56fb25a03961b0c4da14e1246426401b0f89cba1a3b54bf3ef0
-  odysseus-cli (0.1.0)
-  odysseus-core (0.1.0)
-  pastel (0.8.0) sha256=481da9fb7d2f6e6b1a08faf11fa10363172dc40fd47848f096ae21209f805a75
+  odysseus-cli (0.3.0)
+  odysseus-core (0.3.2)
   pry (0.15.2) sha256=12d54b8640d3fa29c9211dd4ffb08f3fd8bf7a4fd9b5a73ce5b59c8709385b6b
   pry-byebug (3.11.0) sha256=0b0abb7d309bc7f00044d512a3c8567274f7012b944b38becc8440439a1cea72
   rspec (3.13.2) sha256=206284a08ad798e61f86d7ca3e376718d52c0bc944626b2349266f239f820587
@@ -77,8 +75,7 @@ CHECKSUMS
   rspec-expectations (3.13.5) sha256=33a4d3a1d95060aea4c94e9f237030a8f9eae5615e9bd85718fe3a09e4b58836
   rspec-mocks (3.13.7) sha256=0979034e64b1d7a838aaaddf12bf065ea4dc40ef3d4c39f01f93ae2c66c62b1c
   rspec-support (3.13.6) sha256=2e8de3702427eab064c9352fe74488cc12a1bfae887ad8b91cba480ec9f8afb2
-  tty-color (0.6.0) sha256=6f9c37ca3a4e2367fb2e6d09722762647d6f455c111f05b59f35730eeb24332a
-  zeitwerk (2.7.4)
+  zeitwerk (2.7.4) sha256=2bef90f356bdafe9a6c2bd32bcd804f83a4f9b8bc27f3600fff051eb3edcec8b
 
 BUNDLED WITH
   4.0.2
