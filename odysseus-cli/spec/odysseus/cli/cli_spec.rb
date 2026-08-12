@@ -176,7 +176,10 @@ RSpec.describe Odysseus::CLI::CLI do
           'State' => 'running',
           'Status' => 'Up 8 minutes (healthy)',
           'Image' => 'myapp-production:latest',
-          'Labels' => 'odysseus.service=myapp,odysseus.version=abc123def456,' \
+          # The version label is deliberately distinct from the Names/Image fields above:
+          # they legitimately embed abc123def456 too (a real container is named after its
+          # version), so only a substring unique to the label can prove status read it.
+          'Labels' => 'odysseus.service=myapp,odysseus.version=deadbeef9876,' \
                       'odysseus.deployed_at=2026-08-12T11:27:59Z,odysseus.git_ref=main'
         }]
       )
@@ -185,7 +188,7 @@ RSpec.describe Odysseus::CLI::CLI do
     it 'reports the version, ref and deploy time of the running container' do
       out = output_of { cli.status('web1.example.com', config: config_file) }
 
-      expect(out).to include('abc123def456')
+      expect(out).to include('deadbeef9876')
       expect(out).to include('main')
       expect(out).to include('2026-08-12T11:27:59Z')
     end
