@@ -11,7 +11,7 @@ Gem::Specification.new do |spec|
   spec.summary = "Core library for Odysseus deployment tool"
   spec.description = "Core library providing configuration parsing, deployers, and orchestrators for Odysseus"
   spec.homepage = "https://github.com/WA-Systems-EU/odysseus"
-  spec.license = "LGPL-3.0-only"
+  spec.license = "MIT"
   spec.required_ruby_version = ">= 3.2.0"
 
   spec.metadata["allowed_push_host"] = "https://rubygems.org"

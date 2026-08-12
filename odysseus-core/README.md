@@ -85,4 +85,4 @@ Encrypted secrets management:
 
 ## License
 
-LGPL-3.0-only
+MIT
