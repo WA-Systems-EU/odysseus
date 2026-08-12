@@ -7,9 +7,11 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
-Deploy reliability. `lib/odysseus/core/version.rb` currently reads 0.3.2, but
-these change observable behaviour — `SSH#execute` and the Caddy client now raise
-where they used to stay quiet — so a minor bump is the more honest release.
+## [0.4.0] - 2026-08-12
+
+Deploy reliability. `SSH#execute` and the Caddy client now raise where they used
+to stay quiet, so this is a minor bump rather than a patch: a deploy that
+previously reported success while failing will now stop and say so.
 
 ### Fixed
 - `Deployer::SSH#execute` reads the channel's exit status and raises
@@ -51,6 +53,11 @@ where they used to stay quiet — so a minor bump is the more honest release.
 ### Removed
 - The unused `Odysseus::VERSION` constant, stale at 0.1.0.
   `Odysseus::Core::VERSION` is the single source of truth.
+
+### Internal
+- `validators/config.rb` and `sails.rb` are covered by specs for the first time.
+- `rake` runs RSpec and RuboCop clean. Remaining Metrics offences are recorded
+  in `.rubocop_todo.yml` rather than hidden in the main configuration.
 
 ## [0.3.1] - 2026-04-05
 
