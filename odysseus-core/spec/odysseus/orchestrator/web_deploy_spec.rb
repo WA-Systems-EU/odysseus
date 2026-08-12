@@ -223,6 +223,58 @@ RSpec.describe Odysseus::Orchestrator::WebDeploy do
       expect(result[:service]).to eq('myapp')
       expect(result[:image]).to eq('myapp-prod:v1.0')
     end
+
+    context 'with a resolved deploy version' do
+      let(:config) do
+        super().merge(
+          deploy_version: Odysseus::DeployVersion.new(
+            version: 'abc123def456', ref: 'main', deployer: 'dev@example.com'
+          )
+        )
+      end
+
+      it 'names the container after the version' do
+        expect(mock_docker).to receive(:run) do |args|
+          expect(args[:name]).to start_with('myapp-abc123def456-')
+          'new-container-123'
+        end
+
+        orchestrator.deploy(image_tag: 'abc123def456')
+      end
+
+      it 'labels the container with the version, not the timestamp' do
+        expect(mock_docker).to receive(:run) do |args|
+          expect(args[:options][:version]).to eq('abc123def456')
+          'new-container-123'
+        end
+
+        orchestrator.deploy(image_tag: 'abc123def456')
+      end
+
+      it 'labels the container with the ref and the deploy time' do
+        expect(mock_docker).to receive(:run) do |args|
+          labels = args[:options][:labels]
+          expect(labels['odysseus.git_ref']).to eq('main')
+          expect(labels['odysseus.deployed_at']).to match(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/)
+          'new-container-123'
+        end
+
+        orchestrator.deploy(image_tag: 'abc123def456')
+      end
+    end
+
+    context 'without a resolved deploy version' do
+      it 'falls back to the image tag for the name and version label' do
+        expect(mock_docker).to receive(:run) do |args|
+          expect(args[:name]).to start_with('myapp-v1.0-')
+          expect(args[:options][:version]).to eq('v1.0')
+          expect(args[:options][:labels]).not_to have_key('odysseus.git_ref')
+          'new-container-123'
+        end
+
+        orchestrator.deploy(image_tag: 'v1.0')
+      end
+    end
   end
 
   describe 'rollback on failure' do
