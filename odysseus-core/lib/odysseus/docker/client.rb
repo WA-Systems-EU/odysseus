@@ -6,7 +6,6 @@ module Odysseus
   module Docker
     class Client
       HEALTHCHECK_POLL_INTERVAL = 2 # seconds
-      HEALTHCHECK_MAX_ATTEMPTS = 30 # ~60 seconds max wait
 
       # Env files are written here just long enough for docker run to read them.
       ENV_FILE_DIR = '/var/lib/odysseus/env'
@@ -91,7 +90,7 @@ module Odysseus
       # @param timeout [Integer] max seconds to wait
       # @return [Boolean] true if healthy, false if timeout
       def wait_healthy(container_id, timeout: 60)
-        attempts = [timeout / HEALTHCHECK_POLL_INTERVAL, HEALTHCHECK_MAX_ATTEMPTS].min
+        attempts = [timeout / HEALTHCHECK_POLL_INTERVAL, 1].max
 
         attempts.times do
           status = health_status(container_id)

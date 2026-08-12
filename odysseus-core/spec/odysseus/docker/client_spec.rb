@@ -253,6 +253,20 @@ RSpec.describe Odysseus::Docker::Client do
 
       expect(client.wait_healthy('abc123')).to be false
     end
+
+    it 'keeps polling for the whole timeout it was given' do
+      allow(mock_ssh).to receive(:execute).and_return("starting\n")
+
+      # 120s at one poll every 2s — the caller asked for two minutes, not one.
+      expect(client.wait_healthy('abc123', timeout: 120)).to be false
+      expect(mock_ssh).to have_received(:execute).exactly(60).times
+    end
+
+    it 'polls at least once for a timeout shorter than the poll interval' do
+      allow(mock_ssh).to receive(:execute).and_return("healthy\n")
+
+      expect(client.wait_healthy('abc123', timeout: 1)).to be true
+    end
   end
 
   describe '#logs' do
