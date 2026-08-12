@@ -325,19 +325,53 @@ module Odysseus
         route
       end
 
+      # Call Caddy's admin API over SSH.
+      #
+      # curl exits 0 for HTTP errors, so the status code is appended to the
+      # response with -w and split back off here. A rejected write leaves the
+      # proxy in a state the caller must know about, so it raises; a failed read
+      # returns nil, because Caddy answers 500 for config paths that simply do
+      # not exist yet (no tls app on a freshly booted proxy, for instance).
+      #
+      # @raise [Odysseus::ProxyApiError] if a mutating request returns HTTP >= 400
       def api_request(method, path, body = nil)
-        # Build curl command to hit Caddy's admin API
-        cmd = "curl -s -X #{method} "
+        cmd = "curl -s -w '\\n%{http_code}' -X #{method} "
         cmd += "-H 'Content-Type: application/json' "
         cmd += "-d '#{body.to_json}' " if body
         cmd += "http://localhost:#{ADMIN_API_PORT}#{path}"
 
-        output = @ssh.execute(cmd)
-        return nil if output.strip.empty?
+        response_body, status = split_status(@ssh.execute(cmd))
 
-        JSON.parse(output)
+        if status && status >= 400
+          return nil if method == 'GET'
+
+          raise Odysseus::ProxyApiError, api_error_message(method, path, status, response_body)
+        end
+
+        return nil if response_body.strip.empty?
+
+        JSON.parse(response_body)
       rescue JSON::ParserError
-        output
+        response_body
+      end
+
+      # Split curl's trailing '%{http_code}' line off the response body.
+      # Returns a nil status when no status line is present.
+      def split_status(output)
+        text = output.to_s.sub(/\s+\z/, '')
+        newline_idx = text.rindex("\n")
+        trailer = newline_idx ? text[(newline_idx + 1)..] : text
+
+        return [output.to_s, nil] unless trailer&.match?(/\A\d{3}\z/)
+
+        [newline_idx ? text[0...newline_idx] : '', trailer.to_i]
+      end
+
+      def api_error_message(method, path, status, response_body)
+        message = "Caddy admin API #{method} #{path} failed with HTTP #{status}"
+        details = response_body.to_s.strip
+        message += ": #{details}" unless details.empty?
+        message
       end
     end
   end
