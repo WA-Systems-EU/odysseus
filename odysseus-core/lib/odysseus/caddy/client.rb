@@ -241,9 +241,11 @@ module Odysseus
       # @param hosts [Array<String>] domain hosts
       # @param email [String] email for Let's Encrypt
       def enable_tls_for_hosts(hosts, email: nil)
-        # Get existing TLS config to merge with
-        existing_tls = api_request('GET', '/config/apps/tls') || {}
-        existing_policies = existing_tls.dig('automation', 'policies') || []
+        # nil means Caddy has no tls app yet, whether it answered with an error or
+        # a null body for the missing path. That distinction picks the verb below.
+        existing_tls = api_request('GET', '/config/apps/tls')
+        existing_automation = existing_tls&.dig('automation') || {}
+        existing_policies = existing_automation['policies'] || []
 
         # Collect all existing subjects
         all_subjects = existing_policies.flat_map { |p| p['subjects'] || [] }
@@ -257,20 +259,23 @@ module Odysseus
         issuer = { 'module' => 'acme' }
         issuer['email'] = email if email
 
-        # Configure TLS automation with Let's Encrypt (single policy for all domains)
-        tls_config = {
-          'automation' => {
-            'policies' => [
-              {
-                'subjects' => all_subjects,
-                'issuers' => [issuer]
-              }
-            ]
-          }
-        }
+        # One policy covering every domain, merged onto whatever else the tls app
+        # holds: writing only our automation block would drop sibling settings
+        # such as explicit certificate loaders or on_demand limits that other
+        # services on this host may depend on.
+        tls_config = (existing_tls || {}).merge(
+          'automation' => existing_automation.merge(
+            'policies' => [{ 'subjects' => all_subjects, 'issuers' => [issuer] }]
+          )
+        )
 
-        # Use PUT to create/replace TLS config
-        api_request('PUT', '/config/apps/tls', tls_config)
+        # Caddy's PUT creates and answers 409 if the key is already there; PATCH
+        # replaces and fails if it is not. Neither one is an upsert on its own.
+        if existing_tls.nil?
+          api_request('PUT', '/config/apps/tls', tls_config)
+        else
+          api_request('PATCH', '/config/apps/tls', tls_config)
+        end
 
         # Ensure HTTPS server exists and listens on 443
         ensure_https_server
