@@ -34,6 +34,11 @@ RSpec.describe Odysseus::CLI::CLI do
     let(:build_result) do
       { build: { success: true }, pussh: { success: true }, push: { success: true } }
     end
+    let(:resolved) do
+      Odysseus::DeployVersion.new(version: 'v1.2.3', ref: 'main', deployer: 'dev@example.com')
+    end
+
+    before { allow(executor).to receive(:deploy_version).and_return(resolved) }
 
     it 'deploys the requested tag without building by default' do
       expect(executor).to receive(:deploy_all).with(image_tag: 'v1.2.3', dry_run: false)
@@ -50,14 +55,8 @@ RSpec.describe Odysseus::CLI::CLI do
       output_of { cli.deploy(config: config_file, image: 'v1.2.3', build: true) }
     end
 
-    it 'defaults the tag to latest' do
-      expect(executor).to receive(:deploy_all).with(image_tag: 'latest', dry_run: false)
-
-      output_of { cli.deploy(config: config_file) }
-    end
-
     it 'passes dry-run through' do
-      expect(executor).to receive(:deploy_all).with(image_tag: 'latest', dry_run: true)
+      expect(executor).to receive(:deploy_all).with(image_tag: nil, dry_run: true)
 
       output_of { cli.deploy(config: config_file, 'dry-run': true) }
     end
@@ -79,6 +78,72 @@ RSpec.describe Odysseus::CLI::CLI do
       expect { output_of { cli.deploy(config: config_file) } }
         .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
       expect(stdout_buffer.string).to include('Container failed health checks')
+    end
+  end
+
+  describe 'version handling' do
+    let(:resolved) do
+      Odysseus::DeployVersion.new(version: 'abc123def456', ref: 'main', deployer: 'dev@example.com')
+    end
+
+    before { allow(executor).to receive(:deploy_version).and_return(resolved) }
+
+    it 'lets the executor resolve the version when --image is absent' do
+      expect(executor).to receive(:deploy_all).with(image_tag: nil, dry_run: false)
+
+      output_of { cli.deploy(config: config_file) }
+    end
+
+    it 'passes --image through when given' do
+      expect(executor).to receive(:deploy_all).with(image_tag: 'v9', dry_run: false)
+
+      output_of { cli.deploy(config: config_file, image: 'v9') }
+    end
+
+    it 'shows the resolved version in the deploy header' do
+      allow(executor).to receive(:deploy_all)
+
+      expect(output_of { cli.deploy(config: config_file) }).to include('abc123def456')
+    end
+
+    it 'reports a dirty tree without deploying' do
+      allow(executor).to receive(:deploy_version)
+        .and_raise(Odysseus::ConfigError, 'The working tree has uncommitted changes')
+      expect(executor).not_to receive(:deploy_all)
+
+      expect { output_of { cli.deploy(config: config_file) } }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      expect(stdout_buffer.string).to include('uncommitted changes')
+    end
+  end
+
+  describe '#app_exec' do
+    let(:ssh) { instance_double(Odysseus::Deployer::SSH, close: nil) }
+    let(:docker) { instance_double(Odysseus::Docker::Client) }
+
+    before do
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      allow(Odysseus::Docker::Client).to receive(:new).and_return(docker)
+    end
+
+    it 'runs the version that is currently serving' do
+      allow(docker).to receive(:list).with(service: 'myapp').and_return(
+        [{ 'ID' => 'abc', 'Labels' => 'odysseus.version=abc123def456' }]
+      )
+
+      expect(docker).to receive(:run_once)
+        .with(image: 'myapp-production:abc123def456', command: 'true', options: anything)
+        .and_return('done')
+
+      output_of { cli.app_exec('web1.example.com', config: config_file, command: 'true') }
+    end
+
+    it 'exits non-zero when nothing is running for the service' do
+      allow(docker).to receive(:list).with(service: 'myapp').and_return([])
+
+      expect { output_of { cli.app_exec('web1.example.com', config: config_file, command: 'true') } }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      expect(stdout_buffer.string).to match(/no running container/i)
     end
   end
 
