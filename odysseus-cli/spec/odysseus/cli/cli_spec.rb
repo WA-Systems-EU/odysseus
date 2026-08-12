@@ -175,7 +175,7 @@ RSpec.describe Odysseus::CLI::CLI do
           'Names' => 'myapp-abc123def456-20260812112759',
           'State' => 'running',
           'Status' => 'Up 8 minutes (healthy)',
-          'Image' => 'myapp-production:abc123def456',
+          'Image' => 'myapp-production:latest',
           'Labels' => 'odysseus.service=myapp,odysseus.version=abc123def456,' \
                       'odysseus.deployed_at=2026-08-12T11:27:59Z,odysseus.git_ref=main'
         }]

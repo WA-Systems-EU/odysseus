@@ -160,7 +160,8 @@ module Odysseus
           if web_containers.empty?
             @ui.step '(no containers running)'
           else
-            @ui.table(headers: %w[Version Ref Deployed State Health], rows: web_containers.map { |ctr| web_container_row(ctr) })
+            rows = web_containers.map { |c| web_container_row(c) }
+            @ui.table(headers: %w[Version Ref Deployed State Health], rows: rows)
           end
 
           caddy_status = caddy.status
@@ -818,9 +819,13 @@ module Odysseus
         parser.parse
       end
 
-      def web_container_row(ctr)
-        v, r, d = Odysseus::Docker::Labels.parse(ctr['Labels']).values_at('odysseus.version', 'odysseus.git_ref', 'odysseus.deployed_at')
-        [v || '(unlabelled)', r || '-', d || '-', ctr['State'], ctr['Status'].include?('healthy') ? '✓' : '']
+      def web_container_row(container)
+        labels = Odysseus::Docker::Labels.parse(container['Labels'])
+        version = labels['odysseus.version'] || '(unlabelled)'
+        ref = labels['odysseus.git_ref'] || '-'
+        deployed_at = labels['odysseus.deployed_at'] || '-'
+        health = container['Status'].include?('healthy') ? '✓' : ''
+        [version, ref, deployed_at, container['State'], health]
       end
 
       def connect_to_server(server, config)
