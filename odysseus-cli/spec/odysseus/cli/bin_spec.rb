@@ -33,7 +33,7 @@ RSpec.describe 'bin/odysseus' do
   end
 
   describe 'commands that need a server argument' do
-    ['status', 'containers', 'logs', 'cleanup'].each do |command|
+    %w[status containers logs cleanup].each do |command|
       it "#{command} reports the missing server and exits non-zero" do
         stdout, _stderr, status = run_cli(command)
 
@@ -105,7 +105,7 @@ RSpec.describe 'bin/odysseus' do
       stdout, _stderr, status = run_cli('secrets')
 
       expect(stdout).to include('Usage: odysseus secrets <subcommand>')
-      ['generate-key', 'encrypt', 'decrypt', 'edit'].each { |sub| expect(stdout).to include(sub) }
+      %w[generate-key encrypt decrypt edit].each { |sub| expect(stdout).to include(sub) }
       expect(status.exitstatus).to eq(1)
     end
 

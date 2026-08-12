@@ -35,8 +35,8 @@ module Odysseus
         @io.respond_to?(method, include_private)
       end
 
-      def method_missing(method, *args, &block)
-        @io.send(method, *args, &block)
+      def method_missing(method, *, &)
+        @io.send(method, *, &)
       end
     end
 
@@ -74,7 +74,7 @@ module Odysseus
         if debug?
           puts "\e[36m#{title}\e[0m"
         else
-          puts ""
+          puts ''
           puts "  #{COPPER}#{title}#{RESET}"
         end
       end
@@ -88,7 +88,7 @@ module Odysseus
       end
 
       def blank
-        puts ""
+        puts ''
       end
 
       # --- Single spin step ---
@@ -116,19 +116,18 @@ module Odysseus
         $stdout = wr
 
         thread = Thread.new do
-          begin
-            result = yield
-          rescue => e
-            err = e
-          ensure
-            done = true
-            wr.close
-          end
+          result = yield
+        rescue StandardError => e
+          err = e
+        ensure
+          done = true
+          wr.close
         end
 
         frame_idx = 0
         loop do
           break if done
+
           frame = SPINNER_FRAMES[frame_idx % SPINNER_FRAMES.size]
           old_stdout.print "\r  #{DIM}#{num}#{RESET}  #{COPPER}#{frame}#{RESET}  #{message}"
           old_stdout.flush
@@ -190,7 +189,7 @@ module Odysseus
           $stdout = wr
           begin
             result = yield
-          rescue => e
+          rescue StandardError => e
             err = e
           ensure
             done = true
@@ -199,7 +198,7 @@ module Odysseus
         end
 
         frame_idx = 0
-        buf = ""
+        buf = ''
 
         loop do
           # Non-blocking read from pipe
@@ -216,6 +215,7 @@ module Odysseus
           while (nl = buf.index("\n"))
             line = buf.slice!(0..nl).strip
             next if line.empty?
+
             line = clean_line(line)
             next unless line
 
@@ -263,6 +263,7 @@ module Odysseus
         end
 
         raise err if err
+
         result
       end
 
@@ -318,12 +319,12 @@ module Odysseus
           [h.to_s.length, rows.map { |r| r[i].to_s.length }.max || 0].max
         end
 
-        header_line = headers.map.with_index { |h, i| h.to_s.ljust(widths[i]) }.join("  ")
+        header_line = headers.map.with_index { |h, i| h.to_s.ljust(widths[i]) }.join('  ')
         puts "  #{COPPER}#{header_line}#{RESET}"
         puts "  #{widths.map { |w| '─' * w }.join('  ')}"
 
         rows.each do |row|
-          line = row.map.with_index { |c, i| c.to_s.ljust(widths[i]) }.join("  ")
+          line = row.map.with_index { |c, i| c.to_s.ljust(widths[i]) }.join('  ')
           puts "  #{line}"
         end
       end
@@ -341,15 +342,15 @@ module Odysseus
       # --- Deploy-specific helpers ---
 
       def deploy_header(service:, image:, image_tag:, build: false, distribution: nil)
-        header "Odysseus Deploy"
-        info "Service", service
-        info "Image", "#{image}:#{image_tag}"
-        info "Distribute", distribution if build && distribution
+        header 'Odysseus Deploy'
+        info 'Service', service
+        info 'Image', "#{image}:#{image_tag}"
+        info 'Distribute', distribution if build && distribution
         blank
       end
 
       def deploy_complete(duration: nil)
-        msg = "Deployment successful"
+        msg = 'Deployment successful'
         msg += " in #{duration}s" if duration
         step_ok msg
       end
@@ -421,9 +422,7 @@ module Odysseus
 
         # Map known messages to clean versions
         CLEAN_MESSAGES.each do |pattern, replacement|
-          if line.match?(pattern)
-            return line.sub(pattern, replacement)
-          end
+          return line.sub(pattern, replacement) if line.match?(pattern)
         end
 
         line
@@ -440,8 +439,9 @@ module Odysseus
         /^Pushing to (.+)\.\.\./ => 'Pushing image to \1',
         /^Starting (.+)\.\.\.$/ => 'Starting \1',
         /^Stopping (.+) .*/ => 'Stopping \1',
-        /^Attaching (.+) to proxy.*/ => 'Attaching \1 to proxy',
+        /^Attaching (.+) to proxy.*/ => 'Attaching \1 to proxy'
       }.freeze
+      private_constant :CLEAN_MESSAGES
     end
   end
 end

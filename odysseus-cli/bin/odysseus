@@ -35,7 +35,7 @@ def main
   }
 
   command = ARGV[0]
-  command_args = ARGV[1..-1] || []
+  command_args = ARGV[1..] || []
 
   # Handle accessory subcommands
   if command == 'accessory'
@@ -97,7 +97,7 @@ end
 
 def handle_accessory_command(cli, args)
   subcommand = args[0]
-  subcommand_args = args[1..-1] || []
+  subcommand_args = args[1..] || []
 
   # Commands that don't need a server argument (hosts come from config)
   accessory_commands_no_server = {
@@ -119,28 +119,28 @@ def handle_accessory_command(cli, args)
   all_commands = accessory_commands_no_server.merge(accessory_commands_with_server)
 
   unless subcommand && all_commands[subcommand]
-    puts "Usage: odysseus accessory <subcommand> [options]"
-    puts ""
-    puts "Subcommands (hosts from config):"
-    puts "  boot                  Boot an accessory (requires --name)"
-    puts "  boot-all              Boot all accessories"
-    puts "  remove                Remove an accessory (requires --name)"
-    puts "  restart               Restart an accessory (requires --name)"
-    puts "  upgrade               Upgrade accessory to new image (requires --name)"
-    puts "  status                Show accessory status"
-    puts ""
-    puts "Subcommands (require server):"
-    puts "  logs <server>         Show accessory logs (requires --name)"
-    puts "  exec <server>         Execute command in accessory (requires --name)"
-    puts "  shell <server>        Open interactive shell in accessory (requires --name)"
-    puts ""
-    puts "Options:"
-    puts "  --config FILE         Path to deploy.yml (default: deploy.yml)"
-    puts "  --name NAME           Accessory name"
-    puts "  -f, --follow          Follow log output (logs only)"
-    puts "  -n, --lines N         Number of lines (logs only, default: 100)"
-    puts "  --since TIME          Show logs since timestamp (logs only)"
-    puts "  --command CMD         Command to execute (exec only)"
+    puts 'Usage: odysseus accessory <subcommand> [options]'
+    puts ''
+    puts 'Subcommands (hosts from config):'
+    puts '  boot                  Boot an accessory (requires --name)'
+    puts '  boot-all              Boot all accessories'
+    puts '  remove                Remove an accessory (requires --name)'
+    puts '  restart               Restart an accessory (requires --name)'
+    puts '  upgrade               Upgrade accessory to new image (requires --name)'
+    puts '  status                Show accessory status'
+    puts ''
+    puts 'Subcommands (require server):'
+    puts '  logs <server>         Show accessory logs (requires --name)'
+    puts '  exec <server>         Execute command in accessory (requires --name)'
+    puts '  shell <server>        Open interactive shell in accessory (requires --name)'
+    puts ''
+    puts 'Options:'
+    puts '  --config FILE         Path to deploy.yml (default: deploy.yml)'
+    puts '  --name NAME           Accessory name'
+    puts '  -f, --follow          Follow log output (logs only)'
+    puts '  -n, --lines N         Number of lines (logs only, default: 100)'
+    puts '  --since TIME          Show logs since timestamp (logs only)'
+    puts '  --command CMD         Command to execute (exec only)'
     exit 1
   end
 
@@ -171,7 +171,7 @@ end
 
 def handle_app_command(cli, args)
   subcommand = args[0]
-  subcommand_args = args[1..-1] || []
+  subcommand_args = args[1..] || []
 
   app_commands = {
     'shell' => :app_shell,
@@ -180,17 +180,17 @@ def handle_app_command(cli, args)
   }
 
   unless subcommand && app_commands[subcommand]
-    puts "Usage: odysseus app <subcommand> <server> [options]"
-    puts ""
-    puts "Subcommands:"
-    puts "  shell <server>        Open an interactive shell in a temporary container"
-    puts "  exec <server>         Run a command in a new container (requires --command)"
-    puts "  console <server>      Start a custom console (e.g., rails c, irb)"
-    puts ""
-    puts "Options:"
-    puts "  --config FILE         Path to deploy.yml (default: deploy.yml)"
-    puts "  --command CMD         Command to execute (exec only)"
-    puts "  --cmd CMD             Console command (console only, default: /bin/sh)"
+    puts 'Usage: odysseus app <subcommand> <server> [options]'
+    puts ''
+    puts 'Subcommands:'
+    puts '  shell <server>        Open an interactive shell in a temporary container'
+    puts '  exec <server>         Run a command in a new container (requires --command)'
+    puts '  console <server>      Start a custom console (e.g., rails c, irb)'
+    puts ''
+    puts 'Options:'
+    puts '  --config FILE         Path to deploy.yml (default: deploy.yml)'
+    puts '  --command CMD         Command to execute (exec only)'
+    puts '  --cmd CMD             Console command (console only, default: /bin/sh)'
     exit 1
   end
 
@@ -213,7 +213,7 @@ end
 
 def handle_secrets_command(cli, args)
   subcommand = args[0]
-  subcommand_args = args[1..-1] || []
+  subcommand_args = args[1..] || []
 
   secrets_commands = {
     'generate-key' => :secrets_generate_key,
@@ -223,20 +223,20 @@ def handle_secrets_command(cli, args)
   }
 
   unless subcommand && secrets_commands[subcommand]
-    puts "Usage: odysseus secrets <subcommand> [options]"
-    puts ""
-    puts "Subcommands:"
-    puts "  generate-key          Generate a new master key"
-    puts "  encrypt               Encrypt a secrets file"
-    puts "  decrypt               Decrypt and display secrets"
-    puts "  edit                  Edit encrypted secrets"
-    puts ""
-    puts "Options:"
-    puts "  --file FILE           Path to secrets file (default: secrets.yml.enc)"
-    puts "  --input FILE          Input file to encrypt (encrypt only)"
-    puts ""
-    puts "Environment:"
-    puts "  ODYSSEUS_MASTER_KEY   Master key for encryption/decryption"
+    puts 'Usage: odysseus secrets <subcommand> [options]'
+    puts ''
+    puts 'Subcommands:'
+    puts '  generate-key          Generate a new master key'
+    puts '  encrypt               Encrypt a secrets file'
+    puts '  decrypt               Decrypt and display secrets'
+    puts '  edit                  Edit encrypted secrets'
+    puts ''
+    puts 'Options:'
+    puts '  --file FILE           Path to secrets file (default: secrets.yml.enc)'
+    puts '  --input FILE          Input file to encrypt (encrypt only)'
+    puts ''
+    puts 'Environment:'
+    puts '  ODYSSEUS_MASTER_KEY   Master key for encryption/decryption'
     exit 1
   end
 
@@ -256,53 +256,53 @@ def print_version
 end
 
 def print_help
-  puts "Usage: odysseus <command> [options]"
-  puts ""
-  puts "Global options:"
-  puts "  --debug                   Verbose output (show all commands and details)"
-  puts "                            Or set ODYSSEUS_DEBUG=1 environment variable"
-  puts "  --version                 Show odysseus, odysseus-core and ruby versions"
-  puts ""
-  puts "Commands:"
-  puts "  deploy                    Deploy all roles to servers defined in config"
-  puts "  build                     Build Docker image (locally or on build host)"
-  puts "  pussh                     Push image to hosts via SSH (no registry needed)"
-  puts "  status <server>           Show service status on server"
-  puts "  containers <server>       List containers for service on server"
-  puts "  logs <server>             Show logs for a service"
-  puts "  cleanup <server>          Clean up old containers and images"
-  puts "  validate                  Validate deploy.yml"
-  puts "  accessory <subcommand>    Manage accessories"
-  puts "  app <subcommand>          Run commands in app containers"
-  puts "  secrets <subcommand>      Manage encrypted secrets"
-  puts "  version                   Show version information"
-  puts ""
-  puts "Options:"
-  puts "  --config FILE             Path to deploy.yml (default: deploy.yml)"
-  puts "  --image TAG               Docker image tag (default: latest)"
-  puts "  --service NAME            Service name (for containers command)"
+  puts 'Usage: odysseus <command> [options]'
+  puts ''
+  puts 'Global options:'
+  puts '  --debug                   Verbose output (show all commands and details)'
+  puts '                            Or set ODYSSEUS_DEBUG=1 environment variable'
+  puts '  --version                 Show odysseus, odysseus-core and ruby versions'
+  puts ''
+  puts 'Commands:'
+  puts '  deploy                    Deploy all roles to servers defined in config'
+  puts '  build                     Build Docker image (locally or on build host)'
+  puts '  pussh                     Push image to hosts via SSH (no registry needed)'
+  puts '  status <server>           Show service status on server'
+  puts '  containers <server>       List containers for service on server'
+  puts '  logs <server>             Show logs for a service'
+  puts '  cleanup <server>          Clean up old containers and images'
+  puts '  validate                  Validate deploy.yml'
+  puts '  accessory <subcommand>    Manage accessories'
+  puts '  app <subcommand>          Run commands in app containers'
+  puts '  secrets <subcommand>      Manage encrypted secrets'
+  puts '  version                   Show version information'
+  puts ''
+  puts 'Options:'
+  puts '  --config FILE             Path to deploy.yml (default: deploy.yml)'
+  puts '  --image TAG               Docker image tag (default: latest)'
+  puts '  --service NAME            Service name (for containers command)'
   puts "  --dry-run                 Don't actually deploy"
-  puts "  -v, --verbose             Show commands being executed"
-  puts ""
-  puts "Deploy options:"
-  puts "  --build                   Build and distribute image before deploying"
-  puts "                            (uses registry if configured, otherwise pussh)"
-  puts ""
-  puts "Build options:"
-  puts "  --push                    Push image to registry after build"
-  puts "  --context PATH            Build context path (default: . relative to deploy.yml)"
-  puts ""
-  puts "Pussh options:"
-  puts "  --build                   Build image before pushing via SSH"
-  puts ""
-  puts "Logs options:"
-  puts "  --role ROLE               Role for logs: web, jobs, worker, etc (default: web)"
-  puts "  -f, --follow              Follow log output"
-  puts "  -n, --lines N             Number of lines to show (default: 100)"
+  puts '  -v, --verbose             Show commands being executed'
+  puts ''
+  puts 'Deploy options:'
+  puts '  --build                   Build and distribute image before deploying'
+  puts '                            (uses registry if configured, otherwise pussh)'
+  puts ''
+  puts 'Build options:'
+  puts '  --push                    Push image to registry after build'
+  puts '  --context PATH            Build context path (default: . relative to deploy.yml)'
+  puts ''
+  puts 'Pussh options:'
+  puts '  --build                   Build image before pushing via SSH'
+  puts ''
+  puts 'Logs options:'
+  puts '  --role ROLE               Role for logs: web, jobs, worker, etc (default: web)'
+  puts '  -f, --follow              Follow log output'
+  puts '  -n, --lines N             Number of lines to show (default: 100)'
   puts "  --since TIME              Show logs since timestamp (e.g., '10m', '2h')"
-  puts ""
-  puts "Cleanup options:"
-  puts "  --prune-images            Also prune dangling images after removing containers"
+  puts ''
+  puts 'Cleanup options:'
+  puts '  --prune-images            Also prune dangling images after removing containers'
 end
 
 main
