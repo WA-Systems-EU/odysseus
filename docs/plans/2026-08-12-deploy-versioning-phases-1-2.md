@@ -334,6 +334,7 @@ RSpec.describe Odysseus::VersionResolver do
 
     it 'falls back to $USER when git has no committer email' do
       allow(git).to receive(:committer_email).and_return(nil)
+      allow(ENV).to receive(:fetch).and_call_original
       allow(ENV).to receive(:fetch).with('USER', 'unknown').and_return('thomas')
 
       expect(resolver.resolve.deployer).to eq('thomas')
@@ -515,13 +516,22 @@ Labels are about to carry timestamps and refs, and `--label #{key}=#{value}` is 
 
 - [ ] **Step 1: Write the failing test**
 
-Add to the `#run` describe block in `odysseus-core/spec/odysseus/docker/client_spec.rb`:
+Add `require 'shellwords'` below `require 'spec_helper'` at the top of
+`odysseus-core/spec/odysseus/docker/client_spec.rb`, then add this to the `#run` describe block:
 
 ```ruby
     context 'with custom labels' do
-      it 'quotes label values so spaces and metacharacters survive' do
+      # Assert what docker actually receives, by parsing the command the way a
+      # shell would. Escaping style is an implementation detail; a label arriving
+      # as one argument is the requirement.
+      def labels_in(cmd)
+        tokens = Shellwords.split(cmd)
+        tokens.each_cons(2).select { |flag, _| flag == '--label' }.map(&:last)
+      end
+
+      it 'passes a label value containing a space as a single argument' do
         expect(mock_ssh).to receive(:execute) do |cmd|
-          expect(cmd).to include("--label 'odysseus.git_ref=feature/a b'")
+          expect(labels_in(cmd)).to include('odysseus.git_ref=feature/a b')
           "#{container_id}\n"
         end
 
@@ -532,10 +542,9 @@ Add to the `#run` describe block in `odysseus-core/spec/odysseus/docker/client_s
         )
       end
 
-      it 'quotes the service and version labels too' do
+      it 'leaves the service and version labels intact' do
         expect(mock_ssh).to receive(:execute) do |cmd|
-          expect(cmd).to include("--label 'odysseus.service=myapp'")
-          expect(cmd).to include("--label 'odysseus.version=abc123def456'")
+          expect(labels_in(cmd)).to include('odysseus.service=myapp', 'odysseus.version=abc123def456')
           "#{container_id}\n"
         end
 
@@ -584,7 +593,10 @@ Replace the three label lines in `build_run_command`:
 cd odysseus-core && bundle exec rspec spec/odysseus/docker/client_spec.rb
 ```
 
-Expected: PASS. Note `Shellwords.escape` produces `'k=v'` only when quoting is needed, which is why the new examples assert on values that require it.
+Expected: PASS. `Shellwords.escape` backslash-escapes rather than wrapping in quotes — it emits
+`odysseus.git_ref=feature/a\ b`. That is why the examples parse the command with
+`Shellwords.split` instead of matching quote characters: the requirement is that docker receives
+one argument, not that a particular escaping style was used.
 
 - [ ] **Step 5: Verify the specs have teeth**
 
@@ -1267,7 +1279,7 @@ Add to `odysseus-cli/spec/odysseus/cli/cli_spec.rb`:
       )
 
       expect(docker).to receive(:run_once)
-        .with(hash_including(image: 'myapp-production:abc123def456'))
+        .with(image: 'myapp-production:abc123def456', command: 'true', options: anything)
         .and_return('done')
 
       output_of { cli.app_exec('web1.example.com', config: config_file, command: 'true') }
