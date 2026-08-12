@@ -2,44 +2,60 @@
 
 Working list for getting Odysseus to a public 1.0. Grouped by what blocks a
 public release, what closes the gap with Kamal, and what comes after. Order
-within each group is not fixed — pick from the top of P0 first.
+within each group is not fixed.
+
+P0 is done apart from CI and the templates, both waiting on a decision about
+where the public repo lives. P1 is the next thing to prioritise.
 
 ## P0 — blocks going public
 
-Housekeeping that would embarrass us in front of a first-time user.
+Done, on trunk:
 
-- [ ] **Remove the AWS ASG feature remnants.** The provider was deleted in
-      7bd4ffc but `Config::Parser#parse_aws_config` still parses an `aws:` block
-      and `HostProviders.build` raises pointing at `odysseus-sail-aws-asg`, a gem
-      nobody can install. Both READMEs still document ASG as a supported feature
-      with a config example. Either finish the plugin path (see plugin loading
-      below) or drop the parsing and the docs.
-- [ ] **Remove the Charm mode docs.** `odysseus-cli/README.md` documents a
-      `--charm` flag, `ODYSSEUS_CHARM=1`, and installing `gum`. None of it
-      exists; the CLI renders its own spinners in `cli/ui.rb`.
-- [ ] **Drop the `ratatui_ruby` dependency.** `odysseus-cli.gemspec` requires
-      `ratatui_ruby ~> 1.4` and nothing requires or references it — a native
-      extension pulled in for nothing on every install.
-- [ ] **Fix the version drift.** `Odysseus::VERSION` is 0.1.0 while
-      `Odysseus::Core::VERSION` is 0.3.2; `odysseus-cli.gemspec` hardcodes 0.3.0.
-      Pick one source of truth per gem and delete the other constant.
-- [ ] **Add `odysseus version` / `--version`.** There is no way to ask the CLI
-      what it is, which makes bug reports guesswork.
-- [ ] **Maintain the changelog.** `odysseus-core/CHANGELOG.md` stops at "0.1.0
-      Initial release" four releases ago, and the gemspec's `changelog_uri`
-      points at `trunk/CHANGELOG.md`, which does not exist at the repo root.
-- [ ] **Add CI.** No `.github/` and no pipeline: run `rspec` for both gems on
-      push, plus `rubocop`. (Originally scoped as Buildkite — decide which.)
-- [ ] **Add CONTRIBUTING.md.** Plus issue/PR templates and a documented release
-      process. `CODE_OF_CONDUCT.md` already exists.
-- [ ] **Test the CLI.** `odysseus-cli` has no spec directory, no `.rspec` and no
-      Rakefile — 1,281 lines of argument parsing, `exit 1` paths, secrets
-      subcommands and `system("ssh …")` shell-outs with zero coverage.
-- [ ] **Spec `validators/config.rb` and `sails.rb`.** All of the config
-      validation logic and the whole plugin registry are untested.
-- [ ] **Get `rake` passing.** The default task is `spec + rubocop` and rubocop
-      reports ~1,842 offenses across 37 files, so `rake` fails out of the box.
-      Mostly autocorrectable; decide the house style and land it in one sweep.
+- [x] **AWS ASG remnants.** Removed from both READMEs. The parsing hook and the
+      `HostProviders` `aws:` branch are deliberately kept: they are the contract
+      `odysseus-sail-aws-asg` consumes, and that gem has passing specs against
+      them. The docs come back when plugin loading lands (P1) and a user can
+      actually reach the feature.
+- [x] **Charm mode docs.** Removed. Charm/gum was real in 0.2.0 and replaced by
+      `CLI::UI` in 0.3.0; only the README still believed in it.
+- [x] **`ratatui_ruby`.** Dropped from the gemspec.
+- [x] **Version drift.** `Odysseus::VERSION` deleted;
+      `Odysseus::Core::VERSION` and the new `Odysseus::CLI::VERSION` are the
+      single sources, read by the gemspecs.
+- [x] **`odysseus version` / `--version`.** Reports CLI, core and ruby versions
+      before any config is loaded.
+- [x] **Changelogs.** Both written from git history and the built gems, and
+      `changelog_uri` now points at files that exist.
+- [x] **CONTRIBUTING.md**, with the release process. Issue/PR templates still
+      pending a decision on the repo host.
+- [x] **CLI tests.** Harness plus 49 examples: subprocess coverage of dispatch
+      and exit codes, unit cover of the commands against a doubled executor, and
+      the UI's secret redaction.
+- [x] **`validators/config.rb` and `sails.rb` specs.** 45 examples, each checked
+      against a deliberate mutation of the code under test.
+- [x] **`rake` passes** in both gems. Metrics debt is recorded in
+      `.rubocop_todo.yml` per gem rather than hidden in the main config.
+
+Also fixed along the way, unplanned:
+
+- [x] The CLI gem shipped **no licence file** — `spec.files` looked for
+      `LICENSE` while the file is `LICENSE.txt`.
+- [x] The CLI's dependency on core was `~> 0.2`, which allowed installing a core
+      without the deploy fixes it relies on. Now `~> 0.3, >= 0.3.2`.
+- [x] `required_ruby_version` was `>= 3.0` in the CLI against core's `>= 3.2.0`,
+      which could never have resolved.
+- [x] The CLI lockfile still pinned `odysseus-core 0.1.0` and a `pastel`
+      dependency the gemspec had dropped.
+
+Still open:
+
+- [ ] **CI.** Deferred: where the public repo will live is undecided. Both
+      suites must be run locally until then, and CONTRIBUTING says so.
+- [ ] **Issue and PR templates**, once the host is chosen.
+- [ ] **`# frozen_string_literal: true`.** Missing in 36 core files. RuboCop can
+      add it, but that is an unsafe correction — a literal mutated in place
+      starts raising inside someone's deploy — so it needs an audit of string
+      mutation first. The cop is disabled with that note.
 
 ## P1 — base features missing compared to Kamal
 
@@ -88,8 +104,8 @@ Smaller findings worth fixing but not blocking anything.
 
 - [ ] `Docker#run_once` and the CLI's `app shell`/`console`/`exec` still inline
       `-e KEY=VALUE` unquoted, so a clear env value containing a space breaks the
-      command. Deploy-path env now goes through a 0600 `--env-file`; these paths
-      did not follow.
+      command. The deploy path now uses a 0600 `--env-file`; these did not
+      follow.
 - [ ] `use_tailscale: true` is hardcoded in both `Executor#connect_to_server` and
       the CLI, so every connection timeout suggests Tailscale troubleshooting.
 - [ ] The Caddy client assumes a single `srv0` HTTP server and relies on the
@@ -101,3 +117,9 @@ Smaller findings worth fixing but not blocking anything.
       drain; `deploy.drain_timeout` is parsed but unused by `WebDeploy`.
 - [ ] Root `.gitignore` ignores `**/deploy.yml`, so example configs cannot be
       committed for the docs.
+- [ ] RuboCop's `Style/FormatStringToken` rewrote curl's `%{http_code}` to
+      Ruby's `%<http_code>s` during the lint sweep, which would have broken the
+      health check and silently disabled the Caddy API error handling. Specs now
+      pin curl's syntax and the cop is off, but the shell strings scattered
+      through the clients are worth extracting somewhere they cannot be mistaken
+      for Ruby.
