@@ -7,6 +7,11 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-12
+
+Released in lockstep with odysseus-core 0.4.1, which fixes the Caddy TLS
+policy update. No changes to the CLI itself.
+
 ## [0.4.0] - 2026-08-12
 
 ### Added

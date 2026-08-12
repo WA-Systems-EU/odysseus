@@ -7,6 +7,21 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-12
+
+### Fixed
+- `Caddy::Client#enable_tls_for_hosts` updates an existing `tls` app in place
+  instead of trying to recreate it. Caddy's `PUT` creates and answers 409 if the
+  key is already there, so on any host whose Caddy already had a `tls` app this
+  call had always failed and the policy update had always been discarded — a
+  domain added to `proxy.hosts` after the first deploy never got a policy and so
+  never got an ACME account email. Certificates still arrived through Caddy's
+  implicit automation, which is why it went unnoticed. 0.4.0 did not break this;
+  it stopped hiding it.
+- The new policy is merged onto the existing `tls` config rather than replacing
+  it, so sibling settings — explicit certificate loaders, `on_demand` limits —
+  survive a deploy.
+
 ## [0.4.0] - 2026-08-12
 
 Deploy reliability. `SSH#execute` and the Caddy client now raise where they used
