@@ -5,11 +5,11 @@ require 'spec_helper'
 RSpec.describe Odysseus::HostProviders do
   describe '.build' do
     it 'returns Static provider when hosts are specified' do
-      role_config = { hosts: ['host1', 'host2'] }
+      role_config = { hosts: %w[host1 host2] }
       provider = described_class.build(role_config)
 
       expect(provider).to be_a(Odysseus::HostProviders::Static)
-      expect(provider.resolve).to eq(['host1', 'host2'])
+      expect(provider.resolve).to eq(%w[host1 host2])
     end
 
     it 'raises error when aws config specified but provider not loaded' do
@@ -26,9 +26,13 @@ RSpec.describe Odysseus::HostProviders do
 
     it 'uses registered aws_asg provider when available' do
       mock_provider_class = Class.new(Odysseus::HostProviders::Base) do
-        def initialize(config); super; @asg = config[:asg]; end
-        def resolve; ['10.0.0.1']; end
-        def name; "aws_asg(#{@asg})"; end
+        def initialize(config)
+          super
+          @asg = config[:asg]
+        end
+
+        def resolve = ['10.0.0.1']
+        def name = "aws_asg(#{@asg})"
       end
 
       described_class.register(:aws_asg, mock_provider_class)

@@ -6,8 +6,8 @@ module Odysseus
   module Caddy
     class Client
       ADMIN_API_PORT = 2019
-      CONTAINER_NAME = 'odysseus-caddy'
-      CADDY_IMAGE = 'caddy:2-alpine'
+      CONTAINER_NAME = 'odysseus-caddy'.freeze
+      CADDY_IMAGE = 'caddy:2-alpine'.freeze
 
       # @param ssh [Odysseus::Deployer::SSH] SSH connection to server
       # @param docker [Odysseus::Docker::Client] Docker client
@@ -34,10 +34,10 @@ module Odysseus
       # Start Caddy container
       def start_caddy
         # Create network if not exists (with label to protect from prune)
-        @ssh.execute("docker network create --label odysseus.managed=true odysseus 2>/dev/null || true")
+        @ssh.execute('docker network create --label odysseus.managed=true odysseus 2>/dev/null || true')
 
         # Create data directory for certificates
-        @ssh.execute("mkdir -p /var/lib/odysseus/caddy")
+        @ssh.execute('mkdir -p /var/lib/odysseus/caddy')
 
         # Run Caddy with admin API enabled and persistent storage for certs
         @docker.run(
@@ -74,7 +74,7 @@ module Odysseus
         enable_tls_for_hosts(hosts, email: ssl_email) if ssl
 
         # Check if route already exists for this service
-        routes = api_request('GET', "/config/apps/http/servers/srv0/routes") || []
+        routes = api_request('GET', '/config/apps/http/servers/srv0/routes') || []
         existing_idx = routes.find_index { |r| r['@id'] == "route-#{service}" }
 
         if existing_idx
@@ -88,7 +88,8 @@ module Odysseus
           current_upstreams = routes[existing_idx].dig('handle', 0, 'upstreams') || []
           unless current_upstreams.any? { |u| u['dial'] == upstream }
             current_upstreams << { 'dial' => upstream }
-            api_request('PATCH', "/config/apps/http/servers/srv0/routes/#{existing_idx}/handle/0/upstreams", current_upstreams)
+            api_request('PATCH', "/config/apps/http/servers/srv0/routes/#{existing_idx}/handle/0/upstreams",
+                        current_upstreams)
           end
         else
           # Create new route - prepend at index 0 so it matches before default routes
@@ -98,7 +99,7 @@ module Odysseus
             upstreams: [upstream],
             healthcheck: healthcheck
           )
-          api_request('PUT', "/config/apps/http/servers/srv0/routes/0", config)
+          api_request('PUT', '/config/apps/http/servers/srv0/routes/0', config)
         end
       end
 
@@ -107,12 +108,12 @@ module Odysseus
       # @param upstream [String, nil] upstream to remove, or nil to remove entire route
       def remove_upstream(service:, upstream:)
         # Get current config
-        routes = api_request('GET', "/config/apps/http/servers/srv0/routes")
+        routes = api_request('GET', '/config/apps/http/servers/srv0/routes')
         return unless routes
 
         # Find route for this service and remove the upstream
         routes.each_with_index do |route, idx|
-          next unless route.dig('@id') == "route-#{service}"
+          next unless route['@id'] == "route-#{service}"
 
           # If no specific upstream, remove the entire route
           if upstream.nil?
@@ -195,7 +196,7 @@ module Odysseus
             service: service_name,
             hosts: hosts,
             upstreams: upstreams.map { |u| u['dial'] },
-            has_healthcheck: route.dig('handle', 0, 'health_checks').nil? ? false : true
+            has_healthcheck: !route.dig('handle', 0, 'health_checks').nil?
           }
         end
       end
@@ -281,14 +282,14 @@ module Odysseus
         # Check if we have an HTTPS server configured
         servers = api_request('GET', '/config/apps/http/servers') || {}
 
-        unless servers['srv0']&.dig('listen')&.include?(':443')
-          # Add :443 to listen addresses
-          current_listen = servers.dig('srv0', 'listen') || [':80']
-          unless current_listen.include?(':443')
-            current_listen << ':443'
-            api_request('PATCH', '/config/apps/http/servers/srv0/listen', current_listen)
-          end
-        end
+        return if servers['srv0']&.dig('listen')&.include?(':443')
+
+        # Add :443 to listen addresses
+        current_listen = servers.dig('srv0', 'listen') || [':80']
+        return if current_listen.include?(':443')
+
+        current_listen << ':443'
+        api_request('PATCH', '/config/apps/http/servers/srv0/listen', current_listen)
       end
 
       def build_route_config(service:, hosts:, upstreams:, healthcheck: nil)

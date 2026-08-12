@@ -7,7 +7,7 @@ require 'stringio'
 RSpec.describe Odysseus::CLI::UI do
   describe Odysseus::CLI::RedactingIO do
     let(:io) { StringIO.new }
-    let(:upcaser) { ->(text) { text.upcase } }
+    let(:upcaser) { lambda(&:upcase) }
     let(:redacting_io) { described_class.new(io, upcaser) }
 
     it 'passes written text through the redactor' do

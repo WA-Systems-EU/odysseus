@@ -17,7 +17,7 @@ module Odysseus
       end
 
       def name
-        "static"
+        'static'
       end
     end
   end

@@ -112,6 +112,29 @@ RSpec.describe Odysseus::Orchestrator::WebDeploy do
         .to raise_error(Odysseus::DeployError, /failed health checks/)
     end
 
+    context 'when proxy.healthcheck sets an expected status' do
+      let(:config) do
+        super().merge(proxy: {
+                        hosts: ['app.example.com'],
+                        app_port: 3000,
+                        healthcheck: { path: '/health', expect_status: 301 }
+                      })
+      end
+
+      # curl's write-out variable is %{http_code}, which looks enough like a Ruby
+      # format token that tooling will try to "correct" it to %<http_code>s. curl
+      # would then print that text literally and the status never matches.
+      it "reads the status code using curl's own syntax" do
+        expect(mock_docker).to receive(:run) do |args|
+          expect(args[:options][:healthcheck][:cmd]).to include('%{http_code}')
+          expect(args[:options][:healthcheck][:cmd]).to include("grep -q '^301$'")
+          'new-container-123'
+        end
+
+        orchestrator.deploy(image_tag: 'v1.0')
+      end
+    end
+
     context 'when proxy.healthcheck is not configured' do
       # Config::Parser yields an empty hash for a missing healthcheck block.
       let(:config) do

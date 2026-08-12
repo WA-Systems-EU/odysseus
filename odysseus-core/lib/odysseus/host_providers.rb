@@ -18,7 +18,7 @@ module Odysseus
           providers[:aws_asg].new(role_config[:aws])
         elsif role_config[:aws]
           raise Odysseus::ConfigError,
-                "AWS ASG host provider not available — is the odysseus-sail-aws-asg gem loaded?"
+                'AWS ASG host provider not available — is the odysseus-sail-aws-asg gem loaded?'
         elsif role_config[:hosts]
           Static.new(hosts: role_config[:hosts])
         else
@@ -38,9 +38,8 @@ module Odysseus
       # @param name [Symbol] provider name
       # @param klass [Class] provider class (must inherit from Base)
       def register(name, klass)
-        unless klass < Base
-          raise ArgumentError, "Provider must inherit from Odysseus::HostProviders::Base"
-        end
+        raise ArgumentError, 'Provider must inherit from Odysseus::HostProviders::Base' unless klass < Base
+
         providers[name] = klass
       end
     end

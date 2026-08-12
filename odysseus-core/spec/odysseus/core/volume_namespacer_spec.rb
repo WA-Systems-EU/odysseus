@@ -70,10 +70,10 @@ RSpec.describe Odysseus::Core::VolumeNamespacer do
       ]
       result = namespacer.namespace_volumes(volumes, service: 'myapp')
       expect(result).to eq([
-        'myapp-data:/var/lib/postgresql/data',
-        '/host/path:/container/path',
-        'myapp-cache:/tmp/cache'
-      ])
+                             'myapp-data:/var/lib/postgresql/data',
+                             '/host/path:/container/path',
+                             'myapp-cache:/tmp/cache'
+                           ])
     end
 
     context 'when old un-namespaced volume exists on server' do

@@ -14,7 +14,7 @@ module Odysseus
       # Resolve and return list of hosts
       # @return [Array<String>] list of hostnames or IPs
       def resolve
-        raise NotImplementedError, "Subclasses must implement #resolve"
+        raise NotImplementedError, 'Subclasses must implement #resolve'
       end
 
       # Provider name for display/logging

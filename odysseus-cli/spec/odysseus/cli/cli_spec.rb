@@ -59,7 +59,7 @@ RSpec.describe Odysseus::CLI::CLI do
     it 'passes dry-run through' do
       expect(executor).to receive(:deploy_all).with(image_tag: 'latest', dry_run: true)
 
-      output_of { cli.deploy(config: config_file, :'dry-run' => true) }
+      output_of { cli.deploy(config: config_file, 'dry-run': true) }
     end
 
     it 'reports a failed build and exits non-zero without deploying' do

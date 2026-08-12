@@ -89,15 +89,15 @@ RSpec.describe Odysseus::Config::Parser do
     it 'handles servers without options' do
       allow_any_instance_of(described_class).to receive(:load_yaml)
         .and_return({
-          'service' => 'test',
-          'image' => 'test-image',
-          'servers' => {
-            'web' => {
-              'hosts' => ['localhost']
-              # no options
-            }
-          }
-        })
+                      'service' => 'test',
+                      'image' => 'test-image',
+                      'servers' => {
+                        'web' => {
+                          'hosts' => ['localhost']
+                          # no options
+                        }
+                      }
+                    })
 
       config = parser.parse
 

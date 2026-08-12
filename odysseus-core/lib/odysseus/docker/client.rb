@@ -8,7 +8,7 @@ module Odysseus
       HEALTHCHECK_POLL_INTERVAL = 2 # seconds
 
       # Env files are written here just long enough for docker run to read them.
-      ENV_FILE_DIR = '/var/lib/odysseus/env'
+      ENV_FILE_DIR = '/var/lib/odysseus/env'.freeze
 
       # @param ssh [Odysseus::Deployer::SSH] SSH connection to server
       def initialize(ssh)
@@ -37,9 +37,7 @@ module Odysseus
         container_id = lines.last&.strip
 
         # Validate it looks like a container ID
-        unless container_id&.match?(/\A[a-f0-9]{64}\z/)
-          raise Odysseus::DeployError, "Failed to start container: #{output}"
-        end
+        raise Odysseus::DeployError, "Failed to start container: #{output}" unless container_id&.match?(/\A[a-f0-9]{64}\z/)
 
         container_id
       ensure
@@ -146,7 +144,7 @@ module Odysseus
       # @param since [String] show logs since timestamp (e.g., '10m', '2h', '2024-01-01')
       # @param timestamps [Boolean] show timestamps
       # @return [String] log output (or yields lines if block given)
-      def logs(container_id, follow: false, tail: 100, since: nil, timestamps: false, &block)
+      def logs(container_id, follow: false, tail: 100, since: nil, timestamps: false, &)
         parts = ['docker logs']
         parts << '--follow' if follow
         parts << "--tail #{tail}" if tail
@@ -157,7 +155,7 @@ module Odysseus
         cmd = parts.join(' ')
 
         if block_given?
-          @ssh.stream(cmd, &block)
+          @ssh.stream(cmd, &)
         else
           @ssh.execute(cmd)
         end
@@ -339,16 +337,12 @@ module Odysseus
         parts << "--label odysseus.version=#{options[:version]}" if options[:version]
 
         # Additional custom labels
-        if options[:labels]
-          options[:labels].each do |key, value|
-            parts << "--label #{key}=#{value}"
-          end
+        options[:labels]&.each do |key, value|
+          parts << "--label #{key}=#{value}"
         end
 
         # Port mappings
-        if options[:ports]
-          options[:ports].each { |p| parts << "-p #{p}" }
-        end
+        options[:ports]&.each { |p| parts << "-p #{p}" }
 
         # Environment variables (see #write_env_file — never inlined here)
         parts << "--env-file #{env_file}" if env_file
@@ -374,9 +368,7 @@ module Odysseus
         parts << "--network #{options[:network]}" if options[:network]
 
         # Volume mounts
-        if options[:volumes]
-          options[:volumes].each { |v| parts << "-v #{v}" }
-        end
+        options[:volumes]&.each { |v| parts << "-v #{v}" }
 
         # Restart policy
         parts << "--restart #{options[:restart] || 'unless-stopped'}"

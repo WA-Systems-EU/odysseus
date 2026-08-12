@@ -22,9 +22,7 @@ module Odysseus
         path = resolve_path(secrets_file)
         encrypted = EncryptedFile.new(path)
 
-        unless encrypted.exists?
-          raise Odysseus::ConfigError, "Secrets file not found: #{path}"
-        end
+        raise Odysseus::ConfigError, "Secrets file not found: #{path}" unless encrypted.exists?
 
         @cached_secrets = encrypted.read
       end

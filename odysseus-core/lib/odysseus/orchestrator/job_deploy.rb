@@ -39,7 +39,7 @@ module Odysseus
         log "  Found #{old_containers.size} existing container(s)"
 
         # Step 2: Start new container
-        log "Starting new container..."
+        log 'Starting new container...'
         new_container_id = start_new_container(image: image, role: role)
         log "  Container started: #{new_container_id[0..11]}"
 
@@ -50,25 +50,25 @@ module Odysseus
           unless wait_for_healthy(new_container_id)
             log_health_failure(new_container_id)
             handle_failed_deploy(new_container_id)
-            raise Odysseus::DeployError, "Container failed health checks"
+            raise Odysseus::DeployError, 'Container failed health checks'
           end
-          log "  Health check passed"
+          log '  Health check passed'
         else
-          log "No health check configured, waiting 5s for startup..."
+          log 'No health check configured, waiting 5s for startup...'
           sleep 5
           unless @docker.running?(new_container_id)
             log_health_failure(new_container_id)
             handle_failed_deploy(new_container_id)
-            raise Odysseus::DeployError, "Container failed to start"
+            raise Odysseus::DeployError, 'Container failed to start'
           end
-          log "  Container is running"
+          log '  Container is running'
         end
 
         # Step 4: Stop old containers gracefully
         old_containers.each do |old|
           log "Stopping old container #{old['ID'][0..11]} (30s grace period)..."
           graceful_stop(old['ID'])
-          log "  Old container removed"
+          log '  Old container removed'
         end
 
         # Step 5: Cleanup old stopped containers
@@ -103,9 +103,7 @@ module Odysseus
         log "  Environment: #{env.size} variable(s) injected"
 
         volumes = namespace_volumes(server_config[:volumes], service: role_name)
-        if volumes&.any?
-          log "  Volumes: #{volumes.join(', ')}"
-        end
+        log "  Volumes: #{volumes.join(', ')}" if volumes&.any?
 
         if options[:memory] || options[:cpus]
           log "  Resources: memory=#{options[:memory] || 'default'}, cpus=#{options[:cpus] || 'default'}"
@@ -179,10 +177,10 @@ module Odysseus
       end
 
       def handle_failed_deploy(new_container_id)
-        log "Rolling back failed deploy...", :warn
+        log 'Rolling back failed deploy...', :warn
         @docker.stop(new_container_id)
         @docker.remove(new_container_id, force: true)
-        log "Rollback complete — failed container removed"
+        log 'Rollback complete — failed container removed'
       end
 
       def log_health_failure(container_id)
@@ -191,7 +189,7 @@ module Odysseus
         begin
           recent_logs = @docker.logs(container_id, tail: 30)
           unless recent_logs.strip.empty?
-            log "  Container logs (last 30 lines):", :error
+            log '  Container logs (last 30 lines):', :error
             recent_logs.each_line { |line| log "    #{line.rstrip}", :error }
           end
         rescue StandardError => e
@@ -208,9 +206,9 @@ module Odysseus
 
       def default_logger
         @default_logger ||= Object.new.tap do |l|
-          def l.info(msg); puts msg; end
-          def l.warn(msg); puts "[WARN] #{msg}"; end
-          def l.error(msg); puts "[ERROR] #{msg}"; end
+          def l.info(msg) = puts(msg)
+          def l.warn(msg) = puts("[WARN] #{msg}")
+          def l.error(msg) = puts("[ERROR] #{msg}")
         end
       end
 

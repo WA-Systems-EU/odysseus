@@ -37,8 +37,8 @@ module Odysseus
       def execute(command)
         puts "  > #{command}" if @verbose
         with_connection do |session|
-          stdout = ""
-          stderr = ""
+          stdout = ''
+          stderr = ''
           exit_status = nil
 
           session.open_channel do |channel|
@@ -98,7 +98,7 @@ module Odysseus
       def stream(command, &block)
         with_connection do |session|
           session.open_channel do |channel|
-            channel.exec(command) do |ch, success|
+            channel.exec(command) do |_ch, success|
               raise Odysseus::SSHCommandError, "Failed to execute: #{command}" unless success
 
               channel.on_data do |_, data|
@@ -142,7 +142,8 @@ module Odysseus
         connect unless connected?
         yield(@session)
       rescue Errno::ECONNREFUSED
-        raise Odysseus::SSHConnectionError, "Connection refused to #{@host}. Is the server running and accepting SSH connections?"
+        raise Odysseus::SSHConnectionError,
+              "Connection refused to #{@host}. Is the server running and accepting SSH connections?"
       rescue SocketError
         raise Odysseus::SSHConnectionError, "Could not resolve hostname '#{@host}'. Check your DNS or /etc/hosts."
       rescue Net::SSH::AuthenticationFailed
@@ -164,7 +165,7 @@ module Odysseus
           port: @port,
           non_interactive: true,
           verify_host_key: :never,
-          timeout: 10  # Connection timeout in seconds
+          timeout: 10 # Connection timeout in seconds
         }
         options[:keys] = @keys if @keys.any?
 

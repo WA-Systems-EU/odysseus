@@ -118,7 +118,7 @@ module Odysseus
         executor = build_executor
         output = executor.call("docker images -q #{image} 2>/dev/null || echo ''")
         !output.strip.empty?
-      rescue
+      rescue StandardError
         false
       end
 
@@ -145,14 +145,18 @@ module Odysseus
           arch: config[:arch] || config['arch'],
           platforms: config[:platforms] || config['platforms'] || [],
           build_args: config[:build_args] || config['build_args'] || {},
-          cache: config.key?(:cache) ? config[:cache] : (config.key?('cache') ? config['cache'] : true),
+          cache: if config.key?(:cache)
+                   config[:cache]
+                 else
+                   (config.key?('cache') ? config['cache'] : true)
+                 end,
           push: config[:push] || config['push'] || false,
           multiarch: config[:multiarch] || config['multiarch'] || false
         }
       end
 
       def build_local(context_path:, image:)
-        @logger.info("Building locally...")
+        @logger.info('Building locally...')
 
         cmd = build_docker_command(context_path: context_path, image: image)
         @logger.debug(cmd) if @logger.respond_to?(:debug)
@@ -161,7 +165,7 @@ module Odysseus
         output = execute_local(cmd, context_path)
 
         { success: true, image: image, strategy: :local, output: output }
-      rescue => e
+      rescue StandardError => e
         @logger.error("Local build failed: #{e.message}")
         { success: false, strategy: :local, error: e.message }
       end
@@ -169,9 +173,7 @@ module Odysseus
       def build_remote(context_path:, image:)
         @logger.info("Building on remote host: #{@config[:host]}")
 
-        unless @config[:host]
-          raise BuildError, "Remote build strategy requires 'host' to be configured"
-        end
+        raise BuildError, "Remote build strategy requires 'host' to be configured" unless @config[:host]
 
         ssh = connect_to_build_host
 
@@ -181,7 +183,7 @@ module Odysseus
           ssh.execute("mkdir -p #{remote_dir}")
 
           # Upload build context
-          @logger.info("Uploading build context...")
+          @logger.info('Uploading build context...')
           ssh.upload(context_path, remote_dir)
 
           # Determine the actual context directory on remote
@@ -243,9 +245,8 @@ module Odysseus
         # Execute command locally using system
         Dir.chdir(working_dir) do
           output = `#{cmd} 2>&1`
-          unless $?.success?
-            raise BuildError, "Build command failed: #{output}"
-          end
+          raise BuildError, "Build command failed: #{output}" unless $?.success?
+
           output
         end
       end
@@ -264,9 +265,8 @@ module Odysseus
 
       def execute_local_command(cmd)
         output = `#{cmd} 2>&1`
-        unless $?.success?
-          raise BuildError, "Command failed: #{output}"
-        end
+        raise BuildError, "Command failed: #{output}" unless $?.success?
+
         output
       end
 

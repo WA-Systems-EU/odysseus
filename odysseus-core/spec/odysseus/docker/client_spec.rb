@@ -58,7 +58,10 @@ RSpec.describe Odysseus::Docker::Client do
       let(:env_file) { '/var/lib/odysseus/env/test.env' }
 
       before do
-        allow(mock_ssh).to receive(:execute) { |cmd| commands << cmd; "#{container_id}\n" }
+        allow(mock_ssh).to receive(:execute) { |cmd|
+          commands << cmd
+          "#{container_id}\n"
+        }
         allow(mock_ssh).to receive(:upload_string)
       end
 
@@ -120,7 +123,7 @@ RSpec.describe Odysseus::Docker::Client do
     end
 
     it 'extracts container ID from output with warnings' do
-      expect(mock_ssh).to receive(:execute) do |cmd|
+      expect(mock_ssh).to receive(:execute) do |_cmd|
         "WARNING: some docker warning\n#{container_id}\n"
       end
 
@@ -298,7 +301,7 @@ RSpec.describe Odysseus::Docker::Client do
     it 'supports since parameter' do
       expect(mock_ssh).to receive(:execute) do |cmd|
         expect(cmd).to include('--since 10m')
-        ""
+        ''
       end
 
       client.logs('abc123', since: '10m')
@@ -307,7 +310,7 @@ RSpec.describe Odysseus::Docker::Client do
     it 'supports timestamps option' do
       expect(mock_ssh).to receive(:execute) do |cmd|
         expect(cmd).to include('--timestamps')
-        ""
+        ''
       end
 
       client.logs('abc123', timestamps: true)
@@ -330,7 +333,7 @@ RSpec.describe Odysseus::Docker::Client do
     it 'supports interactive mode' do
       expect(mock_ssh).to receive(:execute) do |cmd|
         expect(cmd).to include('-i')
-        ""
+        ''
       end
 
       client.exec('abc123', 'bash', interactive: true)
@@ -339,7 +342,7 @@ RSpec.describe Odysseus::Docker::Client do
     it 'supports tty mode' do
       expect(mock_ssh).to receive(:execute) do |cmd|
         expect(cmd).to include('-t')
-        ""
+        ''
       end
 
       client.exec('abc123', 'bash', tty: true)
@@ -362,7 +365,7 @@ RSpec.describe Odysseus::Docker::Client do
     it 'includes environment variables' do
       expect(mock_ssh).to receive(:execute) do |cmd|
         expect(cmd).to include('-e RAILS_ENV=production')
-        ""
+        ''
       end
 
       client.run_once(
@@ -375,7 +378,7 @@ RSpec.describe Odysseus::Docker::Client do
     it 'includes network option' do
       expect(mock_ssh).to receive(:execute) do |cmd|
         expect(cmd).to include('--network odysseus')
-        ""
+        ''
       end
 
       client.run_once(
@@ -388,7 +391,7 @@ RSpec.describe Odysseus::Docker::Client do
     it 'includes volume mounts' do
       expect(mock_ssh).to receive(:execute) do |cmd|
         expect(cmd).to include('-v /data:/app/data')
-        ""
+        ''
       end
 
       client.run_once(

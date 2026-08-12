@@ -9,8 +9,16 @@ RSpec.describe Odysseus::Secrets::EncryptedFile do
   let(:encrypted_file) { described_class.new(temp_file.path) }
 
   after do
-    temp_file.close rescue nil
-    temp_file.unlink rescue nil
+    begin
+      temp_file.close
+    rescue StandardError
+      nil
+    end
+    begin
+      temp_file.unlink
+    rescue StandardError
+      nil
+    end
   end
 
   describe '.generate_key' do
@@ -63,7 +71,7 @@ RSpec.describe Odysseus::Secrets::EncryptedFile do
       expect(content).to include('# Odysseus encrypted secrets')
 
       # Should not contain plaintext values
-      secrets.values.each do |value|
+      secrets.each_value do |value|
         expect(content).not_to include(value)
       end
     end
@@ -102,7 +110,7 @@ RSpec.describe Odysseus::Secrets::EncryptedFile do
 
   describe 'without master key' do
     around do |example|
-      original_key = ENV['ODYSSEUS_MASTER_KEY']
+      original_key = ENV.fetch('ODYSSEUS_MASTER_KEY', nil)
       ENV.delete('ODYSSEUS_MASTER_KEY')
       example.run
       ENV['ODYSSEUS_MASTER_KEY'] = original_key if original_key
@@ -125,7 +133,7 @@ RSpec.describe Odysseus::Secrets::EncryptedFile do
     let(:secrets) { { API_KEY: 'from_env' } }
 
     around do |example|
-      original_key = ENV['ODYSSEUS_MASTER_KEY']
+      original_key = ENV.fetch('ODYSSEUS_MASTER_KEY', nil)
       ENV['ODYSSEUS_MASTER_KEY'] = env_key
       example.run
       ENV['ODYSSEUS_MASTER_KEY'] = original_key
