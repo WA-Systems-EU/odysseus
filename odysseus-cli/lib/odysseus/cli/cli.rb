@@ -165,7 +165,7 @@ module Odysseus
             @ui.step '(no containers running)'
           else
             rows = web_containers.map { |c| web_container_row(c) }
-            @ui.table(headers: %w[Version Ref Deployed State Health], rows: rows)
+            @ui.table(headers: %w[Version Ref Deployed Image State Health], rows: rows)
           end
 
           caddy_status = caddy.status
@@ -828,12 +828,18 @@ module Odysseus
         version = labels['odysseus.version'] || '(unlabelled)'
         ref = labels['odysseus.git_ref'] || '-'
         deployed_at = labels['odysseus.deployed_at'] || '-'
-        health = container['Status'].include?('healthy') ? '✓' : ''
-        [version, ref, deployed_at, container['State'], health]
+        health = container['Status'].include?('(healthy)') ? '✓' : ''
+        [version, ref, deployed_at, container['Image'], container['State'], health]
       end
 
       # The image reference that is actually serving, so a one-off container runs
-      # the same code as the deployed one.
+      # the same code as the deployed one. Prefers the container's own Image
+      # field, which docker ps reports directly, over reconstructing a tag from
+      # the odysseus.version label: a container deployed before this branch
+      # carries a deploy timestamp in that label and was built from an image
+      # tagged `latest`, so reconstruction would name a tag that was never
+      # pushed. Falling back to reconstruction only covers the case where
+      # Image is somehow absent from docker's own output.
       def running_image(server, config)
         ssh = connect_to_server(server, config)
 
@@ -846,14 +852,7 @@ module Odysseus
             exit 1
           end
 
-          version = Odysseus::Docker::Labels.version_of(container)
-
-          unless version
-            @ui.error "The running container for #{config[:service]} carries no version label"
-            exit 1
-          end
-
-          "#{config[:image]}:#{version}"
+          container['Image'] || "#{config[:image]}:#{Odysseus::Docker::Labels.version_of(container)}"
         ensure
           ssh.close
         end

@@ -80,6 +80,20 @@ RSpec.describe Odysseus::Deployer::Executor do
         expect(result[:success]).to be true
         expect(result[:dry_run]).to be true
       end
+
+      # Pins current behaviour: the version resolves before the dry-run branch
+      # is reached, so a dry run in a dirty tree still raises instead of
+      # printing a plan. Whether to relax this is a product decision, not made
+      # in this pass.
+      it 'still requires a resolvable version, since resolution happens before the dry-run check' do
+        resolver = instance_double(Odysseus::VersionResolver)
+        allow(Odysseus::VersionResolver).to receive(:new).and_return(resolver)
+        allow(resolver).to receive(:resolve)
+          .and_raise(Odysseus::ConfigError, 'The working tree has uncommitted changes')
+
+        expect { executor.deploy_role(host: 'test-server', image_tag: nil, role: :web, dry_run: true) }
+          .to raise_error(Odysseus::ConfigError, /uncommitted changes/)
+      end
     end
 
     context 'with dry_run: false' do

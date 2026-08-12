@@ -174,7 +174,11 @@ module Odysseus
       end
 
       # The host's own record of what it is running. Best effort: a deploy that
-      # reached this point has succeeded, and an unwritable log must not undo it.
+      # reached this point has succeeded, and an unwritable log must not undo
+      # it. Rescues StandardError rather than Odysseus::Error: SSH#execute can
+      # also raise Net::SSH::Disconnect, IOError or Net::SSH::ChannelOpenFailed,
+      # none of which with_connection translates, and any of them escaping here
+      # would turn a completed, traffic-switched deploy into a reported failure.
       def record_deploy(role)
         resolved = @config[:deploy_version]
         return unless resolved
@@ -185,7 +189,7 @@ module Odysseus
           ref: resolved.ref,
           deployer: resolved.deployer
         )
-      rescue Odysseus::Error => e
+      rescue StandardError => e
         log "Could not record the deploy on this host: #{e.message}", :warn
       end
 

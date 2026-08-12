@@ -296,6 +296,16 @@ RSpec.describe Odysseus::Orchestrator::WebDeploy do
 
         expect(orchestrator.deploy(image_tag: 'abc123def456')).to include(success: true)
       end
+
+      it 'still succeeds when writing the log raises a raw connection error' do
+        # Net::SSH::Disconnect, IOError and Net::SSH::ChannelOpenFailed all
+        # propagate through SSH#execute untranslated. Traffic has already
+        # switched to the new container by this point, so none of them may
+        # turn this deploy into a reported failure.
+        allow(deploy_log).to receive(:append).and_raise(IOError, 'connection reset')
+
+        expect(orchestrator.deploy(image_tag: 'abc123def456')).to include(success: true)
+      end
     end
 
     context 'without a resolved deploy version' do

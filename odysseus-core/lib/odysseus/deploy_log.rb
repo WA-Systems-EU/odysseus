@@ -66,13 +66,26 @@ module Odysseus
     # multiple lines or shift every field after it. Collapse any run of
     # whitespace in a field to a single underscore so the shape can never be
     # broken, instead of raising and risking the record being dropped
-    # entirely (callers log after a deploy has already succeeded).
+    # entirely (callers log after a deploy has already succeeded). A blank
+    # field maps to '-' rather than the empty string: split(/\s+/, 7) on read
+    # collapses an empty field into the whitespace around it, silently
+    # shifting every field after it into the wrong position with no line-count
+    # anomaly to notice.
     def sanitize(value)
-      value.to_s.gsub(/\s+/, '_')
+      collapsed = value.to_s.gsub(/\s+/, '_')
+      collapsed.empty? ? '-' : collapsed
     end
 
     def parse_line(line)
-      at, version, role, ref, deployer, kind, extra = line.strip.split(/\s+/, 7)
+      stripped = line.strip
+
+      # Checked against the full split, not the limit-7 one below: a genuinely
+      # shifted or garbage-laden record can still land inside 6..7 once the
+      # trailing words are merged into the last field, which is exactly the
+      # "plausible-looking wrong record" this guards against.
+      return nil unless (6..7).cover?(stripped.split(/\s+/).length)
+
+      at, version, role, ref, deployer, kind, extra = stripped.split(/\s+/, 7)
       return nil if at.nil? || version.nil? || kind.nil?
       return nil unless at.match?(/\A\d{4}-\d{2}-\d{2}T/)
 

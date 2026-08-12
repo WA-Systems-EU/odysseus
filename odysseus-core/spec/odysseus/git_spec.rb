@@ -76,4 +76,26 @@ RSpec.describe Odysseus::Git do
       expect(git.repository?).to be false
     end
   end
+
+  # git can exit 0 with empty stdout (e.g. HEAD in a repository state neither
+  # method is documented to handle). VersionResolver's nil-guard exists
+  # specifically to stop a DeployVersion with an empty version, and an empty
+  # string would walk straight past `unless sha`/`unless git.repository?`
+  # style guards, so blank output must normalise to nil like committer_email
+  # already does.
+  context 'when git exits 0 with empty output' do
+    let(:success) { instance_double(Process::Status, success?: true) }
+
+    before do
+      allow(Open3).to receive(:capture3).and_return(['', '', success])
+    end
+
+    it 'treats a blank head_sha as absent rather than an empty string' do
+      expect(git.head_sha).to be_nil
+    end
+
+    it 'treats a blank ref as absent rather than an empty string' do
+      expect(git.ref).to be_nil
+    end
+  end
 end

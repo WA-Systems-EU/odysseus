@@ -21,7 +21,7 @@ module Odysseus
     # @return [String, nil] abbreviated commit sha of HEAD
     def head_sha(length: 12)
       out, status = capture('rev-parse', "--short=#{length}", 'HEAD')
-      status.success? ? out : nil
+      status.success? && !out.empty? ? out : nil
     end
 
     # Tracked modifications only. Untracked files are reported separately: they
@@ -41,7 +41,7 @@ module Odysseus
     # @return [String, nil] branch name, or 'HEAD' when detached
     def ref
       out, status = capture('rev-parse', '--abbrev-ref', 'HEAD')
-      status.success? ? out : nil
+      status.success? && !out.empty? ? out : nil
     end
 
     # @return [String, nil] user.email as git resolves it for this repository

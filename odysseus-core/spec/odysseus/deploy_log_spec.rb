@@ -96,6 +96,23 @@ RSpec.describe Odysseus::DeployLog do
       expect(payload).to include('dev@example.com_rogue_line')
     end
 
+    it 'maps a blank field to a placeholder instead of leaving it empty' do
+      commands = []
+      allow(mock_ssh).to receive(:execute) { |cmd|
+        commands << cmd
+        ''
+      }
+
+      # ref: '' rather than nil — append's own `ref || '-'` only catches nil.
+      log.append(version: 'abc', role: :web, ref: '', deployer: 'dev@example.com')
+
+      tokens = Shellwords.split(commands.last.sub(/\s*>>.*\z/, ''))
+      fields = tokens.last.split
+
+      expect(fields.length).to eq(6)
+      expect(fields[3]).to eq('-')
+    end
+
     it 'uses a timestamp in the format the log defines' do
       commands = []
       allow(mock_ssh).to receive(:execute) { |cmd|
@@ -140,6 +157,20 @@ RSpec.describe Odysseus::DeployLog do
     it 'rejects a well-formed-looking line whose first token is not a timestamp' do
       allow(mock_ssh).to receive(:execute).and_return(
         "hello world foo bar baz 123\n2026-08-12T11:27:59Z abc web main d deployed\n"
+      )
+
+      expect(log.entries.map(&:version)).to eq(['abc'])
+    end
+
+    # A shifted record (a blank field swallowed on write, or hand-edited log)
+    # still starts with something that matches the timestamp regex and still
+    # has non-nil at/version/kind once the limit-7 split merges the overflow
+    # into the last field, so without a count check it parses as a plausible
+    # -looking wrong record instead of being skipped.
+    it 'rejects a valid-looking timestamp with the wrong number of fields' do
+      allow(mock_ssh).to receive(:execute).and_return(
+        "2026-08-12T11:27:59Z abc123def456 web main dev@example.com deployed extra_word extra_word2\n" \
+        "2026-08-12T11:27:59Z abc web main d deployed\n"
       )
 
       expect(log.entries.map(&:version)).to eq(['abc'])
