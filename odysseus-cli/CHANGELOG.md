@@ -7,6 +7,11 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Changed
+- `status` reports the version, ref and deploy time of each container.
+- `app exec`, `app shell` and `app console` run the version that is currently
+  serving instead of `:latest`.
+
 ## [0.4.1] - 2026-08-12
 
 Released in lockstep with odysseus-core 0.4.1, which fixes the Caddy TLS

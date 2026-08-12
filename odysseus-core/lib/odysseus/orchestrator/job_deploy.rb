@@ -75,6 +75,8 @@ module Odysseus
         cleaned = @docker.cleanup_old_containers(service: role_name, keep: 2)
         log "  Cleaned up #{cleaned.size} old container(s)" if cleaned.any?
 
+        record_deploy(role)
+
         log "Deploy complete for #{role_name}"
 
         {
@@ -145,6 +147,24 @@ module Odysseus
         resolved = @config[:deploy_version]
         labels['odysseus.git_ref'] = resolved.ref if resolved&.ref
         labels
+      end
+
+      # The host's own record of what it is running. Best effort: a deploy that
+      # reached this point has succeeded, and an unwritable log must not undo it.
+      # Keyed by service, not role_name: web and jobs share one image, so a
+      # per-role log would let one role prune an image the other still needs.
+      def record_deploy(role)
+        resolved = @config[:deploy_version]
+        return unless resolved
+
+        Odysseus::DeployLog.new(ssh: @ssh, service: @config[:service]).append(
+          version: resolved.version,
+          role: role,
+          ref: resolved.ref,
+          deployer: resolved.deployer
+        )
+      rescue Odysseus::Error => e
+        log "Could not record the deploy on this host: #{e.message}", :warn
       end
 
       def build_environment

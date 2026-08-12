@@ -261,6 +261,41 @@ RSpec.describe Odysseus::Orchestrator::WebDeploy do
 
         orchestrator.deploy(image_tag: 'abc123def456')
       end
+
+      let(:deploy_log) { instance_double(Odysseus::DeployLog) }
+
+      before do
+        allow(Odysseus::DeployLog).to receive(:new).and_return(deploy_log)
+        allow(deploy_log).to receive(:append)
+      end
+
+      it 'records the deploy on the host' do
+        expect(Odysseus::DeployLog).to receive(:new).with(ssh: mock_ssh, service: 'myapp')
+                                                    .and_return(deploy_log)
+        expect(deploy_log).to receive(:append).with(
+          version: 'abc123def456', role: :web, ref: 'main', deployer: 'dev@example.com'
+        )
+
+        orchestrator.deploy(image_tag: 'abc123def456')
+      end
+
+      it 'does not record anything when the deploy fails' do
+        allow(mock_docker).to receive(:wait_healthy).and_return(false)
+        allow(mock_docker).to receive(:stop)
+        allow(mock_docker).to receive(:remove)
+        allow(mock_docker).to receive(:logs).and_return('')
+        allow(mock_docker).to receive(:health_status).and_return('unhealthy')
+        expect(deploy_log).not_to receive(:append)
+
+        expect { orchestrator.deploy(image_tag: 'abc123def456') }
+          .to raise_error(Odysseus::DeployError)
+      end
+
+      it 'still succeeds when the log cannot be written' do
+        allow(deploy_log).to receive(:append).and_raise(Odysseus::SSHCommandError, 'read-only fs')
+
+        expect(orchestrator.deploy(image_tag: 'abc123def456')).to include(success: true)
+      end
     end
 
     context 'without a resolved deploy version' do

@@ -7,6 +7,17 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Added
+- The image tag now defaults to the git commit being deployed, and containers
+  carry `odysseus.version`, `odysseus.deployed_at` and `odysseus.git_ref` labels,
+  so a running container can be traced to a commit. `odysseus.version` previously
+  held the deploy timestamp, which `odysseus.deployed_at` now carries.
+- Each host records successful deploys in `/var/lib/odysseus/<service>/deploys.log`.
+
+### Changed
+- `deploy` and `build` no longer default to the `latest` tag. Outside a git
+  repository, or with uncommitted changes, they stop and ask for `--image`.
+
 ## [0.4.1] - 2026-08-12
 
 ### Fixed
