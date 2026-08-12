@@ -1,11 +1,22 @@
 # spec/odysseus/docker/client_spec.rb
 
 require 'spec_helper'
+require 'shellwords'
 
 RSpec.describe Odysseus::Docker::Client do
   let(:mock_ssh) { instance_double(Odysseus::Deployer::SSH) }
   let(:client) { described_class.new(mock_ssh) }
   let(:container_id) { 'a' * 64 } # Valid 64-char hex container ID
+
+  # Assert what docker actually receives, by parsing the command the way a
+  # shell would. Escaping style is an implementation detail; a label arriving
+  # as one argument is the requirement.
+  def labels_in(cmd)
+    tokens = Shellwords.split(cmd)
+    # rubocop:disable Style/HashSlice
+    tokens.each_cons(2).select { |flag, _| flag == '--label' }.map(&:last)
+    # rubocop:enable Style/HashSlice
+  end
 
   describe '#run' do
     it 'builds and executes docker run command' do
@@ -22,7 +33,7 @@ RSpec.describe Odysseus::Docker::Client do
 
     it 'includes service label' do
       expect(mock_ssh).to receive(:execute) do |cmd|
-        expect(cmd).to include('--label odysseus.service=myservice')
+        expect(labels_in(cmd)).to include('odysseus.service=myservice')
         "#{container_id}\n"
       end
 
@@ -106,6 +117,34 @@ RSpec.describe Odysseus::Docker::Client do
         client.run(name: 'test', image: 'myapp:latest', options: { env: {} })
 
         expect(commands.find { |c| c.include?('docker run') }).not_to include('--env-file')
+      end
+    end
+
+    context 'with custom labels' do
+      it 'passes a label value containing a space as a single argument' do
+        expect(mock_ssh).to receive(:execute) do |cmd|
+          expect(labels_in(cmd)).to include('odysseus.git_ref=feature/a b')
+          "#{container_id}\n"
+        end
+
+        client.run(
+          name: 'test',
+          image: 'myapp:latest',
+          options: { labels: { 'odysseus.git_ref' => 'feature/a b' } }
+        )
+      end
+
+      it 'leaves the service and version labels intact' do
+        expect(mock_ssh).to receive(:execute) do |cmd|
+          expect(labels_in(cmd)).to include('odysseus.service=myapp', 'odysseus.version=abc123def456')
+          "#{container_id}\n"
+        end
+
+        client.run(
+          name: 'test',
+          image: 'myapp:latest',
+          options: { service: 'myapp', version: 'abc123def456' }
+        )
       end
     end
 
