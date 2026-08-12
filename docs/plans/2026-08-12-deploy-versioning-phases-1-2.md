@@ -1455,6 +1455,7 @@ Create `odysseus-core/spec/odysseus/deploy_log_spec.rb`:
 # spec/odysseus/deploy_log_spec.rb
 
 require 'spec_helper'
+require 'shellwords'
 
 RSpec.describe Odysseus::DeployLog do
   let(:mock_ssh) { instance_double(Odysseus::Deployer::SSH) }
@@ -1496,6 +1497,20 @@ RSpec.describe Odysseus::DeployLog do
 
       expect(commands.last).not_to include('; rm -rf /')
       expect(commands.last).to include('rm -rf')
+    end
+
+    it 'writes the whole entry as one line rather than one line per field' do
+      commands = []
+      allow(mock_ssh).to receive(:execute) { |cmd| commands << cmd; '' }
+
+      log.append(version: 'abc123def456', role: :web, ref: 'main', deployer: 'dev@example.com')
+
+      # printf reuses its format for each argument, so the data must arrive as a
+      # single argument. Drop the redirection, then count the words a shell sees.
+      tokens = Shellwords.split(commands.last.sub(/\s*>>.*\z/, ''))
+      expect(tokens.length).to eq(3)
+      expect(tokens[0]).to eq('printf')
+      expect(tokens[2]).to match(/\A\S+ abc123def456 web main dev@example\.com deployed\z/)
     end
 
     it 'uses a timestamp in the format the log defines' do
@@ -1589,7 +1604,10 @@ module Odysseus
       fields = [Time.now.utc.strftime(TIME_FORMAT), version, role.to_s, ref || '-', deployer || '-', kind]
       fields << "from=#{from}" if from
 
-      line = fields.map { |field| Shellwords.escape(field.to_s) }.join(' ')
+      # Escape the assembled line as ONE argument. printf reuses its format for
+      # every remaining argument, so passing the fields separately would write
+      # one line per field instead of one line per deploy.
+      line = Shellwords.escape(fields.map(&:to_s).join(' '))
 
       @ssh.execute("mkdir -p #{Shellwords.escape(File.dirname(path))}")
       @ssh.execute("printf '%s\\n' #{line} >> #{Shellwords.escape(path)}")
@@ -1624,12 +1642,15 @@ end
 cd odysseus-core && bundle exec rspec spec/odysseus/deploy_log_spec.rb
 ```
 
-Expected: PASS, 7 examples.
+Expected: PASS, 8 examples.
 
 - [ ] **Step 5: Verify the specs have teeth**
 
 1. Drop the `Shellwords.escape` from the field mapping → the hostile-ref example must fail.
 2. Remove the timestamp format guard in `parse_line` → the unparseable-line example must fail.
+3. Escape the fields individually and join them (`fields.map { |f| Shellwords.escape(f.to_s) }.join(' ')`)
+   instead of escaping the joined line → the one-line example must fail, because printf would then
+   receive six arguments and write six lines.
 
 - [ ] **Step 6: Run the full suite and linter**
 
