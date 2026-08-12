@@ -1678,6 +1678,9 @@ git commit -m "Add the per-host deploy log"
 **Interfaces:**
 - Consumes: `Odysseus::DeployLog` from Task 8; `config[:deploy_version]` from Task 4.
 - Produces: one log line per successful role deploy. A failed log write must not fail a deploy that worked.
+- `record_deploy` takes only `role`. `DeployLog#append` already defaults `kind:` to `'deployed'` and
+  `from:` to nil, and nothing in phases 1–2 records a rollback — phase 3 adds those arguments when it
+  has a caller for them. Passing them through now would be parameters no code supplies.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1743,7 +1746,7 @@ Add the private method:
 ```ruby
       # The host's own record of what it is running. Best effort: a deploy that
       # reached this point has succeeded, and an unwritable log must not undo it.
-      def record_deploy(role, kind: 'deployed', from: nil)
+      def record_deploy(role)
         resolved = @config[:deploy_version]
         return unless resolved
 
@@ -1751,9 +1754,7 @@ Add the private method:
           version: resolved.version,
           role: role,
           ref: resolved.ref,
-          deployer: resolved.deployer,
-          kind: kind,
-          from: from
+          deployer: resolved.deployer
         )
       rescue Odysseus::Error => e
         log "Could not record the deploy on this host: #{e.message}", :warn
