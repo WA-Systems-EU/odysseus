@@ -74,6 +74,19 @@ we'd feel their absence.
       it, so `deploy.strategy: rolling` and `aws:` are unreachable for any end
       user. Needs a `plugins:`/`require:` key in deploy.yml or discovery of
       installed `odysseus-sail-*` gems.
+- [ ] **Finish registry support.** The local half exists — build, `docker login`,
+      `docker push`, and `Executor#uses_registry?` switching distribution — but no
+      deploy target ever logs in, and `WebDeploy`/`JobDeploy` never call
+      `Docker#pull`; they rely on `docker run`'s implicit pull. So registry mode
+      works for public images and fails for a private one, which is the case
+      anyone would actually use. Both READMEs document it as a first-class
+      alternative to pussh. Needs: host-side login using the configured
+      credentials (from the encrypted secrets file, not deploy.yml), an explicit
+      pull step so a failure is attributable, and logout afterwards so
+      credentials do not linger in the host's docker config. pussh covers a small
+      team well enough that this is not release-blocking, but it is the next
+      real gap.
+
 - [ ] **Multiple destinations/environments.** One `deploy.yml` per project, no
       overlay. Kamal: `-d staging` with `deploy.staging.yml`.
 - [ ] **Deploy hooks.** No pre-build / pre-deploy / post-deploy hooks, so
