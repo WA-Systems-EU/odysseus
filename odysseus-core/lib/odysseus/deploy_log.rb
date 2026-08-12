@@ -32,8 +32,11 @@ module Odysseus
     # @param kind [String] 'deployed' or 'rolled-back'
     # @param from [String, nil] the version replaced, for a rollback
     def append(version:, role:, ref:, deployer:, kind: 'deployed', from: nil)
-      fields = [Time.now.utc.strftime(TIME_FORMAT), version, role.to_s, ref || '-', deployer || '-', kind]
-      fields << "from=#{from}" if from
+      fields = [
+        Time.now.utc.strftime(TIME_FORMAT), sanitize(version), sanitize(role.to_s),
+        sanitize(ref || '-'), sanitize(deployer || '-'), sanitize(kind)
+      ]
+      fields << "from=#{sanitize(from)}" if from
 
       # Escape the assembled line as ONE argument. printf reuses its format for
       # every remaining argument, so passing the fields separately would write
@@ -52,6 +55,21 @@ module Odysseus
     end
 
     private
+
+    # The log's shape -- one line per record, fields separated by single
+    # spaces -- is load-bearing: phase 3's rollback ordering reads this file
+    # and relies on exactly one record per line and stable field positions.
+    # A field value is not guaranteed to be whitespace-free (git config
+    # user.email, for instance, can contain a literal newline), and
+    # `Shellwords.escape` treats a newline as safe to embed rather than
+    # stripping it, so an unsanitised value could split one record across
+    # multiple lines or shift every field after it. Collapse any run of
+    # whitespace in a field to a single underscore so the shape can never be
+    # broken, instead of raising and risking the record being dropped
+    # entirely (callers log after a deploy has already succeeded).
+    def sanitize(value)
+      value.to_s.gsub(/\s+/, '_')
+    end
 
     def parse_line(line)
       at, version, role, ref, deployer, kind, extra = line.strip.split(/\s+/, 7)

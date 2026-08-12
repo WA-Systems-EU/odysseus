@@ -56,12 +56,12 @@ RSpec.describe Odysseus::DeployLog do
 
       # Parse the command the way a real shell would: the hostile ref must not
       # produce extra shell words (which is what would let `rm` run as its own
-      # command), and the data itself must survive unmangled inside the single
-      # payload argument.
+      # command). Its whitespace is also sanitised (see the field-sanitising
+      # spec below), so what survives is the semicolon-joined, underscored form.
       tokens = Shellwords.split(commands.last.sub(/\s*>>.*\z/, ''))
       expect(tokens.length).to eq(3)
       expect(tokens).not_to include('rm')
-      expect(tokens.last).to include('main; rm -rf /')
+      expect(tokens.last).to include('main;_rm_-rf_/')
     end
 
     it 'writes the whole entry as one line rather than one line per field' do
@@ -79,6 +79,21 @@ RSpec.describe Odysseus::DeployLog do
       expect(tokens.length).to eq(3)
       expect(tokens[0]).to eq('printf')
       expect(tokens[2]).to match(/\A\S+ abc123def456 web main dev@example\.com deployed\z/)
+    end
+
+    it 'sanitises whitespace in a field so one record cannot become two lines' do
+      commands = []
+      allow(mock_ssh).to receive(:execute) { |cmd|
+        commands << cmd
+        ''
+      }
+
+      log.append(version: 'abc', role: :web, ref: 'main', deployer: "dev@example.com\nrogue line")
+
+      tokens = Shellwords.split(commands.last.sub(/\s*>>.*\z/, ''))
+      payload = tokens.last
+      expect(payload).not_to include("\n")
+      expect(payload).to include('dev@example.com_rogue_line')
     end
 
     it 'uses a timestamp in the format the log defines' do
@@ -118,6 +133,14 @@ RSpec.describe Odysseus::DeployLog do
 
     it 'skips lines it cannot parse rather than raising' do
       allow(mock_ssh).to receive(:execute).and_return("garbage\n2026-08-12T11:27:59Z abc web main d deployed\n")
+
+      expect(log.entries.map(&:version)).to eq(['abc'])
+    end
+
+    it 'rejects a well-formed-looking line whose first token is not a timestamp' do
+      allow(mock_ssh).to receive(:execute).and_return(
+        "hello world foo bar baz 123\n2026-08-12T11:27:59Z abc web main d deployed\n"
+      )
 
       expect(log.entries.map(&:version)).to eq(['abc'])
     end
