@@ -160,11 +160,7 @@ module Odysseus
           if web_containers.empty?
             @ui.step '(no containers running)'
           else
-            rows = web_containers.map do |c|
-              health = c['Status'].include?('healthy') ? '✓' : ''
-              [c['Names'], c['State'], c['Image'], health]
-            end
-            @ui.table(headers: %w[Name State Image Health], rows: rows)
+            @ui.table(headers: %w[Version Ref Deployed State Health], rows: web_containers.map { |ctr| web_container_row(ctr) })
           end
 
           caddy_status = caddy.status
@@ -820,6 +816,11 @@ module Odysseus
       def load_config(config_file)
         parser = Odysseus::Config::Parser.new(config_file)
         parser.parse
+      end
+
+      def web_container_row(ctr)
+        v, r, d = Odysseus::Docker::Labels.parse(ctr['Labels']).values_at('odysseus.version', 'odysseus.git_ref', 'odysseus.deployed_at')
+        [v || '(unlabelled)', r || '-', d || '-', ctr['State'], ctr['Status'].include?('healthy') ? '✓' : '']
       end
 
       def connect_to_server(server, config)

@@ -158,6 +158,39 @@ RSpec.describe Odysseus::CLI::CLI do
     end
   end
 
+  describe '#status' do
+    let(:ssh) { instance_double(Odysseus::Deployer::SSH, close: nil) }
+    let(:docker) { instance_double(Odysseus::Docker::Client) }
+    let(:caddy) { instance_double(Odysseus::Caddy::Client) }
+
+    before do
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      allow(Odysseus::Docker::Client).to receive(:new).and_return(docker)
+      allow(Odysseus::Caddy::Client).to receive(:new).and_return(caddy)
+      allow(caddy).to receive(:status).and_return(running: false, services: [], tls: { enabled: false })
+      allow(docker).to receive(:list).and_return([])
+      allow(docker).to receive(:list).with(service: 'myapp').and_return(
+        [{
+          'ID' => 'abc123abc123',
+          'Names' => 'myapp-abc123def456-20260812112759',
+          'State' => 'running',
+          'Status' => 'Up 8 minutes (healthy)',
+          'Image' => 'myapp-production:abc123def456',
+          'Labels' => 'odysseus.service=myapp,odysseus.version=abc123def456,' \
+                      'odysseus.deployed_at=2026-08-12T11:27:59Z,odysseus.git_ref=main'
+        }]
+      )
+    end
+
+    it 'reports the version, ref and deploy time of the running container' do
+      out = output_of { cli.status('web1.example.com', config: config_file) }
+
+      expect(out).to include('abc123def456')
+      expect(out).to include('main')
+      expect(out).to include('2026-08-12T11:27:59Z')
+    end
+  end
+
   def with_master_key(key)
     previous = ENV.fetch('ODYSSEUS_MASTER_KEY', nil)
     ENV['ODYSSEUS_MASTER_KEY'] = key
