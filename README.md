@@ -131,18 +131,6 @@ proxy:
     expect_status: 200
 ```
 
-### AWS Auto Scaling Groups
-
-Dynamically resolve hosts from AWS ASGs:
-
-```yaml
-servers:
-  web:
-    aws:
-      asg: my-web-asg
-      region: us-east-1
-```
-
 ## Documentation
 
 See [odysseus-cli/README.md](odysseus-cli/README.md) for complete CLI documentation and configuration reference.

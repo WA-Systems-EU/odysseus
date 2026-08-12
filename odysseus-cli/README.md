@@ -293,38 +293,6 @@ Available options:
 - `cpus` - CPU limit (e.g., `2` for 2 cores, `1.5` for 1.5 cores)
 - `cpu_shares` - Relative CPU weight (default: 1024)
 
-#### Dynamic hosts with AWS Auto Scaling Groups
-
-Instead of a static `hosts` list, you can configure Odysseus to resolve hosts dynamically from an AWS Auto Scaling Group:
-
-```yaml
-servers:
-  web:
-    aws:
-      asg: my-web-asg           # ASG name (required)
-      region: us-east-1         # AWS region (required)
-      use_private_ip: false     # Use private IPs instead of public (default: false)
-      state: InService          # Instance lifecycle state filter (default: InService)
-    options:
-      memory: 4g
-```
-
-**AWS credentials** are loaded from the standard AWS credential chain:
-- Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
-- Shared credentials file (`~/.aws/credentials`)
-- IAM instance profile (when running on EC2)
-
-**Prerequisites:** Install the AWS SDK gems:
-```bash
-gem install aws-sdk-autoscaling aws-sdk-ec2
-```
-
-Or add to your Gemfile:
-```ruby
-gem 'aws-sdk-autoscaling'
-gem 'aws-sdk-ec2'
-```
-
 **SSH configuration** (bastions, ProxyJump, etc.) is your responsibility. Odysseus only needs the hostnames/IPs and relies on your local SSH config.
 
 ### proxy
@@ -346,6 +314,9 @@ proxy:
     expect_status: 200  # Optional: expected HTTP status (default: 2xx)
 ```
 
+A web container must report healthy before Odysseus routes traffic to it. If
+you omit `healthcheck`, the container is probed with `GET /` on `app_port`.
+
 ### env
 
 Environment variables:
@@ -361,6 +332,11 @@ env:
 
 - `clear` - Plaintext values stored in deploy.yml
 - `secret` - Keys to load from encrypted secrets file or server environment
+
+Both are handed to the container through an env file written to
+`/var/lib/odysseus/env` with `0600` permissions and removed once the container
+has been created, so secrets never appear in the host's process list. A value
+containing a newline is rejected, since a Docker env file cannot represent one.
 
 ### secrets_file
 
@@ -460,50 +436,6 @@ registry:
 | Has `registry` | Build locally → push to registry → hosts pull |
 
 For better security, you can store registry credentials in your encrypted secrets file and reference them.
-
-## Charm Mode (TUI)
-
-Odysseus CLI supports an optional **Charm mode** for a more glamorous terminal experience with spinners, styled output, tables, and interactive confirmations.
-
-### Enabling Charm Mode
-
-```bash
-# Via command-line flag
-odysseus deploy --charm --build
-
-# Via environment variable
-ODYSSEUS_CHARM=1 odysseus deploy --build
-```
-
-### Features in Charm Mode
-
-- **Styled headers** with rounded borders and colors
-- **Spinners** for long-running operations (build, deploy, pussh)
-- **Tables** for container and accessory status listings
-- **Confirmation dialogs** for destructive operations (cleanup, accessory remove)
-
-### Installing gum
-
-Charm mode requires [gum](https://github.com/charmbracelet/gum) to be installed:
-
-```bash
-# macOS
-brew install gum
-
-# Arch Linux
-pacman -S gum
-
-# Ubuntu/Debian (via charm tap)
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
-echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list
-sudo apt update && sudo apt install gum
-
-# From source
-go install github.com/charmbracelet/gum@latest
-```
-
-If gum is not installed, Odysseus will warn you and fall back to standard output.
 
 ## Server Requirements
 
