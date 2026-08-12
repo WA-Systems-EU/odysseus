@@ -49,7 +49,8 @@ Implements phases 1 and 2 of `docs/specs/2026-08-12-deploy-versioning-and-rollba
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `Odysseus::Git.new(dir)` with `#repository?` → Boolean, `#head_sha(length: 12)` → String, `#uncommitted_changes?` → Boolean, `#untracked_files?` → Boolean, `#ref` → String, `#committer_email` → String or nil.
+- Produces: `Odysseus::Git.new(dir)` with `#repository?` → Boolean, `#head_sha(length: 12)` → String or nil, `#uncommitted_changes?` → Boolean, `#untracked_files?` → Boolean, `#ref` → String or nil, `#committer_email` → String or nil.
+- `head_sha` and `ref` answer nil when git cannot tell us — most realistically a repository with no commits yet. `Git` reports facts, including "couldn't"; deciding that a missing sha is fatal belongs to `VersionResolver` in Task 2, alongside the dirty-tree and not-a-repository rules.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -269,6 +270,7 @@ git commit -m "Add Git wrapper for local work tree queries"
 **Interfaces:**
 - Consumes: `Odysseus::Git` from Task 1.
 - Produces: `Odysseus::DeployVersion` with readers `#version`, `#ref`, `#deployer`; and `Odysseus::VersionResolver.new(config_dir:, logger: nil)` with `#resolve(image_tag: nil)` → `DeployVersion`, raising `Odysseus::ConfigError`.
+- `#resolve` must refuse when `Git#head_sha` returns nil rather than building a `DeployVersion` with an empty version. That happens in a repository with no commits, which reaches this point because the dirty check passes: uncommitted files are untracked there, and untracked files only warn.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -368,6 +370,22 @@ RSpec.describe Odysseus::VersionResolver do
     end
   end
 
+  context 'in a repository with no commits' do
+    before do
+      allow(git).to receive(:repository?).and_return(true)
+      allow(git).to receive(:uncommitted_changes?).and_return(false)
+      allow(git).to receive(:head_sha).and_return(nil)
+    end
+
+    it 'refuses rather than building an empty version' do
+      expect { resolver.resolve }.to raise_error(Odysseus::ConfigError, /no commits yet/i)
+    end
+
+    it 'names --image as the way through' do
+      expect { resolver.resolve }.to raise_error(Odysseus::ConfigError, /--image/)
+    end
+  end
+
   context 'outside a repository' do
     before { allow(git).to receive(:repository?).and_return(false) }
 
@@ -441,9 +459,17 @@ module Odysseus
               'the code being deployed. Commit them, or pass --image to name the version.'
       end
 
+      sha = git.head_sha(length: SHA_LENGTH)
+
+      unless sha
+        raise Odysseus::ConfigError,
+              "#{@config_dir} is a git repository with no commits yet, so there is no version to " \
+              'deploy. Commit first, or pass --image to name the version.'
+      end
+
       warn_about_untracked_files
 
-      DeployVersion.new(version: git.head_sha(length: SHA_LENGTH), ref: git.ref, deployer: deployer)
+      DeployVersion.new(version: sha, ref: git.ref, deployer: deployer)
     end
 
     private
@@ -475,7 +501,7 @@ end
 cd odysseus-core && bundle exec rspec spec/odysseus/version_resolver_spec.rb
 ```
 
-Expected: PASS, 11 examples.
+Expected: PASS, 13 examples.
 
 - [ ] **Step 5: Verify the specs have teeth**
 
@@ -484,6 +510,7 @@ Apply each mutation, run the spec, confirm a failure, then `git checkout -- lib/
 1. Delete the `git.uncommitted_changes?` guard → the two dirty-repository examples must fail.
 2. Delete the `git.repository?` guard → the outside-a-repository example must fail.
 3. Change `warn_about_untracked_files` to return early always → the untracked warning example must fail.
+4. Delete the nil-sha guard → the two no-commits examples must fail.
 
 - [ ] **Step 6: Run the full suite and linter**
 
