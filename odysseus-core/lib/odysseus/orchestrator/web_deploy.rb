@@ -7,6 +7,9 @@ module Odysseus
     class WebDeploy
       include Odysseus::Core::VolumeNamespacer
 
+      # Probed when a proxy is configured without an explicit healthcheck block.
+      DEFAULT_HEALTHCHECK_PATH = '/'
+
       # @param ssh [Odysseus::Deployer::SSH] SSH connection
       # @param config [Hash] parsed deploy config
       # @param logger [Object] logger (optional)
@@ -31,12 +34,21 @@ module Odysseus
         log "Deploying #{service} (role: #{role})"
         log "  Image: #{image}"
 
+        # A web role is proxied by Caddy, which needs a port to route to. Without
+        # one the container gets no health command and the deploy would sit in
+        # health checks until it timed out, so say so up front.
+        unless app_port
+          raise Odysseus::ConfigError,
+                "proxy.app_port is required to deploy the '#{role}' role — " \
+                "set it to the port your app listens on inside the container"
+        end
+
         # Step 1: Ensure Caddy is running
         log "Ensuring Caddy proxy is running..."
         if @caddy.running?
           log "  Caddy already running"
         else
-          @caddy.ensure_running
+          ensure_caddy!
           log "  Caddy started"
         end
 
@@ -179,12 +191,19 @@ module Odysseus
         env
       end
 
+      # Build the container-level health check Docker polls.
+      #
+      # The deploy gates on Docker reporting the container healthy, so a web
+      # container always needs a health command — without one the status stays
+      # 'none' forever and every deploy times out. When no healthcheck block is
+      # configured we probe the app port at DEFAULT_HEALTHCHECK_PATH, matching
+      # the default Config::Parser applies to an empty healthcheck block.
       def build_healthcheck(hc_config)
-        return nil unless hc_config && hc_config[:path]
+        port = app_port
+        return nil unless port
 
-        port = @config[:proxy][:app_port]
-        path = hc_config[:path]
-        expect_status = hc_config[:expect_status]
+        path = (hc_config && hc_config[:path]) || DEFAULT_HEALTHCHECK_PATH
+        expect_status = hc_config && hc_config[:expect_status]
 
         # Build curl command based on expected status
         cmd = if expect_status
@@ -292,10 +311,16 @@ module Odysseus
       end
 
       def describe_healthcheck(hc_config)
-        return "(no health check configured)" unless hc_config && hc_config[:path]
+        port = app_port
+        path = (hc_config && hc_config[:path]) || DEFAULT_HEALTHCHECK_PATH
+        interval = (hc_config && hc_config[:interval]) || 10
 
-        port = @config[:proxy][:app_port]
-        "(GET http://localhost:#{port}#{hc_config[:path]}, interval: #{hc_config[:interval] || 10}s)"
+        "(GET http://localhost:#{port}#{path}, interval: #{interval}s)"
+      end
+
+      # Port the app listens on inside the container, nil when no proxy is configured.
+      def app_port
+        @config[:proxy] && @config[:proxy][:app_port]
       end
 
       def default_logger

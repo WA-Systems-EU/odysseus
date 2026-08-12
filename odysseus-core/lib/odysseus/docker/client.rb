@@ -6,7 +6,9 @@ module Odysseus
   module Docker
     class Client
       HEALTHCHECK_POLL_INTERVAL = 2 # seconds
-      HEALTHCHECK_MAX_ATTEMPTS = 30 # ~60 seconds max wait
+
+      # Env files are written here just long enough for docker run to read them.
+      ENV_FILE_DIR = '/var/lib/odysseus/env'
 
       # @param ssh [Odysseus::Deployer::SSH] SSH connection to server
       def initialize(ssh)
@@ -14,12 +16,21 @@ module Odysseus
       end
 
       # Run a new container
+      #
+      # Environment variables travel in a 0600 env file rather than on the
+      # command line, so secrets stay out of the host's process list and values
+      # containing spaces or shell metacharacters survive intact. Docker copies
+      # them into the container config at create time, so the file is removed
+      # again as soon as the container exists.
+      #
       # @param name [String] container name
       # @param image [String] image:tag
       # @param options [Hash] container options
       # @return [String] container ID
       def run(name:, image:, options: {})
-        cmd = build_run_command(name: name, image: image, options: options)
+        env_file = write_env_file(name, options[:env])
+
+        cmd = build_run_command(name: name, image: image, options: options, env_file: env_file)
         output = @ssh.execute(cmd)
         # Container ID is the last line (64-char hex), ignore any warnings
         lines = output.strip.split("\n")
@@ -31,6 +42,8 @@ module Odysseus
         end
 
         container_id
+      ensure
+        remove_env_file(env_file)
       end
 
       # Stop a container
@@ -77,7 +90,7 @@ module Odysseus
       # @param timeout [Integer] max seconds to wait
       # @return [Boolean] true if healthy, false if timeout
       def wait_healthy(container_id, timeout: 60)
-        attempts = [timeout / HEALTHCHECK_POLL_INTERVAL, HEALTHCHECK_MAX_ATTEMPTS].min
+        attempts = [timeout / HEALTHCHECK_POLL_INTERVAL, 1].max
 
         attempts.times do
           status = health_status(container_id)
@@ -278,7 +291,44 @@ module Odysseus
 
       private
 
-      def build_run_command(name:, image:, options:)
+      # Write the container's environment to a private file on the host.
+      # @return [String, nil] path to the env file, nil when there is nothing to write
+      def write_env_file(name, env)
+        return nil if env.nil? || env.empty?
+
+        path = "#{ENV_FILE_DIR}/#{name}.env"
+        @ssh.execute("mkdir -p #{ENV_FILE_DIR} && chmod 700 #{ENV_FILE_DIR}")
+        @ssh.upload_string(format_env_file(env), path, mode: 0o600)
+        path
+      end
+
+      # docker --env-file takes one KEY=VALUE per line and cannot represent a
+      # value containing a newline, so refuse rather than truncate a secret.
+      def format_env_file(env)
+        lines = env.map do |key, value|
+          value = value.to_s
+          if value.include?("\n")
+            raise Odysseus::DeployError,
+                  "Environment variable #{key} contains a newline, which a Docker env file cannot represent"
+          end
+
+          "#{key}=#{value}"
+        end
+
+        "#{lines.join("\n")}\n"
+      end
+
+      def remove_env_file(path)
+        return unless path
+
+        @ssh.execute("rm -f #{path}")
+      rescue Odysseus::SSHError
+        # Best effort: the file is only readable by its owner and is rewritten
+        # on the next deploy. Never mask the deploy's own failure.
+        nil
+      end
+
+      def build_run_command(name:, image:, options:, env_file: nil)
         parts = ['docker run -d']
 
         # Container name
@@ -300,13 +350,8 @@ module Odysseus
           options[:ports].each { |p| parts << "-p #{p}" }
         end
 
-        # Environment variables
-        if options[:env]
-          options[:env].each do |key, value|
-            # Don't log secret values
-            parts << "-e #{key}=#{value}"
-          end
-        end
+        # Environment variables (see #write_env_file — never inlined here)
+        parts << "--env-file #{env_file}" if env_file
 
         # Memory limits
         parts << "--memory #{options[:memory]}" if options[:memory]

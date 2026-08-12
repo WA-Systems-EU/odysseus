@@ -44,6 +44,7 @@ RSpec.describe Odysseus::Deployer::SSH do
       allow(mock_channel).to receive(:exec).and_yield(mock_channel, true)
       allow(mock_channel).to receive(:on_data).and_yield(mock_channel, "command output\n")
       allow(mock_channel).to receive(:on_extended_data)
+      allow(mock_channel).to receive(:on_request)
     end
 
     it 'executes command and returns output' do
@@ -81,6 +82,41 @@ RSpec.describe Odysseus::Deployer::SSH do
       it 'raises SSHConnectionError' do
         expect { ssh.execute('test') }
           .to raise_error(Odysseus::SSHConnectionError, /Connection refused/)
+      end
+    end
+
+    context 'when the remote command exits non-zero' do
+      before do
+        allow(mock_channel).to receive(:on_extended_data)
+          .and_yield(mock_channel, nil, "No such container: abc123\n")
+        allow(mock_channel).to receive(:on_request).with('exit-status')
+          .and_yield(mock_channel, instance_double(Net::SSH::Buffer, read_long: 1))
+      end
+
+      it 'raises SSHCommandError naming the command and exit status' do
+        expect { ssh.execute('docker stop abc123') }
+          .to raise_error(Odysseus::SSHCommandError) { |error|
+            expect(error.message).to include('docker stop abc123')
+            expect(error.message).to include('exit status 1')
+          }
+      end
+
+      it 'includes stderr in the error message' do
+        expect { ssh.execute('docker stop abc123') }
+          .to raise_error(Odysseus::SSHCommandError, /No such container: abc123/)
+      end
+    end
+
+    context 'when the remote command writes to stderr but succeeds' do
+      before do
+        allow(mock_channel).to receive(:on_extended_data)
+          .and_yield(mock_channel, nil, "warning: something\n")
+        allow(mock_channel).to receive(:on_request).with('exit-status')
+          .and_yield(mock_channel, instance_double(Net::SSH::Buffer, read_long: 0))
+      end
+
+      it 'returns stdout without stderr mixed in' do
+        expect(ssh.execute('docker ps')).to eq("command output\n")
       end
     end
   end
@@ -141,6 +177,7 @@ RSpec.describe Odysseus::Deployer::SSH do
         allow(mock_channel).to receive(:exec).and_yield(mock_channel, true)
         allow(mock_channel).to receive(:on_data)
         allow(mock_channel).to receive(:on_extended_data)
+        allow(mock_channel).to receive(:on_request)
         ssh.execute('test')
       end
 
@@ -164,6 +201,7 @@ RSpec.describe Odysseus::Deployer::SSH do
       allow(mock_channel).to receive(:exec).and_yield(mock_channel, true)
       allow(mock_channel).to receive(:on_data)
       allow(mock_channel).to receive(:on_extended_data)
+      allow(mock_channel).to receive(:on_request)
       ssh.execute('test')
     end
 

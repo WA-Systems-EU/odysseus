@@ -13,6 +13,9 @@ module Odysseus
   class SSHConnectionError < SSHError; end
   class SSHCommandError < SSHError; end
 
+  class ProxyError < Error; end
+  class ProxyApiError < ProxyError; end
+
   class RegistryError < Error; end
   class RegistryPushError < RegistryError; end
   class RegistryAuthError < RegistryError; end

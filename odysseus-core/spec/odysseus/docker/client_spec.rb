@@ -47,17 +47,63 @@ RSpec.describe Odysseus::Docker::Client do
       )
     end
 
-    it 'includes environment variables' do
-      expect(mock_ssh).to receive(:execute) do |cmd|
-        expect(cmd).to include('-e RAILS_ENV=production')
-        "#{container_id}\n"
+    context 'with environment variables' do
+      let(:env) do
+        {
+          'RAILS_ENV' => 'production',
+          'DATABASE_URL' => 'postgres://user:pa ss@db/app'
+        }
+      end
+      let(:commands) { [] }
+      let(:env_file) { '/var/lib/odysseus/env/test.env' }
+
+      before do
+        allow(mock_ssh).to receive(:execute) { |cmd| commands << cmd; "#{container_id}\n" }
+        allow(mock_ssh).to receive(:upload_string)
       end
 
-      client.run(
-        name: 'test',
-        image: 'myapp:latest',
-        options: { env: { 'RAILS_ENV' => 'production' } }
-      )
+      def run_container
+        client.run(name: 'test', image: 'myapp:latest', options: { env: env })
+      end
+
+      it 'passes them through an env file rather than the command line' do
+        run_container
+
+        run_cmd = commands.find { |c| c.include?('docker run') }
+        expect(run_cmd).to include("--env-file #{env_file}")
+        expect(run_cmd).not_to include('DATABASE_URL')
+        expect(run_cmd).not_to include('pa ss')
+      end
+
+      it 'uploads the env file readable only by its owner' do
+        expect(mock_ssh).to receive(:upload_string) do |content, path, mode:|
+          expect(content).to include('RAILS_ENV=production')
+          expect(content).to include('DATABASE_URL=postgres://user:pa ss@db/app')
+          expect(path).to eq(env_file)
+          expect(mode).to eq(0o600)
+        end
+
+        run_container
+      end
+
+      it 'deletes the env file once the container has been created' do
+        run_container
+
+        expect(commands.last).to include("rm -f #{env_file}")
+      end
+
+      it 'rejects values docker cannot represent in an env file' do
+        expect { client.run(name: 'test', image: 'myapp:latest', options: { env: { 'KEY' => "line1\nline2" } }) }
+          .to raise_error(Odysseus::DeployError, /KEY.*newline/)
+      end
+
+      it 'writes no env file when there are no variables' do
+        expect(mock_ssh).not_to receive(:upload_string)
+
+        client.run(name: 'test', image: 'myapp:latest', options: { env: {} })
+
+        expect(commands.find { |c| c.include?('docker run') }).not_to include('--env-file')
+      end
     end
 
     it 'includes network setting' do
@@ -206,6 +252,20 @@ RSpec.describe Odysseus::Docker::Client do
       allow(mock_ssh).to receive(:execute).and_return("unhealthy\n")
 
       expect(client.wait_healthy('abc123')).to be false
+    end
+
+    it 'keeps polling for the whole timeout it was given' do
+      allow(mock_ssh).to receive(:execute).and_return("starting\n")
+
+      # 120s at one poll every 2s — the caller asked for two minutes, not one.
+      expect(client.wait_healthy('abc123', timeout: 120)).to be false
+      expect(mock_ssh).to have_received(:execute).exactly(60).times
+    end
+
+    it 'polls at least once for a timeout shorter than the poll interval' do
+      allow(mock_ssh).to receive(:execute).and_return("healthy\n")
+
+      expect(client.wait_healthy('abc123', timeout: 1)).to be true
     end
   end
 

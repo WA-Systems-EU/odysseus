@@ -51,6 +51,7 @@ RSpec.describe Odysseus::Orchestrator::WebDeploy do
     allow(Odysseus::Caddy::Client).to receive(:new).and_return(mock_caddy)
 
     # Default mock behaviors
+    allow(mock_caddy).to receive(:running?).and_return(false)
     allow(mock_caddy).to receive(:ensure_running).and_return(true)
     allow(mock_docker).to receive(:list).and_return([])
     allow(mock_docker).to receive(:run).and_return('new-container-123')
@@ -109,6 +110,35 @@ RSpec.describe Odysseus::Orchestrator::WebDeploy do
 
       expect { orchestrator.deploy(image_tag: 'v1.0') }
         .to raise_error(Odysseus::DeployError, /failed health checks/)
+    end
+
+    context 'when proxy.healthcheck is not configured' do
+      # Config::Parser yields an empty hash for a missing healthcheck block.
+      let(:config) do
+        super().merge(proxy: { hosts: ['app.example.com'], app_port: 3000, healthcheck: {} })
+      end
+
+      it 'still gives the container a health command so it can become healthy' do
+        expect(mock_docker).to receive(:run) do |args|
+          expect(args[:options][:healthcheck]).to include(
+            cmd: a_string_including('http://localhost:3000/')
+          )
+          'new-container-123'
+        end
+
+        orchestrator.deploy(image_tag: 'v1.0')
+      end
+    end
+
+    context 'when the role has no app_port to probe' do
+      let(:config) { super().merge(proxy: {}) }
+
+      it 'fails fast with a config error rather than timing out on health checks' do
+        expect(mock_docker).not_to receive(:run)
+
+        expect { orchestrator.deploy(image_tag: 'v1.0') }
+          .to raise_error(Odysseus::ConfigError, /app_port/)
+      end
     end
 
     it 'adds new container to Caddy' do

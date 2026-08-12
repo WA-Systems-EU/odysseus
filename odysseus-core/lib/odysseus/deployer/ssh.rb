@@ -23,23 +23,40 @@ module Odysseus
       end
 
       # Execute remote command
+      #
+      # Standard error is kept out of the returned value so callers can parse
+      # stdout (JSON, container IDs, inspect templates) without warning text
+      # leaking in.
+      #
+      # Commands that are expected to fail should guard themselves at the shell
+      # level (`cmd || echo 'none'`) as the Docker client's predicates do.
+      #
       # @param command [String] command to execute
-      # @return [String] command output
-      # @raise [Odysseus::SSHError] if command fails
+      # @return [String] command stdout
+      # @raise [Odysseus::SSHCommandError] if the command exits non-zero
       def execute(command)
         puts "  > #{command}" if @verbose
         with_connection do |session|
-          output = ""
+          stdout = ""
+          stderr = ""
+          exit_status = nil
+
           session.open_channel do |channel|
-            channel.exec(command) do |ch, success|
+            channel.exec(command) do |_ch, success|
               raise Odysseus::SSHCommandError, "Failed to execute: #{command}" unless success
 
-              channel.on_data { |_, data| output += data }
-              channel.on_extended_data { |_, _, data| output += data }
+              channel.on_data { |_, data| stdout += data }
+              channel.on_extended_data { |_, _, data| stderr += data }
+              channel.on_request('exit-status') { |_, data| exit_status = data.read_long }
             end
           end
           session.loop
-          output
+
+          unless exit_status.nil? || exit_status.zero?
+            raise Odysseus::SSHCommandError, command_failure_message(command, exit_status, stderr, stdout)
+          end
+
+          stdout
         end
       end
 
@@ -62,11 +79,16 @@ module Odysseus
       end
 
       # Upload string content to remote file
+      #
+      # The mode travels in the SCP protocol itself, so a file holding secrets
+      # is never briefly world-readable the way a write-then-chmod would be.
+      #
       # @param content [String] content to write
       # @param remote_path [String] remote file path
-      def upload_string(content, remote_path)
+      # @param mode [Integer] permissions for the remote file
+      def upload_string(content, remote_path, mode: 0o640)
         with_connection do |session|
-          session.scp.upload!(StringIO.new(content), remote_path)
+          session.scp.upload!(StringIO.new(content), remote_path, mode: mode)
         end
       end
 
@@ -105,16 +127,27 @@ module Odysseus
 
       private
 
+      # Build a diagnostic message for a failed remote command.
+      # Prefers stderr, falls back to stdout when the command only wrote there.
+      def command_failure_message(command, exit_status, stderr, stdout)
+        details = stderr.strip
+        details = stdout.strip if details.empty?
+
+        message = "Command failed on #{@host} with exit status #{exit_status}: #{command}"
+        message += "\n#{details}" unless details.empty?
+        message
+      end
+
       def with_connection
         connect unless connected?
         yield(@session)
-      rescue Errno::ECONNREFUSED => e
+      rescue Errno::ECONNREFUSED
         raise Odysseus::SSHConnectionError, "Connection refused to #{@host}. Is the server running and accepting SSH connections?"
-      rescue SocketError => e
+      rescue SocketError
         raise Odysseus::SSHConnectionError, "Could not resolve hostname '#{@host}'. Check your DNS or /etc/hosts."
-      rescue Net::SSH::AuthenticationFailed => e
+      rescue Net::SSH::AuthenticationFailed
         raise Odysseus::SSHConnectionError, "SSH authentication failed for #{@user}@#{@host}. Check your SSH keys."
-      rescue Errno::ETIMEDOUT, Net::SSH::ConnectionTimeout, Errno::EHOSTUNREACH => e
+      rescue Errno::ETIMEDOUT, Net::SSH::ConnectionTimeout, Errno::EHOSTUNREACH
         error_msg = "Connection to #{@host} timed out."
         if @use_tailscale
           error_msg += "\n\nThis looks like a Tailscale hostname. Please check:\n"

@@ -379,6 +379,67 @@ RSpec.describe Odysseus::Caddy::Client do
     end
   end
 
+  describe 'admin API error handling' do
+    # curl is invoked with -w '\n%{http_code}', so a real response is the body
+    # followed by the status code on its own line.
+    def curl_response(body, status)
+      "#{body}\n#{status}"
+    end
+
+    it 'raises ProxyApiError when a write is rejected' do
+      allow(mock_ssh).to receive(:execute)
+        .with(/GET.*\/routes/)
+        .and_return(curl_response('[]', 200))
+      allow(mock_ssh).to receive(:execute)
+        .with(/-X PUT/)
+        .and_return(curl_response('{"error":"loading new config: invalid upstream"}', 400))
+
+      expect {
+        client.add_upstream(
+          service: 'myapp',
+          hosts: ['app.example.com'],
+          upstream: 'myapp:3000',
+          ssl: false
+        )
+      }.to raise_error(Odysseus::ProxyApiError) { |error|
+        expect(error.message).to include('400')
+        expect(error.message).to include('invalid upstream')
+      }
+    end
+
+    it 'raises ProxyApiError when a route delete is rejected' do
+      routes = [{ '@id' => 'route-myapp', 'handle' => [{ 'upstreams' => [{ 'dial' => 'myapp:3000' }] }] }]
+      allow(mock_ssh).to receive(:execute)
+        .with(/GET.*\/routes/)
+        .and_return(curl_response(routes.to_json, 200))
+      allow(mock_ssh).to receive(:execute)
+        .with(/-X DELETE/)
+        .and_return(curl_response('{"error":"unknown object"}', 500))
+
+      expect { client.remove_upstream(service: 'myapp', upstream: nil) }
+        .to raise_error(Odysseus::ProxyApiError, /500/)
+    end
+
+    it 'treats a failed GET as absent config so callers can fall back' do
+      # A freshly booted Caddy has no tls app; the admin API answers 500.
+      allow(mock_ssh).to receive(:execute)
+        .with(/GET.*\/config\/apps\/tls/)
+        .and_return(curl_response('{"error":"unknown object tls"}', 500))
+
+      result = client.tls_status
+      expect(result[:enabled]).to be false
+      expect(result[:policies]).to be_empty
+    end
+
+    it 'parses a successful response without treating the status code as body' do
+      allow(mock_ssh).to receive(:execute)
+        .with(/GET.*\/servers/)
+        .and_return(curl_response('{"srv0":{"listen":[":80"]}}', 200))
+
+      expect(client.listen_addresses).to eq([':80'])
+    end
+  end
+
   describe '#status' do
     it 'returns combined status summary' do
       allow(mock_docker).to receive(:running?).with('odysseus-caddy').and_return(true)
