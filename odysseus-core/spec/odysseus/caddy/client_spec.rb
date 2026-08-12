@@ -199,10 +199,12 @@ RSpec.describe Odysseus::Caddy::Client do
 
     context 'with ssl enabled' do
       it 'configures TLS automation before adding route' do
-        # GET existing TLS config
+        # No tls app yet: Caddy answers a missing config path with an error or a
+        # null body, never an empty object. An empty object would mean the key is
+        # present, which calls for PATCH rather than PUT.
         expect(mock_ssh).to receive(:execute)
           .with(%r{GET.*/config/apps/tls})
-          .and_return('{}')
+          .and_return('null')
 
         # TLS config PUT
         expect(mock_ssh).to receive(:execute)
@@ -379,6 +381,92 @@ RSpec.describe Odysseus::Caddy::Client do
       result = client.tls_status
       expect(result[:enabled]).to be false
       expect(result[:policies]).to be_empty
+    end
+  end
+
+  describe '#enable_tls_for_hosts' do
+    def curl_response(body, status)
+      "#{body}\n#{status}"
+    end
+
+    # Body of the -d payload for the command the block matched.
+    def payload_of(cmd)
+      JSON.parse(cmd[/-d '(.*?)' /m, 1])
+    end
+
+    before do
+      # Already listening on 443, so ensure_https_server has nothing to patch.
+      allow(mock_ssh).to receive(:execute)
+        .with(%r{-X GET.*/config/apps/http/servers})
+        .and_return(curl_response('{"srv0":{"listen":[":80",":443"]}}', 200))
+    end
+
+    context 'when Caddy has no tls app yet' do
+      before do
+        # Caddy answers 500 for a config path that does not exist.
+        allow(mock_ssh).to receive(:execute)
+          .with(%r{-X GET.*/config/apps/tls})
+          .and_return(curl_response('{"error":"unknown object tls"}', 500))
+      end
+
+      it 'creates it' do
+        expect(mock_ssh).to receive(:execute).with(/-X PUT/).and_return(curl_response('{}', 200))
+
+        client.enable_tls_for_hosts(['app.example.com'], email: 'admin@example.com')
+      end
+    end
+
+    context 'when the tls app already exists' do
+      let(:existing_tls) do
+        {
+          'certificates' => { 'load_files' => [{ 'certificate' => '/certs/other.crt' }] },
+          'automation' => {
+            'on_demand' => { 'rate_limit' => { 'interval' => '2m' } },
+            'policies' => [
+              { 'subjects' => ['other.example.com'], 'issuers' => [{ 'module' => 'acme' }] }
+            ]
+          }
+        }
+      end
+
+      before do
+        allow(mock_ssh).to receive(:execute)
+          .with(%r{-X GET.*/config/apps/tls})
+          .and_return(curl_response(existing_tls.to_json, 200))
+
+        # Caddy's PUT is create-only: it answers 409 when the key is already there.
+        allow(mock_ssh).to receive(:execute)
+          .with(/-X PUT/)
+          .and_return(curl_response('{"error":"[/config/apps/tls] key already exists: tls"}', 409))
+      end
+
+      it 'updates the config in place rather than failing with 409' do
+        expect(mock_ssh).to receive(:execute).with(/-X PATCH/).and_return(curl_response('{}', 200))
+
+        expect { client.enable_tls_for_hosts(['app.example.com'], email: 'admin@example.com') }
+          .not_to raise_error
+      end
+
+      it 'keeps subjects that were already covered' do
+        expect(mock_ssh).to receive(:execute).with(/-X PATCH/) do |cmd|
+          subjects = payload_of(cmd).dig('automation', 'policies', 0, 'subjects')
+          expect(subjects).to contain_exactly('other.example.com', 'app.example.com')
+          curl_response('{}', 200)
+        end
+
+        client.enable_tls_for_hosts(['app.example.com'], email: 'admin@example.com')
+      end
+
+      it 'leaves sibling tls configuration alone' do
+        expect(mock_ssh).to receive(:execute).with(/-X PATCH/) do |cmd|
+          written = payload_of(cmd)
+          expect(written['certificates']).to eq(existing_tls['certificates'])
+          expect(written.dig('automation', 'on_demand')).to eq(existing_tls.dig('automation', 'on_demand'))
+          curl_response('{}', 200)
+        end
+
+        client.enable_tls_for_hosts(['app.example.com'], email: 'admin@example.com')
+      end
     end
   end
 
