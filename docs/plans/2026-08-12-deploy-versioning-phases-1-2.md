@@ -501,7 +501,7 @@ end
 cd odysseus-core && bundle exec rspec spec/odysseus/version_resolver_spec.rb
 ```
 
-Expected: PASS, 13 examples.
+Expected: PASS, 12 examples.
 
 - [ ] **Step 5: Verify the specs have teeth**
 
