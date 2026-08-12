@@ -51,7 +51,6 @@ Parses deploy.yml configuration files with support for:
 - Proxy configuration (Caddy)
 - Accessories (databases, Redis, etc.)
 - Environment variables and secrets
-- AWS Auto Scaling Group integration
 
 ### Odysseus::Docker::Client
 
