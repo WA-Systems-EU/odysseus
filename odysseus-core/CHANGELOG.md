@@ -15,8 +15,10 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 - Each host records successful deploys in `/var/lib/odysseus/<service>/deploys.log`.
 
 ### Changed
-- `deploy` and `build` no longer default to the `latest` tag. Outside a git
-  repository, or with uncommitted changes, they stop and ask for `--image`.
+- `deploy`, `build` and `pussh` no longer default to the `latest` tag. Outside
+  a git repository, or with uncommitted changes, they stop and ask for
+  `--image`. The version resolves before the dry-run check, so `--dry-run`
+  also requires a resolvable version even though it makes no changes.
 
 ## [0.4.1] - 2026-08-12
 

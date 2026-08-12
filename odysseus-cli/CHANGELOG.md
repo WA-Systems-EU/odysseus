@@ -8,6 +8,9 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 ## [Unreleased]
 
 ### Changed
+- `deploy`, `build` and `pussh` no longer default `--image` to the `latest`
+  tag; the tag now defaults to the git commit being deployed, and is required
+  outside a clean git repository.
 - `status` reports the version, ref and deploy time of each container.
 - `app exec`, `app shell` and `app console` run the version that is currently
   serving instead of `:latest`.

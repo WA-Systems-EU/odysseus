@@ -78,7 +78,7 @@ odysseus deploy [options]
 
 Options:
 - `--config FILE` - Path to deploy.yml (default: deploy.yml)
-- `--image TAG` - Docker image tag (default: latest)
+- `--image TAG` - Docker image tag (default: the git commit being deployed; required outside a clean git repository)
 - `--build` - Build and distribute image before deploying
 - `--dry-run` - Show what would be deployed without doing it
 - `-v, --verbose` - Show SSH commands being executed
@@ -107,7 +107,7 @@ odysseus build [options]
 
 Options:
 - `--config FILE` - Path to deploy.yml (default: deploy.yml)
-- `--image TAG` - Docker image tag (default: latest)
+- `--image TAG` - Docker image tag (default: the git commit being deployed; required outside a clean git repository)
 - `--push` - Push image to registry after build
 - `--context PATH` - Build context path (default: . relative to deploy.yml)
 - `-v, --verbose` - Show build commands being executed
@@ -137,7 +137,7 @@ odysseus pussh [options]
 
 Options:
 - `--config FILE` - Path to deploy.yml (default: deploy.yml)
-- `--image TAG` - Docker image tag (default: latest)
+- `--image TAG` - Docker image tag (default: the git commit being deployed; required outside a clean git repository)
 - `--build` - Build image before pushing
 - `-v, --verbose` - Show commands being executed
 
