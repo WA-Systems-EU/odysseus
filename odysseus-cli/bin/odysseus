@@ -3,12 +3,20 @@
 
 require 'odysseus'
 require 'odysseus/cli/cli'
+require 'odysseus/cli/version'
 require 'optparse'
 
 def main
   # Debug mode: verbose output with no spinners
   debug_mode = ENV['ODYSSEUS_DEBUG'] == '1' || ARGV.include?('--debug')
   ARGV.delete('--debug')
+
+  # Answered before anything else so it works without a deploy.yml or a server.
+  # Note -v is taken by --verbose, so the flag spelling is --version only.
+  if ARGV[0] == 'version' || ARGV.include?('--version')
+    print_version
+    return
+  end
 
   cli = Odysseus::CLI::CLI.new(debug: debug_mode)
 
@@ -242,12 +250,18 @@ def handle_secrets_command(cli, args)
   cli.send(secrets_commands[subcommand], options)
 end
 
+def print_version
+  puts "odysseus #{Odysseus::CLI::VERSION} (odysseus-core #{Odysseus::Core::VERSION})"
+  puts "ruby #{RUBY_VERSION}p#{RUBY_PATCHLEVEL} [#{RUBY_PLATFORM}]"
+end
+
 def print_help
   puts "Usage: odysseus <command> [options]"
   puts ""
   puts "Global options:"
   puts "  --debug                   Verbose output (show all commands and details)"
   puts "                            Or set ODYSSEUS_DEBUG=1 environment variable"
+  puts "  --version                 Show odysseus, odysseus-core and ruby versions"
   puts ""
   puts "Commands:"
   puts "  deploy                    Deploy all roles to servers defined in config"
@@ -261,6 +275,7 @@ def print_help
   puts "  accessory <subcommand>    Manage accessories"
   puts "  app <subcommand>          Run commands in app containers"
   puts "  secrets <subcommand>      Manage encrypted secrets"
+  puts "  version                   Show version information"
   puts ""
   puts "Options:"
   puts "  --config FILE             Path to deploy.yml (default: deploy.yml)"
