@@ -117,6 +117,32 @@ RSpec.describe Odysseus::Config::Parser do
 
       expect(order).to eq(%i[load validate])
     end
+
+    # The example above stubs Plugins.load! itself, so it only proves *when*
+    # the parser calls it, never *what* it passes. This one uses the real
+    # Odysseus::Plugins and Odysseus::Validators::Config, so it fails if the
+    # parser hands `load!` anything other than the actual raw config —
+    # an empty hash, the normalized symbol-keyed hash, or the wrong local —
+    # or if loading is moved after validation, since the validator rejects an
+    # unregistered `strategy: fake` outright.
+    context 'with a real plugin gem and a strategy only it registers' do
+      around do |example|
+        Odysseus::Sails.reset!
+        $LOAD_PATH.unshift(fixture_path('plugins'))
+        example.run
+      ensure
+        $LOAD_PATH.delete(fixture_path('plugins'))
+        $LOADED_FEATURES.reject! { |f| f.include?('fake_sail') }
+        Odysseus::Sails.reset!
+      end
+
+      it 'loads the plugin from the real config in time for the validator to accept the strategy' do
+        config = described_class.new(fixture_path('deploy-plugin-strategy.yml')).parse
+
+        expect(config[:servers][:web][:deploy][:strategy]).to eq(:fake)
+        expect(Odysseus::Sails.registered?(:fake)).to be true
+      end
+    end
   end
 
   describe 'dependencies and accessories together' do
