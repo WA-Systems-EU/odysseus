@@ -105,6 +105,27 @@ RSpec.describe Odysseus::Config::Parser do
     end
   end
 
+  describe 'plugin loading' do
+    # Loading must precede validation: the validator is what rejects a strategy
+    # no sail has registered, so a plugin loaded afterwards would be too late.
+    it 'loads plugins before validating, so a strategy the plugin registers is accepted' do
+      order = []
+      allow(Odysseus::Plugins).to receive(:load!) { order << :load }
+      allow_any_instance_of(Odysseus::Validators::Config).to receive(:validate!) { order << :validate }
+
+      described_class.new(fixture_path('deploy.yml')).parse
+
+      expect(order).to eq(%i[load validate])
+    end
+  end
+
+  describe 'dependencies and accessories together' do
+    it 'refuses a config carrying both keys' do
+      expect { described_class.new(fixture_path('deploy-both-dependency-keys.yml')).parse }
+        .to raise_error(Odysseus::ConfigError, /both `dependencies:` and `accessories:`/)
+    end
+  end
+
   # `accessories:` was renamed to `dependencies:` because the old name implied
   # optional extras, when a database the app cannot boot without is not
   # optional. The old key keeps working for one release so existing deploy.yml
