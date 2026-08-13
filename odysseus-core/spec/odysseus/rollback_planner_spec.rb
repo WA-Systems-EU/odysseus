@@ -6,11 +6,12 @@
 require 'spec_helper'
 
 RSpec.describe Odysseus::RollbackPlanner do
-  def entry(version:, at:, role: 'web', ref: 'main', deployer: 'dev@example.com',
-            kind: 'deployed', from: nil)
-    Odysseus::DeployLog::Entry.new(
-      at: at, version: version, role: role, ref: ref, deployer: deployer, kind: kind, from: from
-    )
+  def entry_defaults
+    { role: 'web', ref: 'main', deployer: 'dev@example.com', kind: 'deployed', from: nil }
+  end
+
+  def entry(version:, at:, **overrides)
+    Odysseus::DeployLog::Entry.new(**entry_defaults, version: version, at: at, **overrides)
   end
 
   def host(name, current:, available:, history: [])
@@ -73,10 +74,28 @@ RSpec.describe Odysseus::RollbackPlanner do
         .to raise_error(Odysseus::RollbackError, /No version to roll back to/)
     end
 
+    # DeployLog#entries reads the file top to bottom and #append writes with
+    # `>>`, so real logs arrive oldest first. This fixture matches that, with
+    # two non-serving candidates, so a planner that forgets to sort (and
+    # picks the log's first entry) or forgets to reverse after sorting (and
+    # picks the oldest) both land on the wrong version.
     it 'orders by deploy time, not by log line order' do
-      log = [entry(version: 'v1', at: '2026-08-12T09:00:00Z'),
-             entry(version: 'v0', at: '2026-08-01T09:00:00Z')]
+      log = [entry(version: 'v0', at: '2026-08-01T09:00:00Z'),
+             entry(version: 'v1', at: '2026-08-02T09:00:00Z'),
+             entry(version: 'v2', at: '2026-08-03T09:00:00Z')]
       surveys = [host('host1', current: 'v2', available: %w[v2 v1 v0], history: log)]
+
+      expect(described_class.new(surveys).plan.version).to eq('v1')
+    end
+
+    # uniq keeps a version's newest occurrence, not its first. A version that
+    # was deployed, superseded, and then redeployed is "more recent" than a
+    # version deployed once in between, because its latest deploy is newest.
+    it 'treats a redeployed version as recent as its newest deploy, not its first' do
+      log = [entry(version: 'v1', at: '2026-08-01T09:00:00Z'),
+             entry(version: 'v2', at: '2026-08-02T09:00:00Z'),
+             entry(version: 'v1', at: '2026-08-03T09:00:00Z')]
+      surveys = [host('host1', current: 'v3', available: %w[v3 v2 v1], history: log)]
 
       expect(described_class.new(surveys).plan.version).to eq('v1')
     end
@@ -168,6 +187,21 @@ RSpec.describe Odysseus::RollbackPlanner do
     # block the legitimate "put it back the way it was" after a manual change.
     it 'allows the version that is already serving' do
       expect(described_class.new(one_host).plan(version: 'v2').version).to eq('v2')
+    end
+
+    # Task 5 writes a from= field per host out of this map. A host silently
+    # dropped because it happens to be running nothing would lose its audit
+    # record, so the map must carry an explicit nil rather than omit the key.
+    it 'keeps a host that is running nothing in the replacing map' do
+      surveys = [
+        host('host1', current: nil, available: %w[v1], history: []),
+        host('host2', current: 'v2', available: %w[v2 v1], history: [])
+      ]
+
+      plan = described_class.new(surveys).plan(version: 'v1')
+
+      expect(plan.replacing).to eq('host1' => nil, 'host2' => 'v2')
+      expect(plan.from_for('host1')).to be_nil
     end
   end
 
