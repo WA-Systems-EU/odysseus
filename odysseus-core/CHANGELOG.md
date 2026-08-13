@@ -7,6 +7,11 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-08-13
+
+Rollback. A previously deployed version can be put back on the whole fleet, and
+the fleet refuses to move at all unless every host has the image.
+
 ### Added
 - `Executor#rollback_plan` and `#rollback_all`, which return every role on
   every host to a previously deployed version by reusing the deploy path, so
