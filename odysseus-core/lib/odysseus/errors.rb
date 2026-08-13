@@ -9,6 +9,7 @@ module Odysseus
   class ConfigMissingKeyError < ConfigError; end
 
   class DeployError < Error; end
+  class RollbackError < DeployError; end
   class SSHError < DeployError; end
   class SSHConnectionError < SSHError; end
   class SSHCommandError < SSHError; end
