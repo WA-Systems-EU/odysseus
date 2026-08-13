@@ -218,4 +218,36 @@ RSpec.describe Odysseus::Validators::Config do
       expect { validate(config_with_deploy(deploy)) }.not_to raise_error
     end
   end
+
+  describe 'retain_versions' do
+    it 'accepts an integer of 1 or more' do
+      expect { validate(valid_config.merge('retain_versions' => 1)) }.not_to raise_error
+    end
+
+    it 'rejects zero' do
+      expect { validate(valid_config.merge('retain_versions' => 0)) }
+        .to raise_error(Odysseus::ConfigValidationError, /retain_versions/)
+    end
+
+    it 'rejects a negative number' do
+      expect { validate(valid_config.merge('retain_versions' => -1)) }
+        .to raise_error(Odysseus::ConfigValidationError, /retain_versions/)
+    end
+
+    it 'rejects a non-integer' do
+      expect { validate(valid_config.merge('retain_versions' => 'five')) }
+        .to raise_error(Odysseus::ConfigValidationError, /retain_versions/)
+    end
+
+    # 2.0 is not an Integer, and accepting it would mean deciding whether to
+    # round; refusing is clearer than guessing.
+    it 'rejects a float' do
+      expect { validate(valid_config.merge('retain_versions' => 2.0)) }
+        .to raise_error(Odysseus::ConfigValidationError, /retain_versions/)
+    end
+
+    it 'accepts a config that omits it' do
+      expect { validate(valid_config) }.not_to raise_error
+    end
+  end
 end

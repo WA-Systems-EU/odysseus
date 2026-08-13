@@ -17,6 +17,7 @@ module Odysseus
         validate_proxy! if @config['proxy']
         validate_env! if @config['env']
         validate_ssh! if @config['ssh']
+        validate_retain_versions! if @config.key?('retain_versions')
       end
 
       private
@@ -116,6 +117,14 @@ module Odysseus
 
         raise Odysseus::ConfigValidationError,
               'ssh.keys must be an array'
+      end
+
+      def validate_retain_versions!
+        value = @config['retain_versions']
+        return if value.is_a?(Integer) && value >= 1
+
+        raise Odysseus::ConfigValidationError,
+              "retain_versions must be an integer of 1 or more, got #{value.inspect}"
       end
     end
   end
