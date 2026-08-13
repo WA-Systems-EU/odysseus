@@ -7,6 +7,13 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Changed
+- `odysseus validate` now loads `plugins:`/`sails:` before checking the rest
+  of the config, so it catches a plugin gem that is not installed instead of
+  only discovering the gap at deploy time. It will fail on a machine that
+  does not have the gem, where it passed before. See odysseus-core's
+  changelog for the loading mechanism itself.
+
 ## [0.5.0] - 2026-08-13
 
 ### Changed

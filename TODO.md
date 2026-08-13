@@ -81,13 +81,18 @@ we'd feel their absence.
 - [ ] **Deploy locks.** Nothing stops two people (or a person and CI) deploying
       at once and interleaving container swaps, and the same is true of a
       rollback racing a deploy or another rollback. Kamal: `kamal lock`.
-- [ ] **Plugin (sail) loading.** `Sails` and the host-provider registry both
-      raise "is the gem loaded?", but nothing ever loads a sail:
-      `odysseus-sail-rolling` self-registers on `require` and the CLI only
-      requires `odysseus`. With a `gem install`-ed CLI there is no Gemfile to do
-      it, so `deploy.strategy: rolling` and `aws:` are unreachable for any end
-      user. Needs a `plugins:`/`require:` key in deploy.yml or discovery of
-      installed `odysseus-sail-*` gems.
+- [x] **Plugin (sail) loading.** `plugins:` in deploy.yml (`sails:` accepted
+      as an alias) names gems to `require` before the config is validated, so
+      `deploy.strategy: rolling` and the `aws:` host hook are reachable for
+      the first time. `odysseus-sail-rolling` was brought current against
+      `DeployVersioning` and container labelling as the worked example.
+      **`odysseus-sail-aws-asg` remains unverified by this task**: it was
+      deliberately out of scope here (own repo, own suite), so nothing in
+      this change exercises it even though the loading mechanism covers it
+      the same way `odysseus-sail-rolling` is covered.
+      **The rolling sail itself has not been run against a real host**;
+      see `odysseus-sail-rolling`'s `docs/rolling-deploy.md` and this repo's
+      READMEs for what that means.
 - [ ] **Finish registry support.** The local half exists — build, `docker login`,
       `docker push`, and `Executor#uses_registry?` switching distribution — but no
       deploy target ever logs in, and `WebDeploy`/`JobDeploy` never call

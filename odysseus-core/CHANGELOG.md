@@ -7,6 +7,27 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Added
+- `plugins:` in deploy.yml, a list of gem names loaded before the config is
+  validated, so a sail can register its strategy in time for
+  `servers.<role>.deploy.strategy` to resolve. `sails:` is accepted as an
+  alias. Until now nothing ever loaded a sail: both registries raised "is the
+  gem loaded?" for every user, so `deploy.strategy` and the `aws:` host hook
+  were unreachable while both READMEs described them.
+- `Odysseus::Core::DeployVersioning`, the shared container version identity —
+  `odysseus.version`, `odysseus.git_ref` and `odysseus.deployed_at` — included
+  by both built-in orchestrators and available to sails. `status`, `rollback`
+  and image retention all read these labels, so an orchestrator that invents
+  its own scheme is invisible to them.
+
+### Changed
+- A deploy.yml carrying both `plugins:` and `sails:`, or both `dependencies:`
+  and `accessories:`, is now an error. Silently preferring one meant editing
+  the wrong key had no visible effect.
+- `odysseus validate` loads plugins, so it now catches a plugin gem that is
+  not installed. It will fail on a machine without the gem, where it passed
+  before.
+
 ## [0.5.0] - 2026-08-13
 
 A minor bump rather than a patch: odysseus now deletes images on your hosts.
