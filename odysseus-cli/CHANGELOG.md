@@ -7,6 +7,34 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-08-13
+
+### Added
+- `odysseus rollback [VERSION]`, returning every role on every host to a
+  previously deployed version. With no VERSION, the target is the most recent
+  version in the hosts' deploy logs that is not already serving and whose image
+  is still present everywhere. Refuses, changing nothing, when any host lacks
+  the image.
+- `odysseus rollback --list`, showing per host: every version deployed, when,
+  by whom, from which commit, whether the image is still present, and what is
+  serving. Reads only the hosts, so it works without a git repository.
+
+### Changed
+- Requires odysseus-core `~> 0.4.3`. The dependency was `~> 0.4.2`, which
+  allowed installing a core without `Executor#rollback_plan`, `#rollback_all`
+  or `#version_survey` — all of which `rollback` calls, so the command would
+  have failed with a NoMethodError rather than a resolvable error.
+
+### Fixed
+- `odysseus accessory status` now works. It has raised `NoMethodError` since
+  before the subcommand shipped in 0.2.0; see odysseus-core's changelog for the
+  root cause and fix.
+
+### Internal
+- Rollback commands moved out of the main `CLI` class into
+  `Odysseus::CLI::RollbackCommands`, to keep the class under its existing size
+  limit without changing its public API.
+
 ## [0.4.2] - 2026-08-13
 
 ### Changed

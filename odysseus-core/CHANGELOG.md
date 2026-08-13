@@ -7,6 +7,51 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-08-13
+
+Rollback. A previously deployed version can be put back on the whole fleet, and
+the fleet refuses to move at all unless every host has the image.
+
+### Added
+- `Executor#rollback_plan` and `#rollback_all`, which return every role on
+  every host to a previously deployed version by reusing the deploy path, so
+  health gating and proxy handling are shared with `deploy`. The target is
+  chosen from what the hosts report — running container labels, images present,
+  and each host's `deploys.log` — never from the local repository, which can
+  drift from what a host can actually run.
+- A fleet pre-flight: the target image must be present on every host across all
+  roles before any host is touched. A half-rolled-back fleet is worse than a
+  refused command.
+- `Executor#version_survey`, `HostVersions` and `RollbackPlanner`.
+- `Docker::Client#image_tags`, listing the tags a host has for a repository.
+
+### Changed
+- Deploys are recorded on the host by `Executor` rather than by each
+  orchestrator. A rollback now records `kind=rolled-back` with the version it
+  replaced, and a role deployed by a sail-provided strategy gets the same audit
+  trail instead of none.
+- `VersionResolver#deployer` is public, so a rollback can name who ran it even
+  though its version came from a host rather than a commit.
+
+### Fixed
+- `odysseus accessory status` never worked in any released version. The code
+  called `orchestrator.get_status(name:)`, but `Orchestrator::AccessoryDeploy`
+  defines `list_status` and no `get_status`, so the command always raised
+  `NoMethodError`. The bad call was introduced on 2025-12-27 in `343030b`,
+  three days before the `accessory status` subcommand itself shipped in
+  odysseus-cli 0.2.0 (2025-12-30) — so there was never a working version to
+  regress from. Fixed in `188a695`: `AccessoryManager#status_on` now calls
+  `list_status` and selects the requested accessory out of its results, and a
+  new spec exercises it through a verifying double, so a future rename of
+  `list_status` breaks the build instead of the command.
+
+### Internal
+- Accessory lifecycle methods (`deploy`, `remove`, `restart`, `upgrade`,
+  `status`, `boot_all`) moved out of `Executor` into
+  `Deployer::AccessoryManager`, to keep both classes under their existing size
+  limits. The public API is unchanged, and `AccessoryManager` gets the first
+  spec coverage that code has ever had.
+
 ## [0.4.2] - 2026-08-13
 
 A running container can now be traced back to the commit it was built from. The

@@ -4,10 +4,13 @@ require 'odysseus'
 require 'yaml'
 require 'tempfile'
 require_relative 'ui'
+require_relative 'rollback_commands'
 
 module Odysseus
   module CLI
     class CLI
+      include RollbackCommands
+
       def initialize(debug: false)
         @ui = UI.new(debug: debug)
       end

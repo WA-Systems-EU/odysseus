@@ -22,6 +22,7 @@ def main
 
   commands = {
     'deploy' => { method: :deploy, needs_server: false },
+    'rollback' => { method: :rollback, needs_server: false },
     'build' => { method: :build, needs_server: false },
     'pussh' => { method: :pussh, needs_server: false },
     'status' => { method: :status, needs_server: true },
@@ -71,6 +72,7 @@ def main
     opts.on('--role ROLE', 'Role for logs command') { |v| options[:role] = v }
     opts.on('--service NAME', 'Service name') { |v| options[:service] = v }
     opts.on('--dry-run', 'Don\'t actually deploy') { |v| options[:'dry-run'] = v }
+    opts.on('--list', 'List rollback candidates per host without changing anything') { |v| options[:list] = v }
     opts.on('-v', '--verbose', 'Show commands being executed') { |v| options[:verbose] = v }
     # Cleanup options
     opts.on('--prune-images', 'Also prune dangling images') { |v| options[:all] = v }
@@ -79,6 +81,10 @@ def main
     opts.on('-n', '--lines N', Integer, 'Number of lines to show') { |v| options[:lines] = v }
     opts.on('--since TIME', 'Show logs since timestamp') { |v| options[:since] = v }
   end.parse!(command_args)
+
+  # rollback takes an optional positional VERSION; OptionParser#parse! has
+  # already removed the flags, so anything left is that argument.
+  options[:version] = command_args[0] if command == 'rollback' && command_args[0]
 
   cmd_info = commands[command]
 
@@ -265,6 +271,7 @@ def print_help
   puts ''
   puts 'Commands:'
   puts '  deploy                    Deploy all roles to servers defined in config'
+  puts '  rollback [VERSION]        Roll every role back to a previously deployed version'
   puts '  build                     Build Docker image (locally or on build host)'
   puts '  pussh                     Push image to hosts via SSH (no registry needed)'
   puts '  status <server>           Show service status on server'
@@ -288,6 +295,10 @@ def print_help
   puts 'Deploy options:'
   puts '  --build                   Build and distribute image before deploying'
   puts '                            (uses registry if configured, otherwise pussh)'
+  puts ''
+  puts 'Rollback options:'
+  puts '  --list                    Show each host: versions deployed, which images remain,'
+  puts '                            and what is serving. Changes nothing.'
   puts ''
   puts 'Build options:'
   puts '  --push                    Push image to registry after build'

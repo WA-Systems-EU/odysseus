@@ -74,6 +74,8 @@ Deployment orchestration:
 - Zero-downtime container replacement
 - Health check verification
 - Automatic rollback on failure
+- Roll a service back to a previously deployed version, chosen from what the
+  hosts report rather than the local repository
 
 ### Odysseus::Secrets::EncryptedFile
 

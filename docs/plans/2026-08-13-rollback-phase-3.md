@@ -1046,8 +1046,16 @@ Add to `spec/odysseus/deployer/executor_spec.rb`:
       end
     end
 
-    before do
+    # sails_spec.rb:8 and validators/config_spec.rb:182 both guard the global
+    # registry with around/reset!; match that so example order cannot matter.
+    around do |example|
+      Odysseus::Sails.reset!
       Odysseus::Sails.register(:rolling, sail_class)
+      example.run
+      Odysseus::Sails.reset!
+    end
+
+    before do
       allow(Odysseus::Deployer::SSH).to receive(:new).and_return(mock_ssh)
       allow(mock_ssh).to receive(:close)
       allow(Odysseus::Docker::Client).to receive(:new).and_return(mock_docker)
@@ -1059,8 +1067,6 @@ Add to `spec/odysseus/deployer/executor_spec.rb`:
       )
       allow(mock_docker).to receive(:image_tags).and_return(%w[v2 v1])
     end
-
-    after { Odysseus::Sails.reset! }
 
     describe '#version_survey' do
       # The fixture has four role/host pairs over three hosts: cron shares

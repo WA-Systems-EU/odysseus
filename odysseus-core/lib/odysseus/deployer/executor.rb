@@ -160,6 +160,69 @@ module Odysseus
         results
       end
 
+      # What every host reports about this service's versions.
+      #
+      # One entry per unique host across all roles, so a host serving two roles
+      # is surveyed once. Connections are opened and closed per host.
+      #
+      # @return [Array<Odysseus::HostVersions>]
+      def version_survey
+        host_roles.map do |host, roles|
+          ssh = connect_to_server(host)
+
+          begin
+            Odysseus::HostVersions.read(
+              host: host, ssh: ssh, service: @config[:service], image: @config[:image], roles: roles
+            )
+          ensure
+            ssh.close
+          end
+        end
+      end
+
+      # Decide what a rollback would do, without doing it.
+      #
+      # Surveys the fleet and returns the plan, or raises RollbackError with a
+      # message naming the hosts at fault. Separate from rollback_all so the
+      # caller can show the target — and any approximate-ordering warning —
+      # before anything is touched, and so the survey runs once.
+      #
+      # @param version [String, nil] explicit target, or nil for the previous one
+      # @return [Odysseus::RollbackPlan]
+      def rollback_plan(version: nil)
+        Odysseus::RollbackPlanner.new(version_survey).plan(version: version)
+      end
+
+      # Roll every role on every host back to the planned version.
+      #
+      # Reuses the deploy path unchanged, so health gating, proxy handling and
+      # zero-downtime behaviour are shared with deploy rather than
+      # reimplemented. Sequential, and inheriting deploy's partial-failure
+      # semantics: the plan's pre-flight rules out the common cause of a
+      # half-rolled-back fleet — a missing image — but does not make the roll
+      # atomic.
+      #
+      # @param plan [Odysseus::RollbackPlan] from #rollback_plan
+      # @return [Hash] results keyed "role@host"
+      def rollback_all(plan)
+        resolved = Odysseus::DeployVersion.new(
+          version: plan.version, ref: plan.ref, deployer: version_resolver.deployer
+        )
+        results = {}
+
+        @config[:servers].each do |role, role_config|
+          resolve_hosts(role_config).each do |host|
+            puts "\n=== Rolling back #{role} on #{host} to #{plan.version} ==="
+            results["#{role}@#{host}"] = run_deploy(
+              host: host, role: role, resolved: resolved,
+              kind: 'rolled-back', from: plan.from_for(host)
+            )
+          end
+        end
+
+        results
+      end
+
       # Deploy a single role to a specific host
       # @param host [String] target host (from config)
       # @param image_tag [String, nil] docker image tag (e.g., "v1.2.3"), or nil to resolve from git
@@ -176,107 +239,51 @@ module Odysseus
           return { success: true, dry_run: true }
         end
 
-        ssh = connect_to_server(host)
-
-        begin
-          orchestrator = build_orchestrator(ssh, role, resolved)
-          orchestrator.deploy(image_tag: resolved.version, role: role)
-        ensure
-          ssh.close
-        end
+        run_deploy(host: host, role: role, resolved: resolved)
       end
 
       # Deploy an accessory to all its configured hosts
       # @param name [Symbol] accessory name
       def deploy_accessory(name:)
-        run_accessory_action(name, 'Deploying', 'to') { |orchestrator| orchestrator.deploy(name: name.to_sym) }
+        accessory_manager.deploy(name: name)
       end
 
       # Remove an accessory from all its configured hosts
       # @param name [Symbol] accessory name
       def remove_accessory(name:)
-        run_accessory_action(name, 'Removing', 'from') { |orchestrator| orchestrator.remove(name: name.to_sym) }
+        accessory_manager.remove(name: name)
       end
 
       # Restart an accessory on all its configured hosts
       # @param name [Symbol] accessory name
       def restart_accessory(name:)
-        run_accessory_action(name, 'Restarting', 'on') { |orchestrator| orchestrator.restart(name: name.to_sym) }
+        accessory_manager.restart(name: name)
       end
 
       # Upgrade an accessory to a new image version on all its configured hosts
       # @param name [Symbol] accessory name
       def upgrade_accessory(name:)
-        run_accessory_action(name, 'Upgrading', 'on') { |orchestrator| orchestrator.upgrade(name: name.to_sym) }
+        accessory_manager.upgrade(name: name)
       end
 
       # List accessory status on all configured hosts
       def accessory_status
-        return [] unless @config[:accessories]&.any?
-
-        all_statuses = []
-        @config[:accessories].each do |name, acc_config|
-          hosts = acc_config[:hosts] || []
-          hosts.each do |host|
-            ssh = connect_to_server(host)
-            begin
-              orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config,
-                                                                         secrets_loader: @secrets_loader)
-              status = orchestrator.get_status(name: name.to_sym)
-              status[:host] = host
-              all_statuses << status
-            ensure
-              ssh.close
-            end
-          end
-        end
-        all_statuses
+        accessory_manager.status
       end
 
       # Boot all accessories to their configured hosts
       def boot_accessories
-        return {} unless @config[:accessories]&.any?
-
-        results = {}
-        @config[:accessories].each_key do |name|
-          puts "\n=== Booting accessory: #{name} ==="
-          results[name] = deploy_accessory(name: name)
-        end
-        results
+        accessory_manager.boot_all
       end
 
       private
 
-      def get_accessory_config(name)
-        name_sym = name.to_sym
-        acc_config = @config[:accessories]&.[](name_sym)
-        raise Odysseus::ConfigError, "Accessory '#{name}' not found in config" unless acc_config
-
-        acc_config
-      end
-
-      # Shared plumbing for the accessory verbs above: resolve hosts, connect,
-      # build the orchestrator, run the block, and always close the connection.
-      def run_accessory_action(name, verb, preposition)
-        acc_config = get_accessory_config(name)
-        hosts = acc_config[:hosts] || []
-
-        raise Odysseus::ConfigError, "No hosts configured for accessory #{name}" if hosts.empty?
-
-        results = {}
-        hosts.each do |host|
-          puts "#{verb} accessory #{name} #{preposition} #{host}..."
-          ssh = connect_to_server(host)
-
-          begin
-            orchestrator = Odysseus::Orchestrator::AccessoryDeploy.new(ssh: ssh, config: @config,
-                                                                       secrets_loader: @secrets_loader)
-            results[host] = yield(orchestrator)
-          ensure
-            ssh.close
-          end
-        end
-        results
+      # Accessory verbs are a distinct concern from deploy/rollback; see
+      # Odysseus::Deployer::AccessoryManager.
+      def accessory_manager
+        @accessory_manager ||= Odysseus::Deployer::AccessoryManager.new(
+          config: @config, secrets_loader: @secrets_loader, connector: method(:connect_to_server)
+        )
       end
 
       def version_resolver
@@ -287,6 +294,42 @@ module Odysseus
       # travels in the config hash rather than as a new keyword argument.
       def orchestrator_config(resolved)
         @config.merge(deploy_version: resolved)
+      end
+
+      # One role on one host: connect, hand off to the orchestrator, record the
+      # outcome on the host, close. Shared by deploy and rollback so both get
+      # identical health gating, proxy handling and audit trail.
+      #
+      # @param kind [String] 'deployed' or 'rolled-back'
+      # @param from [String, nil] the version being replaced, for a rollback
+      def run_deploy(host:, role:, resolved:, kind: 'deployed', from: nil)
+        ssh = connect_to_server(host)
+
+        begin
+          orchestrator = build_orchestrator(ssh, role, resolved)
+          result = orchestrator.deploy(image_tag: resolved.version, role: role)
+          record_deploy(ssh: ssh, host: host, role: role, resolved: resolved, kind: kind, from: from)
+          result
+        ensure
+          ssh.close
+        end
+      end
+
+      # The host's own record of what it is running, written only after the
+      # orchestrator reports success.
+      #
+      # Best effort, and deliberately rescuing StandardError rather than
+      # Odysseus::Error: SSH#execute can also raise Net::SSH::Disconnect,
+      # IOError or Net::SSH::ChannelOpenFailed, none of which with_connection
+      # translates. Traffic has already switched by this point, so any of them
+      # escaping here would turn a completed deploy into a reported failure.
+      def record_deploy(ssh:, host:, role:, resolved:, kind:, from:)
+        Odysseus::DeployLog.new(ssh: ssh, service: @config[:service]).append(
+          version: resolved.version, role: role, ref: resolved.ref,
+          deployer: resolved.deployer, kind: kind, from: from
+        )
+      rescue StandardError => e
+        build_logger.warn("Could not record the deploy on #{host}: #{e.message}")
       end
 
       def build_orchestrator(ssh, role, resolved)
@@ -354,14 +397,24 @@ module Odysseus
       end
 
       def collect_all_hosts
-        hosts = []
+        host_roles.keys
+      end
 
-        @config[:servers].each_value do |role_config|
-          role_hosts = resolve_hosts(role_config)
-          hosts.concat(role_hosts)
+      # Every configured host mapped to the roles it serves, each in config
+      # order. A host serving two roles (e.g. web and cron on the same box)
+      # gets both, in the order its roles are declared in deploy.yml — the
+      # order #version_survey depends on to know which role's containers to
+      # look for first.
+      #
+      # @return [Hash{String => Array<Symbol>}]
+      def host_roles
+        roles_by_host = {}
+
+        @config[:servers].each do |role, role_config|
+          resolve_hosts(role_config).each { |host| (roles_by_host[host] ||= []) << role }
         end
 
-        hosts.uniq
+        roles_by_host
       end
 
       # Resolve hosts for a role using the appropriate provider

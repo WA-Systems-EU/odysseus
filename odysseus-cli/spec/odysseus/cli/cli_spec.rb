@@ -315,6 +315,202 @@ RSpec.describe Odysseus::CLI::CLI do
     end
   end
 
+  describe '#rollback' do
+    let(:plan) do
+      Odysseus::RollbackPlan.new(
+        version: 'v1', ref: 'main', approximate: false,
+        replacing: { 'web1.example.com' => 'v2' }
+      )
+    end
+
+    before { allow(executor).to receive(:rollback_plan).and_return(plan) }
+
+    it 'rolls back to the planned version' do
+      expect(executor).to receive(:rollback_all).with(plan)
+
+      output_of { cli.rollback(config: config_file) }
+    end
+
+    it 'shows the target version before acting' do
+      allow(executor).to receive(:rollback_all)
+
+      out = output_of { cli.rollback(config: config_file) }
+
+      expect(out).to include('v1')
+      expect(out).not_to match(/deploy log/i)
+    end
+
+    it 'shows the commit the target was built from' do
+      allow(executor).to receive(:rollback_all)
+
+      expect(output_of { cli.rollback(config: config_file) }).to include('main')
+    end
+
+    it 'announces completion as a rollback, not a deploy' do
+      allow(executor).to receive(:rollback_all)
+
+      out = output_of { cli.rollback(config: config_file) }
+
+      expect(out).to match(/rollback complete/i)
+      expect(out).not_to match(/deployment successful/i)
+    end
+
+    it 'passes an explicit version through to the planner' do
+      expect(executor).to receive(:rollback_plan).with(version: 'v0').and_return(plan)
+      allow(executor).to receive(:rollback_all)
+
+      output_of { cli.rollback(config: config_file, version: 'v0') }
+    end
+
+    it 'warns when the ordering is only approximate' do
+      approximate = Odysseus::RollbackPlan.new(
+        version: 'v1', ref: nil, approximate: true, replacing: {}
+      )
+      allow(executor).to receive(:rollback_plan).and_return(approximate)
+      allow(executor).to receive(:rollback_all)
+
+      expect(output_of { cli.rollback(config: config_file) }).to match(/approximate/i)
+    end
+
+    it 'says there is no deploy log record when an explicit version is approximate' do
+      approximate = Odysseus::RollbackPlan.new(
+        version: 'v0', ref: nil, approximate: true, replacing: {}
+      )
+      allow(executor).to receive(:rollback_plan).with(version: 'v0').and_return(approximate)
+      allow(executor).to receive(:rollback_all)
+
+      out = output_of { cli.rollback(config: config_file, version: 'v0') }
+
+      expect(out).to match(/deploy log/i)
+      expect(out).not_to match(/approximate/i)
+    end
+
+    it 'reports a refused rollback and exits non-zero without deploying' do
+      allow(executor).to receive(:rollback_plan)
+        .and_raise(Odysseus::RollbackError, 'No image tagged v1 is present on web2.example.com')
+      expect(executor).not_to receive(:rollback_all)
+
+      expect { output_of { cli.rollback(config: config_file) } }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      expect(stdout_buffer.string).to include('web2.example.com')
+    end
+
+    it 'reports a failed rollback and exits non-zero' do
+      allow(executor).to receive(:rollback_all)
+        .and_raise(Odysseus::DeployError, 'Container failed health checks')
+
+      expect { output_of { cli.rollback(config: config_file) } }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      expect(stdout_buffer.string).to include('failed health checks')
+    end
+  end
+
+  describe '#rollback --list' do
+    let(:entry) do
+      Odysseus::DeployLog::Entry.new(
+        at: '2026-08-12T11:27:59Z', version: 'v2', role: 'web', ref: 'main',
+        deployer: 'dev@example.com', kind: 'deployed', from: nil
+      )
+    end
+    let(:older) do
+      Odysseus::DeployLog::Entry.new(
+        at: '2026-08-10T09:00:00Z', version: 'v1', role: 'web', ref: 'main',
+        deployer: 'dev@example.com', kind: 'deployed', from: nil
+      )
+    end
+    let(:survey) do
+      [Odysseus::HostVersions.new(
+        host: 'web1.example.com', current: 'v2', available: %w[v2], history: [older, entry]
+      )]
+    end
+
+    before { allow(executor).to receive(:version_survey).and_return(survey) }
+
+    it 'lists each host and what it is serving' do
+      out = output_of { cli.rollback(config: config_file, list: true) }
+
+      expect(out).to include('web1.example.com')
+      expect(out).to include('v2')
+    end
+
+    it 'marks a version whose image is gone as unavailable' do
+      out = output_of { cli.rollback(config: config_file, list: true) }
+
+      # v1 is not in `available`, so its row — and only its row — must read 'missing'.
+      row = out.lines.find { |line| line =~ /^\s*v1\b/ }
+      expect(row).to include('missing')
+    end
+
+    it 'marks a version whose image is present' do
+      out = output_of { cli.rollback(config: config_file, list: true) }
+
+      # v2 is in `available`, so its row — and only its row — must read 'present'.
+      row = out.lines.find { |line| line =~ /^\s*v2\b/ }
+      expect(row).to include('present')
+    end
+
+    it 'does not roll anything back' do
+      expect(executor).not_to receive(:rollback_all)
+      expect(executor).not_to receive(:rollback_plan)
+
+      output_of { cli.rollback(config: config_file, list: true) }
+    end
+
+    it 'says so when a host has no deploy history' do
+      allow(executor).to receive(:version_survey).and_return(
+        [Odysseus::HostVersions.new(host: 'web1.example.com', current: nil,
+                                    available: [], history: [])]
+      )
+
+      expect(output_of { cli.rollback(config: config_file, list: true) })
+        .to match(/no deploy history/i)
+    end
+
+    # A version deployed twice must sort by its LATEST deploy, not its
+    # first, and must display that latest deploy's timestamp. v2 is
+    # deployed, then v1, then v2 again: v2's newest entry (Aug 3) is more
+    # recent than v1's only entry (Aug 1), so v2 belongs above v1, showing
+    # Aug 3 — not v2's own first deploy on Aug 2. This is
+    # RollbackPlanner#logged_versions' candidate order, not necessarily
+    # what a plain `odysseus rollback` would target: the planner then
+    # skips candidates that are already serving somewhere or unavailable
+    # on some host.
+    #
+    # v1 and v2's first deploys straddle different sides of v2's redeploy
+    # (v1 earliest, v2's first deploy second) so that latest-deploy
+    # ordering and first-deploy ordering disagree — a fixture where the
+    # redeployed version also happened to deploy first would pass under
+    # either rule and prove nothing.
+    it 'orders a redeployed version by its latest deploy, and shows that latest deploy time' do
+      first_v1 = Odysseus::DeployLog::Entry.new(
+        at: '2026-08-01T09:00:00Z', version: 'v1', role: 'web', ref: 'main',
+        deployer: 'dev@example.com', kind: 'deployed', from: nil
+      )
+      first_v2 = Odysseus::DeployLog::Entry.new(
+        at: '2026-08-02T09:00:00Z', version: 'v2', role: 'web', ref: 'main',
+        deployer: 'dev@example.com', kind: 'deployed', from: nil
+      )
+      redeployed_v2 = Odysseus::DeployLog::Entry.new(
+        at: '2026-08-03T09:00:00Z', version: 'v2', role: 'web', ref: 'main',
+        deployer: 'dev@example.com', kind: 'deployed', from: nil
+      )
+      allow(executor).to receive(:version_survey).and_return(
+        [Odysseus::HostVersions.new(
+          host: 'web1.example.com', current: 'v2', available: %w[v1 v2],
+          history: [first_v1, first_v2, redeployed_v2]
+        )]
+      )
+
+      out = output_of { cli.rollback(config: config_file, list: true) }
+      rows = out.lines.grep(/^\s*v[12]\b/)
+
+      expect(rows.first).to match(/^\s*v2\b/)
+      expect(rows.last).to match(/^\s*v1\b/)
+      expect(rows.first).to include('2026-08-03T09:00:00Z')
+      expect(rows.first).not_to include('2026-08-02T09:00:00Z')
+    end
+  end
+
   def with_master_key(key)
     previous = ENV.fetch('ODYSSEUS_MASTER_KEY', nil)
     ENV['ODYSSEUS_MASTER_KEY'] = key

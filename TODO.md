@@ -62,11 +62,15 @@ Still open:
 The gaps a Kamal user hits first. These need prioritising — roughly in the order
 we'd feel their absence.
 
-- [ ] **`rollback`.** The biggest one. There is no deployed-version tracking and
-      no way back other than re-running `deploy` with an older tag by hand.
-      Needs a record of what is running per host, then a reverse deploy.
+- [x] **`rollback`.** `odysseus rollback [VERSION]` and `--list` ship, reusing
+      the deploy path so health gating and proxy handling are shared with
+      `deploy`. A fleet pre-flight requires the target image on every host
+      before any host is touched. Retention/pruning of the images that pile up
+      on hosts, and a git-notes trail for who-deployed-what, are separate future
+      plans and stay open.
 - [ ] **Deploy locks.** Nothing stops two people (or a person and CI) deploying
-      at once and interleaving container swaps. Kamal: `kamal lock`.
+      at once and interleaving container swaps, and the same is true of a
+      rollback racing a deploy or another rollback. Kamal: `kamal lock`.
 - [ ] **Plugin (sail) loading.** `Sails` and the host-provider registry both
       raise "is the gem loaded?", but nothing ever loads a sail:
       `odysseus-sail-rolling` self-registers on `require` and the CLI only
@@ -93,8 +97,11 @@ we'd feel their absence.
       migrations, notifications and CI gating have nowhere to live.
 - [ ] **Multi-host failure semantics.** `deploy_all` walks hosts sequentially
       and a failure on host 2 leaves host 1 on the new version with no unwind.
-      Needs a decision: fail fast and leave a mixed fleet, roll back the hosts
-      already done, or deploy in batches. Related: parallel host deploys.
+      `rollback_all` has the same gap once past its pre-flight: the pre-flight
+      only removes the most common cause, a missing image, not the possibility
+      of a host failing mid-roll for some other reason. Needs a decision: fail
+      fast and leave a mixed fleet, roll back the hosts already done, or deploy
+      in batches. Related: parallel host deploys.
 - [ ] **`audit`.** No record of who deployed what, when.
 - [ ] **Server bootstrap (`setup`).** Target hosts must already have Docker;
       nothing installs or verifies it.
@@ -136,3 +143,18 @@ Smaller findings worth fixing but not blocking anything.
       pin curl's syntax and the cop is off, but the shell strings scattered
       through the clients are worth extracting somewhere they cannot be mistaken
       for Ruby.
+- [ ] odysseus-cli's spec suite never sets `config.warnings = true`, unlike
+      `odysseus-core/spec/spec_helper.rb:24`, so Ruby warnings in CLI specs go
+      unnoticed.
+- [ ] `AccessoryManager#status_on` calls `list_status` once per accessory/host
+      pair where once per host would do — O(N²) docker calls for N accessories.
+      Deliberately left as-is for now: restructuring it to call `list_status`
+      once per host would change the CLI's row order.
+- [ ] `rollback --list`'s `Image` column holds `present`/`missing`; it would
+      read better as `Available`.
+- [ ] `odysseus-cli/bin/odysseus`'s positional-VERSION extraction for `rollback`
+      (`options[:version] = command_args[0] if command == 'rollback' && ...`)
+      has no regression test. It is awkward to cover offline because the
+      version is only echoed back after `rollback_plan` has connected to
+      hosts. Honest options: move the extraction somewhere `cli_spec` can
+      reach it directly, or accept the gap.
