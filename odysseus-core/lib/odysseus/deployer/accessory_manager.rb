@@ -47,7 +47,8 @@ module Odysseus
         all_statuses = []
         @config[:accessories].each do |name, acc_config|
           (acc_config[:hosts] || []).each do |host|
-            all_statuses << status_on(host, name)
+            acc_status = status_on(host, name)
+            all_statuses << acc_status if acc_status
           end
         end
         all_statuses
@@ -67,14 +68,18 @@ module Odysseus
 
       private
 
+      # AccessoryDeploy exposes #list_status (no args, every accessory on the
+      # host) rather than a per-accessory lookup, so pick out the one entry
+      # this host/accessory pair needs; nil when it is somehow absent. One
+      # #list_status call per accessory/host pair where one per host would
+      # do; accepted for now rather than restructuring the accessory-then-host
+      # result order.
       def status_on(host, name)
         ssh = @connector.call(host)
 
         begin
-          orchestrator = build_orchestrator(ssh)
-          acc_status = orchestrator.get_status(name: name.to_sym)
-          acc_status[:host] = host
-          acc_status
+          acc_status = build_orchestrator(ssh).list_status.find { |entry| entry[:name] == name }
+          acc_status&.merge(host: host)
         ensure
           ssh.close
         end

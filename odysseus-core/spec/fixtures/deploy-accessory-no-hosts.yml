@@ -1,0 +1,23 @@
+# spec/fixtures/deploy-accessory-no-hosts.yml
+# A single accessory configured with no hosts, isolated in its own fixture so
+# the "no hosts configured" guard can be exercised without also tripping over
+# it in tests that expect a full accessory run (e.g. boot_accessories) to
+# succeed.
+
+service: myapp
+image: myapp-production
+
+servers:
+  web:
+    hosts:
+      - web1.example.com
+
+accessories:
+  ghost:
+    image: ghost:1
+    hosts: []
+
+ssh:
+  user: root
+  keys:
+    - ~/.ssh/id_ed25519

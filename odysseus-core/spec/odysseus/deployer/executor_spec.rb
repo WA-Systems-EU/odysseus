@@ -405,10 +405,14 @@ RSpec.describe Odysseus::Deployer::Executor do
     end
 
     describe '#rollback_all' do
+      # web2 deliberately differs from web1 and jobs1 so the from: lookup is
+      # provably per host rather than a value hoisted out of the loop (e.g.
+      # plan.replacing.values.first, which would pass every other example
+      # here unnoticed since they all shared 'v2').
       let(:plan) do
         Odysseus::RollbackPlan.new(
           version: 'v1', ref: 'main', approximate: false,
-          replacing: { 'web1.example.com' => 'v2', 'web2.example.com' => 'v2',
+          replacing: { 'web1.example.com' => 'v2', 'web2.example.com' => 'v3',
                        'jobs1.example.com' => 'v2' }
         )
       end
@@ -446,6 +450,13 @@ RSpec.describe Odysseus::Deployer::Executor do
         expect(deploy_log).to receive(:append).with(
           hash_including(version: 'v1', kind: 'rolled-back', from: 'v2')
         ).at_least(:once)
+
+        multihost.rollback_all(plan)
+      end
+
+      it 'records a distinct from value per host rather than one hoisted for the whole run' do
+        expect(deploy_log).to receive(:append).with(hash_including(role: :web, from: 'v2')).once
+        expect(deploy_log).to receive(:append).with(hash_including(role: :web, from: 'v3')).once
 
         multihost.rollback_all(plan)
       end
