@@ -12,6 +12,8 @@ module Odysseus
         config_file = options[:config] || 'deploy.yml'
         verbose = options[:verbose] || @ui.debug?
 
+        @ui.header 'Odysseus Rollback'
+
         config = load_config(config_file)
         executor = Odysseus::Deployer::Executor.new(config_file, verbose: verbose)
 
@@ -34,7 +36,8 @@ module Odysseus
           executor.rollback_all(plan)
         end
 
-        @ui.deploy_complete(duration: (Time.now - start_time).round(1))
+        duration = (Time.now - start_time).round(1)
+        @ui.success("Rollback complete in #{duration}s")
       rescue Odysseus::Error => e
         @ui.step_fail e.message
         exit 1

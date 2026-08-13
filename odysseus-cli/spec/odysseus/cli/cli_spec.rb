@@ -334,13 +334,25 @@ RSpec.describe Odysseus::CLI::CLI do
     it 'shows the target version before acting' do
       allow(executor).to receive(:rollback_all)
 
-      expect(output_of { cli.rollback(config: config_file) }).to include('v1')
+      out = output_of { cli.rollback(config: config_file) }
+
+      expect(out).to include('v1')
+      expect(out).not_to match(/deploy log/i)
     end
 
     it 'shows the commit the target was built from' do
       allow(executor).to receive(:rollback_all)
 
       expect(output_of { cli.rollback(config: config_file) }).to include('main')
+    end
+
+    it 'announces completion as a rollback, not a deploy' do
+      allow(executor).to receive(:rollback_all)
+
+      out = output_of { cli.rollback(config: config_file) }
+
+      expect(out).to match(/rollback complete/i)
+      expect(out).not_to match(/deployment successful/i)
     end
 
     it 'passes an explicit version through to the planner' do

@@ -18,7 +18,7 @@ RSpec.describe 'bin/odysseus' do
     it 'lists the commands it accepts' do
       stdout, _stderr, _status = run_cli
 
-      %w[deploy build pussh status containers logs cleanup validate accessory app secrets]
+      %w[deploy rollback build pussh status containers logs cleanup validate accessory app secrets]
         .each { |command| expect(stdout).to include(command) }
     end
   end
@@ -144,6 +144,15 @@ RSpec.describe 'bin/odysseus' do
       stdout, _stderr, status = run_cli('validate', '--config', 'nope.yml')
 
       expect(stdout).to include('Validation failed')
+      expect(status.exitstatus).to eq(1)
+    end
+  end
+
+  describe 'rollback' do
+    it 'reports a config file that does not exist' do
+      stdout, _stderr, status = run_cli('rollback', '--config', 'nope.yml')
+
+      expect(stdout).to include('Config file not found')
       expect(status.exitstatus).to eq(1)
     end
   end
