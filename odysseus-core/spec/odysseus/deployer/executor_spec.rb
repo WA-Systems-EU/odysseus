@@ -248,6 +248,14 @@ RSpec.describe Odysseus::Deployer::Executor do
 
       executor.deploy_role(host: 'app1.example.com', role: :web)
     end
+
+    it 'records the role that was deployed, not the web role' do
+      job_orchestrator = instance_double(Odysseus::Orchestrator::JobDeploy, deploy: { success: true })
+      allow(Odysseus::Orchestrator::JobDeploy).to receive(:new).and_return(job_orchestrator)
+      expect(deploy_log).to receive(:append).with(hash_including(role: :jobs))
+
+      executor.deploy_role(host: 'app1.example.com', role: :jobs)
+    end
   end
 
   describe '#deploy_version' do
