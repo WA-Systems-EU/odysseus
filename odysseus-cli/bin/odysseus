@@ -279,7 +279,8 @@ def print_help
   puts ''
   puts 'Options:'
   puts '  --config FILE             Path to deploy.yml (default: deploy.yml)'
-  puts '  --image TAG               Docker image tag (default: latest)'
+  puts '  --image TAG               Docker image tag (default: the git commit being deployed;'
+  puts '                            required outside a clean git repository)'
   puts '  --service NAME            Service name (for containers command)'
   puts "  --dry-run                 Don't actually deploy"
   puts '  -v, --verbose             Show commands being executed'

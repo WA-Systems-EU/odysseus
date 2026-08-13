@@ -80,6 +80,20 @@ RSpec.describe Odysseus::Deployer::Executor do
         expect(result[:success]).to be true
         expect(result[:dry_run]).to be true
       end
+
+      # Pins current behaviour: the version resolves before the dry-run branch
+      # is reached, so a dry run in a dirty tree still raises instead of
+      # printing a plan. Whether to relax this is a product decision, not made
+      # in this pass.
+      it 'still requires a resolvable version, since resolution happens before the dry-run check' do
+        resolver = instance_double(Odysseus::VersionResolver)
+        allow(Odysseus::VersionResolver).to receive(:new).and_return(resolver)
+        allow(resolver).to receive(:resolve)
+          .and_raise(Odysseus::ConfigError, 'The working tree has uncommitted changes')
+
+        expect { executor.deploy_role(host: 'test-server', image_tag: nil, role: :web, dry_run: true) }
+          .to raise_error(Odysseus::ConfigError, /uncommitted changes/)
+      end
     end
 
     context 'with dry_run: false' do
@@ -165,6 +179,63 @@ RSpec.describe Odysseus::Deployer::Executor do
         expect(result[:success]).to be true
         expect(result[:container_id]).to eq('abc123')
       end
+    end
+  end
+
+  describe '#deploy_version' do
+    let(:resolver) { instance_double(Odysseus::VersionResolver) }
+    let(:resolved) do
+      Odysseus::DeployVersion.new(version: 'abc123def456', ref: 'main', deployer: 'dev@example.com')
+    end
+
+    before do
+      allow(Odysseus::VersionResolver).to receive(:new).and_return(resolver)
+      allow(resolver).to receive(:resolve).and_return(resolved)
+    end
+
+    it 'resolves against the directory holding deploy.yml' do
+      expect(Odysseus::VersionResolver)
+        .to receive(:new).with(config_dir: File.dirname(fixture_file), logger: anything)
+        .and_return(resolver)
+
+      executor.deploy_version
+    end
+
+    it 'passes an explicit tag through to the resolver' do
+      expect(resolver).to receive(:resolve).with(image_tag: 'v9').and_return(resolved)
+
+      executor.deploy_version('v9')
+    end
+
+    it 'resolves only once for the same tag' do
+      expect(resolver).to receive(:resolve).once.and_return(resolved)
+
+      executor.deploy_version
+      executor.deploy_version
+    end
+
+    it 'hands the resolved version to the orchestrator inside the config' do
+      allow(Odysseus::Orchestrator::WebDeploy).to receive(:new).and_return(mock_orchestrator)
+      allow(mock_orchestrator).to receive(:deploy).and_return({ success: true })
+
+      expect(Odysseus::Orchestrator::WebDeploy).to receive(:new).with(
+        ssh: mock_ssh,
+        config: hash_including(deploy_version: resolved),
+        logger: anything,
+        secrets_loader: anything
+      ).and_return(mock_orchestrator)
+
+      executor.deploy_role(host: 'test-server', image_tag: nil, role: :web)
+    end
+
+    it 'deploys the resolved version when no tag is given' do
+      allow(Odysseus::Orchestrator::WebDeploy).to receive(:new).and_return(mock_orchestrator)
+
+      expect(mock_orchestrator).to receive(:deploy)
+        .with(image_tag: 'abc123def456', role: :web)
+        .and_return({ success: true })
+
+      executor.deploy_role(host: 'test-server', image_tag: nil, role: :web)
     end
   end
 end

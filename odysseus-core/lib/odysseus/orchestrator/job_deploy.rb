@@ -75,6 +75,8 @@ module Odysseus
         cleaned = @docker.cleanup_old_containers(service: role_name, keep: 2)
         log "  Cleaned up #{cleaned.size} old container(s)" if cleaned.any?
 
+        record_deploy(role)
+
         log "Deploy complete for #{role_name}"
 
         {
@@ -93,8 +95,8 @@ module Odysseus
       def start_new_container(image:, role:)
         service = @config[:service]
         role_name = "#{service}-#{role}"
-        timestamp = Time.now.strftime('%Y%m%d%H%M%S')
-        container_name = "#{role_name}-#{timestamp}"
+        timestamp = Time.now.utc.strftime('%Y%m%d%H%M%S')
+        container_name = "#{role_name}-#{deploy_version_tag(image)}-#{timestamp}"
 
         server_config = @config[:servers][role] || {}
         options = server_config[:options] || {}
@@ -114,7 +116,8 @@ module Odysseus
           image: image,
           options: {
             service: role_name,
-            version: timestamp,
+            version: deploy_version_tag(image),
+            labels: version_labels,
             env: env,
             volumes: volumes,
             memory: options[:memory],
@@ -126,6 +129,46 @@ module Odysseus
             cmd: server_config[:cmd]
           }
         )
+      end
+
+      # The version this deploy identifies. Falls back to the tag in the image
+      # reference so a caller passing --image still gets a self-describing name.
+      def deploy_version_tag(image)
+        resolved = @config[:deploy_version]
+        return resolved.version if resolved
+
+        image.to_s.split(':').last
+      end
+
+      # deployed_at replaces the timestamp that odysseus.version used to hold;
+      # git_ref is only known when the version came from a commit.
+      def version_labels
+        labels = { 'odysseus.deployed_at' => Time.now.utc.strftime('%Y-%m-%dT%H:%M:%SZ') }
+        resolved = @config[:deploy_version]
+        labels['odysseus.git_ref'] = resolved.ref if resolved&.ref
+        labels
+      end
+
+      # The host's own record of what it is running. Best effort: a deploy that
+      # reached this point has succeeded, and an unwritable log must not undo it.
+      # Keyed by service, not role_name: web and jobs share one image, so a
+      # per-role log would let one role prune an image the other still needs.
+      # Rescues StandardError rather than Odysseus::Error: SSH#execute can also
+      # raise Net::SSH::Disconnect, IOError or Net::SSH::ChannelOpenFailed, none
+      # of which with_connection translates, and any of them escaping here would
+      # turn a completed, traffic-switched deploy into a reported failure.
+      def record_deploy(role)
+        resolved = @config[:deploy_version]
+        return unless resolved
+
+        Odysseus::DeployLog.new(ssh: @ssh, service: @config[:service]).append(
+          version: resolved.version,
+          role: role,
+          ref: resolved.ref,
+          deployer: resolved.deployer
+        )
+      rescue StandardError => e
+        log "Could not record the deploy on this host: #{e.message}", :warn
       end
 
       def build_environment

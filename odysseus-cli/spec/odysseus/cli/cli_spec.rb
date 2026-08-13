@@ -34,6 +34,11 @@ RSpec.describe Odysseus::CLI::CLI do
     let(:build_result) do
       { build: { success: true }, pussh: { success: true }, push: { success: true } }
     end
+    let(:resolved) do
+      Odysseus::DeployVersion.new(version: 'v1.2.3', ref: 'main', deployer: 'dev@example.com')
+    end
+
+    before { allow(executor).to receive(:deploy_version).and_return(resolved) }
 
     it 'deploys the requested tag without building by default' do
       expect(executor).to receive(:deploy_all).with(image_tag: 'v1.2.3', dry_run: false)
@@ -50,14 +55,8 @@ RSpec.describe Odysseus::CLI::CLI do
       output_of { cli.deploy(config: config_file, image: 'v1.2.3', build: true) }
     end
 
-    it 'defaults the tag to latest' do
-      expect(executor).to receive(:deploy_all).with(image_tag: 'latest', dry_run: false)
-
-      output_of { cli.deploy(config: config_file) }
-    end
-
     it 'passes dry-run through' do
-      expect(executor).to receive(:deploy_all).with(image_tag: 'latest', dry_run: true)
+      expect(executor).to receive(:deploy_all).with(image_tag: nil, dry_run: true)
 
       output_of { cli.deploy(config: config_file, 'dry-run': true) }
     end
@@ -79,6 +78,104 @@ RSpec.describe Odysseus::CLI::CLI do
       expect { output_of { cli.deploy(config: config_file) } }
         .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
       expect(stdout_buffer.string).to include('Container failed health checks')
+    end
+  end
+
+  describe 'version handling' do
+    let(:resolved) do
+      Odysseus::DeployVersion.new(version: 'abc123def456', ref: 'main', deployer: 'dev@example.com')
+    end
+
+    before { allow(executor).to receive(:deploy_version).and_return(resolved) }
+
+    it 'lets the executor resolve the version when --image is absent' do
+      expect(executor).to receive(:deploy_all).with(image_tag: nil, dry_run: false)
+
+      output_of { cli.deploy(config: config_file) }
+    end
+
+    it 'passes --image through when given' do
+      expect(executor).to receive(:deploy_all).with(image_tag: 'v9', dry_run: false)
+
+      output_of { cli.deploy(config: config_file, image: 'v9') }
+    end
+
+    it 'shows the resolved version in the deploy header' do
+      allow(executor).to receive(:deploy_all)
+
+      expect(output_of { cli.deploy(config: config_file) }).to include('abc123def456')
+    end
+
+    it 'reports a dirty tree without deploying' do
+      allow(executor).to receive(:deploy_version)
+        .and_raise(Odysseus::ConfigError, 'The working tree has uncommitted changes')
+      expect(executor).not_to receive(:deploy_all)
+
+      expect { output_of { cli.deploy(config: config_file) } }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      expect(stdout_buffer.string).to include('uncommitted changes')
+    end
+
+    # Pins current behaviour: the version resolves before the dry-run branch is
+    # reached, so --dry-run still requires a resolvable version even though it
+    # has no side effects to protect. Whether to relax this is a product
+    # decision, not made in this pass.
+    it 'refuses --dry-run in a dirty tree rather than printing a plan' do
+      allow(executor).to receive(:deploy_version)
+        .and_raise(Odysseus::ConfigError, 'The working tree has uncommitted changes')
+      expect(executor).not_to receive(:deploy_all)
+
+      expect { output_of { cli.deploy(config: config_file, 'dry-run': true) } }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      expect(stdout_buffer.string).to include('uncommitted changes')
+    end
+  end
+
+  describe '#app_exec' do
+    let(:ssh) { instance_double(Odysseus::Deployer::SSH, close: nil) }
+    let(:docker) { instance_double(Odysseus::Docker::Client) }
+
+    before do
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      allow(Odysseus::Docker::Client).to receive(:new).and_return(docker)
+    end
+
+    it 'runs the version that is currently serving' do
+      allow(docker).to receive(:list).with(service: 'myapp').and_return(
+        [{ 'ID' => 'abc', 'Image' => 'myapp-production:abc123def456', 'Labels' => 'odysseus.version=abc123def456' }]
+      )
+
+      expect(docker).to receive(:run_once)
+        .with(image: 'myapp-production:abc123def456', command: 'true', options: anything)
+        .and_return('done')
+
+      output_of { cli.app_exec('web1.example.com', config: config_file, command: 'true') }
+    end
+
+    # This is the regression the reviewer verified live: every container deployed
+    # before this branch carries a timestamp in odysseus.version and was built
+    # from an image tagged `latest`. Reconstructing "#{image}:#{version}" from
+    # that label produces a tag that was never pushed. The container's own
+    # Image field is what docker ps actually reports as running, so that is
+    # what a one-off container must run instead.
+    it 'runs the container Image, not a tag reconstructed from a legacy timestamp label' do
+      allow(docker).to receive(:list).with(service: 'myapp').and_return(
+        [{ 'ID' => 'abc', 'Image' => 'myapp-production:latest', 'Labels' => 'odysseus.version=20260101120000' }]
+      )
+
+      expect(docker).to receive(:run_once)
+        .with(image: 'myapp-production:latest', command: 'true', options: anything)
+        .and_return('done')
+
+      output_of { cli.app_exec('web1.example.com', config: config_file, command: 'true') }
+    end
+
+    it 'exits non-zero when nothing is running for the service' do
+      allow(docker).to receive(:list).with(service: 'myapp').and_return([])
+
+      expect { output_of { cli.app_exec('web1.example.com', config: config_file, command: 'true') } }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      expect(stdout_buffer.string).to match(/no running container/i)
     end
   end
 
@@ -155,6 +252,66 @@ RSpec.describe Odysseus::CLI::CLI do
       ensure
         FileUtils.remove_entry(dir)
       end
+    end
+  end
+
+  describe '#status' do
+    let(:ssh) { instance_double(Odysseus::Deployer::SSH, close: nil) }
+    let(:docker) { instance_double(Odysseus::Docker::Client) }
+    let(:caddy) { instance_double(Odysseus::Caddy::Client) }
+
+    before do
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      allow(Odysseus::Docker::Client).to receive(:new).and_return(docker)
+      allow(Odysseus::Caddy::Client).to receive(:new).and_return(caddy)
+      allow(caddy).to receive(:status).and_return(running: false, services: [], tls: { enabled: false })
+      allow(docker).to receive(:list).and_return([])
+      allow(docker).to receive(:list).with(service: 'myapp').and_return(
+        [{
+          'ID' => 'abc123abc123',
+          'Names' => 'myapp-abc123def456-20260812112759',
+          'State' => 'running',
+          'Status' => 'Up 8 minutes (healthy)',
+          'Image' => 'myapp-production:latest',
+          # The version label is deliberately distinct from the Names/Image fields above:
+          # they legitimately embed abc123def456 too (a real container is named after its
+          # version), so only a substring unique to the label can prove status read it.
+          'Labels' => 'odysseus.service=myapp,odysseus.version=deadbeef9876,' \
+                      'odysseus.deployed_at=2026-08-12T11:27:59Z,odysseus.git_ref=main'
+        }]
+      )
+    end
+
+    it 'reports the version, ref and deploy time of the running container' do
+      out = output_of { cli.status('web1.example.com', config: config_file) }
+
+      expect(out).to include('deadbeef9876')
+      expect(out).to include('main')
+      expect(out).to include('2026-08-12T11:27:59Z')
+    end
+
+    it 'reports the running container Image' do
+      out = output_of { cli.status('web1.example.com', config: config_file) }
+
+      expect(out).to include('myapp-production:latest')
+    end
+
+    it 'does not report an unhealthy container as healthy' do
+      allow(docker).to receive(:list).with(service: 'myapp').and_return(
+        [{
+          'ID' => 'abc123abc123',
+          'Names' => 'myapp-abc123def456-20260812112759',
+          'State' => 'running',
+          'Status' => 'Up 8 minutes (unhealthy)',
+          'Image' => 'myapp-production:latest',
+          'Labels' => 'odysseus.service=myapp,odysseus.version=deadbeef9876,' \
+                      'odysseus.deployed_at=2026-08-12T11:27:59Z,odysseus.git_ref=main'
+        }]
+      )
+
+      out = output_of { cli.status('web1.example.com', config: config_file) }
+
+      expect(out).not_to include('✓')
     end
   end
 

@@ -223,6 +223,103 @@ RSpec.describe Odysseus::Orchestrator::WebDeploy do
       expect(result[:service]).to eq('myapp')
       expect(result[:image]).to eq('myapp-prod:v1.0')
     end
+
+    context 'with a resolved deploy version' do
+      let(:config) do
+        super().merge(
+          deploy_version: Odysseus::DeployVersion.new(
+            version: 'abc123def456', ref: 'main', deployer: 'dev@example.com'
+          )
+        )
+      end
+
+      it 'names the container after the version' do
+        expect(mock_docker).to receive(:run) do |args|
+          expect(args[:name]).to start_with('myapp-abc123def456-')
+          'new-container-123'
+        end
+
+        orchestrator.deploy(image_tag: 'abc123def456')
+      end
+
+      it 'labels the container with the version, not the timestamp' do
+        expect(mock_docker).to receive(:run) do |args|
+          expect(args[:options][:version]).to eq('abc123def456')
+          'new-container-123'
+        end
+
+        orchestrator.deploy(image_tag: 'abc123def456')
+      end
+
+      it 'labels the container with the ref and the deploy time' do
+        expect(mock_docker).to receive(:run) do |args|
+          labels = args[:options][:labels]
+          expect(labels['odysseus.git_ref']).to eq('main')
+          expect(labels['odysseus.deployed_at']).to match(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/)
+          'new-container-123'
+        end
+
+        orchestrator.deploy(image_tag: 'abc123def456')
+      end
+
+      let(:deploy_log) { instance_double(Odysseus::DeployLog) }
+
+      before do
+        allow(Odysseus::DeployLog).to receive(:new).and_return(deploy_log)
+        allow(deploy_log).to receive(:append)
+      end
+
+      it 'records the deploy on the host' do
+        expect(Odysseus::DeployLog).to receive(:new).with(ssh: mock_ssh, service: 'myapp')
+                                                    .and_return(deploy_log)
+        expect(deploy_log).to receive(:append).with(
+          version: 'abc123def456', role: :web, ref: 'main', deployer: 'dev@example.com'
+        )
+
+        orchestrator.deploy(image_tag: 'abc123def456')
+      end
+
+      it 'does not record anything when the deploy fails' do
+        allow(mock_docker).to receive(:wait_healthy).and_return(false)
+        allow(mock_docker).to receive(:stop)
+        allow(mock_docker).to receive(:remove)
+        allow(mock_docker).to receive(:logs).and_return('')
+        allow(mock_docker).to receive(:health_status).and_return('unhealthy')
+        expect(deploy_log).not_to receive(:append)
+
+        expect { orchestrator.deploy(image_tag: 'abc123def456') }
+          .to raise_error(Odysseus::DeployError)
+      end
+
+      it 'still succeeds when the log cannot be written' do
+        allow(deploy_log).to receive(:append).and_raise(Odysseus::SSHCommandError, 'read-only fs')
+
+        expect(orchestrator.deploy(image_tag: 'abc123def456')).to include(success: true)
+      end
+
+      it 'still succeeds when writing the log raises a raw connection error' do
+        # Net::SSH::Disconnect, IOError and Net::SSH::ChannelOpenFailed all
+        # propagate through SSH#execute untranslated. Traffic has already
+        # switched to the new container by this point, so none of them may
+        # turn this deploy into a reported failure.
+        allow(deploy_log).to receive(:append).and_raise(IOError, 'connection reset')
+
+        expect(orchestrator.deploy(image_tag: 'abc123def456')).to include(success: true)
+      end
+    end
+
+    context 'without a resolved deploy version' do
+      it 'falls back to the image tag for the name and version label' do
+        expect(mock_docker).to receive(:run) do |args|
+          expect(args[:name]).to start_with('myapp-v1.0-')
+          expect(args[:options][:version]).to eq('v1.0')
+          expect(args[:options][:labels]).not_to have_key('odysseus.git_ref')
+          'new-container-123'
+        end
+
+        orchestrator.deploy(image_tag: 'v1.0')
+      end
+    end
   end
 
   describe 'rollback on failure' do

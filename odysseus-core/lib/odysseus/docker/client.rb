@@ -1,6 +1,7 @@
 # lib/odysseus/docker/client.rb
 
 require 'json'
+require 'shellwords'
 
 module Odysseus
   module Docker
@@ -332,13 +333,14 @@ module Odysseus
         # Container name
         parts << "--name #{name}"
 
-        # Labels for tracking
-        parts << "--label odysseus.service=#{options[:service] || name}"
-        parts << "--label odysseus.version=#{options[:version]}" if options[:version]
+        # Labels for tracking. Values are quoted: they carry refs and timestamps
+        # supplied by the app's repository, not just internal identifiers.
+        parts << "--label #{Shellwords.escape("odysseus.service=#{options[:service] || name}")}"
+        parts << "--label #{Shellwords.escape("odysseus.version=#{options[:version]}")}" if options[:version]
 
         # Additional custom labels
         options[:labels]&.each do |key, value|
-          parts << "--label #{key}=#{value}"
+          parts << "--label #{Shellwords.escape("#{key}=#{value}")}"
         end
 
         # Port mappings

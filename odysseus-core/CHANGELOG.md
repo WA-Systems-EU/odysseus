@@ -7,6 +7,24 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-08-13
+
+A running container can now be traced back to the commit it was built from. The
+notable behaviour change is that the image tag no longer defaults to `latest`.
+
+### Added
+- The image tag now defaults to the git commit being deployed, and containers
+  carry `odysseus.version`, `odysseus.deployed_at` and `odysseus.git_ref` labels,
+  so a running container can be traced to a commit. `odysseus.version` previously
+  held the deploy timestamp, which `odysseus.deployed_at` now carries.
+- Each host records successful deploys in `/var/lib/odysseus/<service>/deploys.log`.
+
+### Changed
+- `deploy`, `build` and `pussh` no longer default to the `latest` tag. Outside
+  a git repository, or with uncommitted changes, they stop and ask for
+  `--image`. The version resolves before the dry-run check, so `--dry-run`
+  also requires a resolvable version even though it makes no changes.
+
 ## [0.4.1] - 2026-08-12
 
 ### Fixed

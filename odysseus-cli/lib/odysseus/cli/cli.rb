@@ -15,7 +15,7 @@ module Odysseus
       # Deploy command
       def deploy(options = {})
         config_file = options[:config] || 'deploy.yml'
-        image_tag = options[:image] || 'latest'
+        image_tag = options[:image]
         should_build = options[:build] || false
         dry_run = options[:'dry-run'] || false
         verbose = options[:verbose] || @ui.debug?
@@ -23,16 +23,18 @@ module Odysseus
         config = load_config(config_file)
         uses_registry = config[:registry] && config[:registry][:server]
 
+        executor = Odysseus::Deployer::Executor.new(config_file, verbose: verbose)
+        resolved = executor.deploy_version(image_tag)
+
         distribution = uses_registry ? "registry (#{config[:registry][:server]})" : 'pussh (SSH)'
         @ui.deploy_header(
           service: config[:service],
           image: config[:image],
-          image_tag: image_tag,
+          image_tag: resolved.version,
           build: should_build,
           distribution: distribution
         )
 
-        executor = Odysseus::Deployer::Executor.new(config_file, verbose: verbose)
         start_time = Time.now
 
         if should_build
@@ -65,21 +67,22 @@ module Odysseus
       # Build command
       def build(options = {})
         config_file = options[:config] || 'deploy.yml'
-        image_tag = options[:image] || 'latest'
+        image_tag = options[:image]
         push = options[:push] || false
         context_path = options[:context]
         verbose = options[:verbose] || @ui.debug?
 
         config = load_config(config_file)
 
+        executor = Odysseus::Deployer::Executor.new(config_file, verbose: verbose)
+        resolved = executor.deploy_version(image_tag)
+
         @ui.header 'Odysseus Build'
-        @ui.info 'Image', "#{config[:image]}:#{image_tag}"
+        @ui.info 'Image', "#{config[:image]}:#{resolved.version}"
         @ui.info 'Strategy', (config.dig(:builder, :strategy) || :local).to_s
         @ui.blank
 
-        executor = Odysseus::Deployer::Executor.new(config_file, verbose: verbose)
-
-        result = @ui.spin_step("Building image #{config[:image]}:#{image_tag}") do
+        result = @ui.spin_step("Building image #{config[:image]}:#{resolved.version}") do
           executor.build(image_tag: image_tag, push: push, context_path: context_path)
         end
 
@@ -98,20 +101,21 @@ module Odysseus
       # Pussh command
       def pussh(options = {})
         config_file = options[:config] || 'deploy.yml'
-        image_tag = options[:image] || 'latest'
+        image_tag = options[:image]
         should_build = options[:build] || false
         verbose = options[:verbose] || @ui.debug?
 
         config = load_config(config_file)
 
+        executor = Odysseus::Deployer::Executor.new(config_file, verbose: verbose)
+        resolved = executor.deploy_version(image_tag)
+
         @ui.header 'Odysseus Pussh'
-        @ui.info 'Image', "#{config[:image]}:#{image_tag}"
+        @ui.info 'Image', "#{config[:image]}:#{resolved.version}"
         @ui.blank
 
-        executor = Odysseus::Deployer::Executor.new(config_file, verbose: verbose)
-
         if should_build
-          result = @ui.spin_step("Building image #{config[:image]}:#{image_tag}") do
+          result = @ui.spin_step("Building image #{config[:image]}:#{resolved.version}") do
             executor.build_and_pussh(image_tag: image_tag)
           end
 
@@ -160,11 +164,8 @@ module Odysseus
           if web_containers.empty?
             @ui.step '(no containers running)'
           else
-            rows = web_containers.map do |c|
-              health = c['Status'].include?('healthy') ? '✓' : ''
-              [c['Names'], c['State'], c['Image'], health]
-            end
-            @ui.table(headers: %w[Name State Image Health], rows: rows)
+            rows = web_containers.map { |c| web_container_row(c) }
+            @ui.table(headers: %w[Version Ref Deployed Image State Health], rows: rows)
           end
 
           caddy_status = caddy.status
@@ -493,7 +494,7 @@ module Odysseus
         end
 
         config = load_config(config_file)
-        image = "#{config[:image]}:latest"
+        image = running_image(server, config)
 
         @ui.header 'App Exec'
         @ui.info 'Server', server
@@ -520,7 +521,7 @@ module Odysseus
       def app_shell(server, options = {})
         config_file = options[:config] || 'deploy.yml'
         config = load_config(config_file)
-        image = "#{config[:image]}:latest"
+        image = running_image(server, config)
 
         ssh_keys = config[:ssh][:keys].map { |k| "-i #{File.expand_path(k)}" }.join(' ')
         env_flags = config[:env][:clear]&.map { |k, v| "-e #{k}=#{v}" }&.join(' ') || ''
@@ -536,7 +537,7 @@ module Odysseus
         config_file = options[:config] || 'deploy.yml'
         console_cmd = options[:cmd] || '/bin/sh'
         config = load_config(config_file)
-        image = "#{config[:image]}:latest"
+        image = running_image(server, config)
 
         ssh_keys = config[:ssh][:keys].map { |k| "-i #{File.expand_path(k)}" }.join(' ')
         env_flags = config[:env][:clear]&.map { |k, v| "-e #{k}=#{v}" }&.join(' ') || ''
@@ -820,6 +821,41 @@ module Odysseus
       def load_config(config_file)
         parser = Odysseus::Config::Parser.new(config_file)
         parser.parse
+      end
+
+      def web_container_row(container)
+        labels = Odysseus::Docker::Labels.parse(container['Labels'])
+        version = labels['odysseus.version'] || '(unlabelled)'
+        ref = labels['odysseus.git_ref'] || '-'
+        deployed_at = labels['odysseus.deployed_at'] || '-'
+        health = container['Status'].include?('(healthy)') ? '✓' : ''
+        [version, ref, deployed_at, container['Image'], container['State'], health]
+      end
+
+      # The image reference that is actually serving, so a one-off container runs
+      # the same code as the deployed one. Prefers the container's own Image
+      # field, which docker ps reports directly, over reconstructing a tag from
+      # the odysseus.version label: a container deployed before this branch
+      # carries a deploy timestamp in that label and was built from an image
+      # tagged `latest`, so reconstruction would name a tag that was never
+      # pushed. Falling back to reconstruction only covers the case where
+      # Image is somehow absent from docker's own output.
+      def running_image(server, config)
+        ssh = connect_to_server(server, config)
+
+        begin
+          docker = Odysseus::Docker::Client.new(ssh)
+          container = docker.list(service: config[:service]).first
+
+          unless container
+            @ui.error "No running container for #{config[:service]} on #{server}"
+            exit 1
+          end
+
+          container['Image'] || "#{config[:image]}:#{Odysseus::Docker::Labels.version_of(container)}"
+        ensure
+          ssh.close
+        end
       end
 
       def connect_to_server(server, config)

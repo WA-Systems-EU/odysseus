@@ -59,7 +59,7 @@ RSpec.describe Odysseus::Orchestrator::JobDeploy do
 
       it 'starts a new container with job config' do
         expect(mock_docker).to receive(:run).with(
-          name: /myapp-jobs-\d+/,
+          name: /myapp-jobs-v1-\d+/,
           image: 'myapp/image:v1',
           options: hash_including(
             service: 'myapp-jobs',
@@ -151,6 +151,45 @@ RSpec.describe Odysseus::Orchestrator::JobDeploy do
         expect do
           orchestrator.deploy(image_tag: 'v1', role: :jobs)
         end.to raise_error(Odysseus::DeployError, /failed health checks/)
+      end
+    end
+
+    context 'with a resolved deploy version' do
+      let(:config) do
+        super().merge(
+          deploy_version: Odysseus::DeployVersion.new(
+            version: 'abc123def456', ref: 'main', deployer: 'dev@example.com'
+          )
+        )
+      end
+
+      let(:deploy_log) { instance_double(Odysseus::DeployLog) }
+
+      before do
+        allow(mock_docker).to receive(:list).and_return([])
+        allow(mock_docker).to receive(:run).and_return('new-container-123')
+        allow(mock_docker).to receive(:wait_healthy).and_return(true)
+        allow(mock_docker).to receive(:cleanup_old_containers).and_return([])
+        allow(Odysseus::DeployLog).to receive(:new).and_return(deploy_log)
+        allow(deploy_log).to receive(:append)
+      end
+
+      it 'names the container after the role and the version' do
+        expect(mock_docker).to receive(:run) do |args|
+          expect(args[:name]).to start_with('myapp-jobs-abc123def456-')
+          expect(args[:options][:version]).to eq('abc123def456')
+          'new-container-123'
+        end
+
+        orchestrator.deploy(image_tag: 'abc123def456', role: :jobs)
+      end
+
+      it 'records the deploy against the service, not the role name' do
+        expect(Odysseus::DeployLog).to receive(:new).with(ssh: mock_ssh, service: 'myapp')
+                                                    .and_return(deploy_log)
+        expect(deploy_log).to receive(:append).with(hash_including(role: :jobs))
+
+        orchestrator.deploy(image_tag: 'abc123def456', role: :jobs)
       end
     end
   end
