@@ -553,4 +553,83 @@ RSpec.describe Odysseus::Docker::Client do
       expect(removed).to eq(['old1'])
     end
   end
+
+  describe '#remove_image' do
+    it 'removes the image by reference' do
+      expect(mock_ssh).to receive(:execute).with(a_string_including('docker image rm')).and_return('')
+
+      client.remove_image('myapp-production:abc123')
+    end
+
+    # Not -f. A container whose role was removed from deploy.yml keeps
+    # running with no label RetentionSweeper's container_labels(roles) would
+    # ever see, so versions_in_use never protects it; docker's refusal to
+    # remove an image a container still references is the only guard left for
+    # that host. A forced removal would delete the image out from under it.
+    it 'never forces the removal' do
+      expect(mock_ssh).to receive(:execute).with('docker image rm myapp-production:abc123').and_return('')
+
+      client.remove_image('myapp-production:abc123')
+    end
+
+    it 'escapes the image reference' do
+      expect(mock_ssh).to receive(:execute).with(a_string_including('my\ app')).and_return('')
+
+      client.remove_image('my app')
+    end
+
+    # Every other method on this client lets SSHCommandError through, and the
+    # caller prunes image-by-image so one refusal is a skip rather than a failed
+    # deploy. Swallowing it here would hide a host that cannot prune at all.
+    it 'lets a failure propagate for the caller to rescue' do
+      allow(mock_ssh).to receive(:execute).and_raise(Odysseus::SSHCommandError, 'image is in use')
+
+      expect { client.remove_image('myapp-production:abc123') }
+        .to raise_error(Odysseus::SSHCommandError, /in use/)
+    end
+  end
+
+  describe '#versions_in_use' do
+    it 'collects the version label of every container across the given service labels' do
+      allow(client).to receive(:list).with(service: 'myapp', all: true).and_return(
+        [{ 'Labels' => 'odysseus.service=myapp,odysseus.version=v2' }]
+      )
+      allow(client).to receive(:list).with(service: 'myapp-jobs', all: true).and_return(
+        [{ 'Labels' => 'odysseus.service=myapp-jobs,odysseus.version=v1' }]
+      )
+
+      expect(client.versions_in_use(%w[myapp myapp-jobs])).to contain_exactly('v1', 'v2')
+    end
+
+    # cleanup_old_containers keeps two stopped containers per service on purpose.
+    # Their images must not be pruned out from under them, so stopped containers
+    # count as in use.
+    it 'includes stopped containers' do
+      expect(client).to receive(:list).with(service: 'myapp', all: true).and_return(
+        [{ 'State' => 'exited', 'Labels' => 'odysseus.version=v1' }]
+      )
+
+      expect(client.versions_in_use(['myapp'])).to eq(['v1'])
+    end
+
+    it 'de-duplicates a version running under two labels' do
+      allow(client).to receive(:list).and_return([{ 'Labels' => 'odysseus.version=v2' }])
+
+      expect(client.versions_in_use(%w[myapp myapp-jobs])).to eq(['v2'])
+    end
+
+    it 'skips a container carrying no version label' do
+      allow(client).to receive(:list).and_return(
+        [{ 'Labels' => 'odysseus.service=myapp' }, { 'Labels' => 'odysseus.version=v2' }]
+      )
+
+      expect(client.versions_in_use(['myapp'])).to eq(['v2'])
+    end
+
+    it 'returns an empty array when nothing is on the host' do
+      allow(client).to receive(:list).and_return([])
+
+      expect(client.versions_in_use(['myapp'])).to eq([])
+    end
+  end
 end

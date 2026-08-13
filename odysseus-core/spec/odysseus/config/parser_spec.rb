@@ -140,4 +140,16 @@ RSpec.describe Odysseus::Config::Parser do
       expect(parse('deploy.yml')[:dependencies]).to eq({})
     end
   end
+
+  describe 'retain_versions' do
+    it 'defaults to 5 when not configured' do
+      expect(parser.parse[:retain_versions]).to eq(5)
+    end
+
+    it 'reads a configured value' do
+      config = described_class.new(fixture_path('deploy-retain-two.yml')).parse
+
+      expect(config[:retain_versions]).to eq(2)
+    end
+  end
 end

@@ -7,6 +7,37 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-13
+
+A minor bump rather than a patch: odysseus now deletes images on your hosts.
+Nothing did that before, and there is no undo, so the release number should
+make you read this entry.
+
+### Added
+- `retain_versions` in deploy.yml, default 5: how many distinct versions of a
+  service's image each host keeps. After a successful deploy, images beyond
+  that window are removed from the host. Until now SHA-tagged images
+  accumulated without limit — `cleanup --prune-images` only removes *dangling*
+  images, and a tagged image is never dangling.
+- `RetentionPlanner`, `Docker::Client#remove_image` and
+  `Docker::Client#versions_in_use`.
+
+### Changed
+- `deploy` prunes old images on each host once all of that host's roles are
+  deployed. `rollback` deliberately does not: deleting images during a
+  recovery is the wrong moment, and the version just rolled back from is the
+  most likely next thing wanted.
+
+  Three independent things must agree before an image is deleted: it must
+  fall outside the retain window, no container on the host may reference it
+  (stopped containers included, since a stopped container still references its
+  image and an operator may still need it), and docker must accept the
+  removal. Each removal is attempted on its own, so one
+  refusal is a logged skip rather than a failed deploy. A host with no
+  `deploys.log` is skipped entirely rather than pruned by image creation time,
+  which is build time and can be out of order. `latest` is never removed
+  automatically.
+
 ## [0.4.4] - 2026-08-13
 
 A rename, with the old names still working. Nothing on a host changes.

@@ -1,0 +1,17 @@
+# spec/fixtures/deploy-retain-two.yml
+# retain_versions deliberately set to 2, not the default 5, so a spec can prove
+# the configured value is read rather than the default being returned.
+
+service: myapp
+image: myapp-production
+retain_versions: 2
+
+servers:
+  web:
+    hosts:
+      - web1.example.com
+
+ssh:
+  user: root
+  keys:
+    - ~/.ssh/id_ed25519

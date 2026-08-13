@@ -473,6 +473,28 @@ registry:
 
 For better security, you can store registry credentials in your encrypted secrets file and reference them.
 
+### retain_versions
+
+How many distinct versions of your service's image each host keeps. Default 5.
+
+```yaml
+retain_versions: 5
+```
+
+After a successful deploy, images outside that window are removed from each
+host. An image is only removed if the host's own deploy log records it, no
+container on the host still references it, and docker accepts the removal —
+so a version you are still running is never deleted, and a failure to delete
+one image never fails the deploy.
+
+Setting this to `1` is allowed but means the previous version's image becomes
+eligible for removal as soon as you deploy, leaving `odysseus rollback` with
+no candidate. Use at least 2 if you want to be able to roll back.
+
+`latest` is never removed automatically. `odysseus cleanup --prune-images`
+only removes *dangling* images, and a tagged `latest` is never dangling —
+removing it means `docker image rm` by hand on the host.
+
 ## Server Requirements
 
 Your target servers only need **Docker** installed. Odysseus automatically deploys and manages Caddy as a container (`odysseus-caddy`) - no manual Caddy installation required.

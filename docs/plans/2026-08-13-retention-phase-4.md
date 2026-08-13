@@ -35,7 +35,9 @@ The spec leaves these open; a reviewer should read them as decisions, not omissi
 
 **A host with no `deploys.log` is skipped entirely.** Retention needs the log to know what "newest N" means. Falling back to image creation time would risk deleting a version someone still wants, and creation time is *build* time — images can reach a host out of order. Skipping is the safe default and is logged.
 
-**`latest` is never pruned automatically.** Per the spec. Pre-0.4.2 deploys were built from it, something may still reference it, and it is a moving pointer. `cleanup --prune-images` remains the manual sweep.
+**`latest` is never pruned automatically.** Per the spec. Pre-0.4.2 deploys were built from it, something may still reference it, and it is a moving pointer. Removing it means `docker image rm` by hand on the host — not `cleanup --prune-images`, which only removes dangling images, and a tagged `latest` is never dangling.
+
+**The sweep lives in its own class, not in `Executor`.** Measured before writing this plan: `Executor` is **249 lines against its `Metrics/ClassLength` limit of 273**, and the prune logic is about 42 lines of code. Putting it inline would breach the limit and force exactly the choice the Global Constraints forbid. `Deployer::RetentionSweeper` mirrors `Deployer::DependencyManager`, which exists for the same reason: it takes the config, a connector, and a logger, and `Executor` delegates to it in three lines. Phase 3 hit this wall twice mid-task and improvised; this plan does the arithmetic up front.
 
 **`retain_versions: 1` is legal but leaves nothing to roll back to.** The spec says validate `>= 1`, so this plan does. The README must say what it means: after a deploy, the previous version's image is eligible for removal, so `odysseus rollback` will have no candidate. The default of 5 is what most people should leave alone.
 
@@ -49,7 +51,9 @@ The spec leaves these open; a reviewer should read them as decisions, not omissi
 | --- | --- |
 | `lib/odysseus/retention_plan.rb` | `Odysseus::RetentionPlan` — which tags to remove and which were protected, plus why. Pure data. |
 | `lib/odysseus/retention_planner.rb` | `Odysseus::RetentionPlanner` — the selection rules. Pure: no SSH, no config, no git. |
+| `lib/odysseus/deployer/retention_sweeper.rb` | `Odysseus::Deployer::RetentionSweeper` — walks the hosts, applies the plan, removes images. Owns the SSH side so `Executor` stays under its size limit. |
 | `spec/odysseus/retention_planner_spec.rb` | The selection rules, with no doubles at all. |
+| `spec/odysseus/deployer/retention_sweeper_spec.rb` | The sweep, against doubled SSH and Docker. |
 | `spec/fixtures/deploy-retain-two.yml` | `retain_versions: 2`, so a non-default value is provably read. |
 
 **Modify (odysseus-core):**
@@ -59,7 +63,7 @@ The spec leaves these open; a reviewer should read them as decisions, not omissi
 | `lib/odysseus/docker/client.rb` | Add `#remove_image(image)` and `#versions_in_use(service_labels)`. |
 | `lib/odysseus/config/parser.rb` | Parse `retain_versions`, defaulting to 5. |
 | `lib/odysseus/validators/config.rb` | Validate `retain_versions` is an integer >= 1. |
-| `lib/odysseus/deployer/executor.rb` | Add `#prune_old_images`, called from `deploy_all`. |
+| `lib/odysseus/deployer/executor.rb` | Add `#prune_old_images`, delegating to the sweeper, called from `deploy_all`. **Thin on purpose** — see the note below. |
 | `spec/odysseus/docker/client_spec.rb` | Cover the two new methods. |
 | `spec/odysseus/config/parser_spec.rb` | Cover the default and an explicit value. |
 | `spec/odysseus/validators/config_spec.rb` | Cover the validation. |
@@ -476,7 +480,10 @@ RSpec.describe Odysseus::RetentionPlanner do
   end
 
   # latest is a moving pointer and pre-0.4.2 deploys were built from it, so
-  # something may still reference it. cleanup --prune-images is the manual sweep.
+  # something may still reference it. It is never removed automatically;
+  # removing it means `docker image rm` by hand on the host. (Not
+  # `cleanup --prune-images`: that only removes dangling images, and a
+  # tagged latest is never dangling.)
   it 'never removes latest' do
     history = history_of('latest', 'v2', 'v3', 'v4')
     result = plan(history: history, available: %w[latest v2 v3 v4])
@@ -651,15 +658,24 @@ git commit -m "Choose which of a service's images a host no longer needs"
 
 ---
 
-### Task 4: `Executor#prune_old_images`
+### Task 4: `RetentionSweeper` and `Executor#prune_old_images`
 
 **Files:**
-- Modify: `odysseus-core/lib/odysseus/deployer/executor.rb`
-- Test: `odysseus-core/spec/odysseus/deployer/executor_spec.rb`
+- Create: `odysseus-core/lib/odysseus/deployer/retention_sweeper.rb`
+- Modify: `odysseus-core/lib/odysseus/deployer/executor.rb` (thin delegation plus one line in `deploy_all`)
+- Test: `odysseus-core/spec/odysseus/deployer/retention_sweeper_spec.rb`
+- Test: `odysseus-core/spec/odysseus/deployer/executor_spec.rb` (the `deploy_all` wiring only)
+
+**Why a separate class:** `Executor` measures 249 lines against a `Metrics/ClassLength` limit of 273, and this logic is about 42. `Deployer::DependencyManager` was extracted for exactly this reason — follow its shape.
 
 **Interfaces:**
-- Consumes: `Docker::Client#image_tags`, `#versions_in_use`, `#remove_image` (Task 1); `DeployLog#entries`; `RetentionPlanner` (Task 3); `Docker::Labels.service_for(service:, role:)`; the private `#host_roles` and `#connect_to_server` already on `Executor`.
-- Produces: `Executor#prune_old_images -> Hash{String => Array<String>}` — versions actually removed, keyed by host. Public so it is directly testable and can become a CLI command later.
+- Consumes: `Docker::Client#image_tags`, `#versions_in_use`, `#remove_image` (Task 1); `DeployLog#entries`; `RetentionPlanner` (Task 3); `Docker::Labels.service_for(service:, role:)`.
+- Produces:
+  - `Deployer::RetentionSweeper.new(config:, connector:, logger:)` where `connector` is a `#call`-able returning an open SSH connection for a host (`Executor` passes `method(:connect_to_server)`, the same seam `DependencyManager` uses), and `logger` responds to `#info` and `#warn`.
+  - `RetentionSweeper#sweep(host_roles) -> Hash{String => Array<String>}` — versions actually removed, keyed by host. `host_roles` is `{host => [roles]}`.
+  - `Executor#prune_old_images -> Hash{String => Array<String>}` — delegates. Public so it is directly testable and can become a CLI command later.
+
+Host resolution stays in `Executor`: the sweeper is handed the already-resolved `host_roles` rather than reaching for `HostProviders` itself, so there remains one place that knows how hosts are resolved.
 
 **Behaviour:**
 - One pass per unique host, in config order, opening and closing one connection each.
@@ -671,10 +687,21 @@ git commit -m "Choose which of a service's images a host no longer needs"
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `spec/odysseus/deployer/executor_spec.rb`. Read the existing `describe 'rollback'` block first: it already sets up `mock_docker`, `deploy_log`, the `around` hook registering a sail for the multi-host fixture, and a top-level `before` stubbing `SSH.new`. Reuse that shape.
+Create `spec/odysseus/deployer/retention_sweeper_spec.rb`. Drive it **through `Executor#prune_old_images`**, not by constructing the sweeper directly: that is the entry point the deploy path uses, and it is the pattern a reviewer already endorsed for `DependencyManager`. Model the setup on `executor_spec.rb`'s `describe 'rollback'` block, which stubs `SSH.new`, `Docker::Client.new` and `DeployLog.new` the same way.
 
 ```ruby
-  describe '#prune_old_images' do
+# spec/odysseus/deployer/retention_sweeper_spec.rb
+#
+# Exercised through Executor#prune_old_images rather than by constructing the
+# sweeper, because that is the path a deploy takes.
+
+require 'spec_helper'
+
+RSpec.describe Odysseus::Deployer::RetentionSweeper do
+  let(:mock_ssh) { instance_double(Odysseus::Deployer::SSH) }
+  let(:mock_orchestrator) { instance_double(Odysseus::Orchestrator::WebDeploy) }
+
+  describe 'sweeping through Executor#prune_old_images' do
     let(:retain_two) { described_class.new(fixture_path('deploy-retain-two.yml')) }
     let(:mock_docker) { instance_double(Odysseus::Docker::Client) }
     let(:deploy_log) { instance_double(Odysseus::DeployLog) }
@@ -803,63 +830,81 @@ Expected: FAIL, `NoMethodError: undefined method 'prune_old_images'`.
 
 - [ ] **Step 3: Write the implementation**
 
-Add to `Executor`'s public section, after `rollback_all`:
+Create `odysseus-core/lib/odysseus/deployer/retention_sweeper.rb`:
 
 ```ruby
-      # Delete a service's images that no host needs any more.
-      #
-      # Best effort throughout: this runs after a deploy has already succeeded
-      # and switched traffic, so nothing here may raise into the caller. Every
-      # removal is attempted individually, and a host that cannot be read is
-      # skipped with a warning.
-      #
-      # A host whose deploys.log is empty is skipped rather than pruned from
-      # image creation time: creation time is *build* time, images can reach a
-      # host out of order, and guessing here deletes data.
-      #
-      # @return [Hash{String => Array<String>}] versions removed, keyed by host
-      def prune_old_images
-        host_roles.to_h { |host, roles| [host, prune_host(host, roles)] }
+# lib/odysseus/deployer/retention_sweeper.rb
+
+module Odysseus
+  module Deployer
+    # Removes a service's images that no host needs any more, split out of
+    # Executor for the same reason DependencyManager was: it is a distinct
+    # concern, sharing only the config and a way to open a connection.
+    #
+    # Best effort throughout. This runs after a deploy has already succeeded and
+    # switched traffic, so nothing here may raise into the caller: every removal
+    # is attempted on its own, and a host that cannot be read at all is skipped
+    # with a warning.
+    class RetentionSweeper
+      # @param config [Hash] parsed deploy.yml
+      # @param connector [#call] returns an open SSH connection for a host
+      # @param logger [Object] responds to #info and #warn
+      def initialize(config:, connector:, logger:)
+        @config = config
+        @connector = connector
+        @logger = logger
       end
-```
 
-and to the private section:
+      # @param host_roles [Hash{String => Array<Symbol>}] hosts and the roles each serves
+      # @return [Hash{String => Array<String>}] versions removed, keyed by host
+      def sweep(host_roles)
+        host_roles.to_h { |host, roles| [host, sweep_host(host, roles)] }
+      end
 
-```ruby
-      def prune_host(host, roles)
-        ssh = connect_to_server(host)
+      private
+
+      def sweep_host(host, roles)
+        ssh = @connector.call(host)
 
         begin
           docker = Odysseus::Docker::Client.new(ssh)
-          plan = retention_plan(ssh, docker, roles)
+          plan = retention_plan(ssh, docker, host, roles)
           return [] if plan.nil?
 
           plan.remove.select { |version| prune_image(docker, host, version) }
         rescue StandardError => e
-          build_logger.warn("Could not prune images on #{host}: #{e.message}")
+          @logger.warn("Could not prune images on #{host}: #{e.message}")
           []
         ensure
           ssh.close
         end
       end
 
-      # nil when the host has no deploy log to authorise removals.
-      def retention_plan(ssh, docker, roles)
+      # nil when the host has no deploy log to authorise removals. Falling back
+      # to image creation time would risk deleting a version someone still
+      # wants: creation time is *build* time, and images can reach a host out of
+      # order.
+      def retention_plan(ssh, docker, host, roles)
         history = Odysseus::DeployLog.new(ssh: ssh, service: @config[:service]).entries
 
         if history.empty?
-          build_logger.info('  No deploy log on this host yet, so nothing is pruned')
+          @logger.info("  No deploy log on #{host} yet, so nothing is pruned")
           return nil
         end
-
-        labels = roles.map { |role| Odysseus::Docker::Labels.service_for(service: @config[:service], role: role) }
 
         Odysseus::RetentionPlanner.new(
           history: history,
           available: docker.image_tags(@config[:image]),
-          in_use: docker.versions_in_use(labels),
+          in_use: docker.versions_in_use(container_labels(roles)),
           retain: @config[:retain_versions]
         ).plan
+      end
+
+      # The odysseus.service label values this host's containers carry — one per
+      # role. Built with Labels.service_for so reading them back cannot disagree
+      # with how WebDeploy and JobDeploy write them.
+      def container_labels(roles)
+        roles.map { |role| Odysseus::Docker::Labels.service_for(service: @config[:service], role: role) }
       end
 
       # True when the image is gone. Named prune_image, not remove_image, so it
@@ -872,11 +917,37 @@ and to the private section:
       def prune_image(docker, host, version)
         image = "#{@config[:image]}:#{version}"
         docker.remove_image(image)
-        build_logger.info("  Pruned #{image} on #{host}")
+        @logger.info("  Pruned #{image} on #{host}")
         true
       rescue StandardError => e
-        build_logger.info("  Kept #{image} on #{host}: #{e.message}")
+        @logger.info("  Kept #{image} on #{host}: #{e.message}")
         false
+      end
+    end
+  end
+end
+```
+
+Every log line names the host: on a fleet, "nothing pruned" without a host name is useless.
+
+Then add to `Executor`'s public section, after `rollback_all`:
+
+```ruby
+      # Delete a service's images that no host needs any more.
+      #
+      # @return [Hash{String => Array<String>}] versions removed, keyed by host
+      def prune_old_images
+        retention_sweeper.sweep(host_roles)
+      end
+```
+
+and to `Executor`'s private section, next to the other collaborator builders:
+
+```ruby
+      def retention_sweeper
+        @retention_sweeper ||= Odysseus::Deployer::RetentionSweeper.new(
+          config: @config, connector: method(:connect_to_server), logger: build_logger
+        )
       end
 ```
 
@@ -894,23 +965,44 @@ In `deploy_all`, after the role loop and before `results` is returned:
         results
 ```
 
-Then add one example alongside the existing `#deploy_all` examples:
+Then add two examples alongside the existing `#deploy_all` examples. Assert on the observable effect — whether `remove_image` reaches the Docker client — rather than on `prune_old_images` having been called. A `expect(executor).to receive(:prune_old_images)` would pass against a `prune_old_images` that does nothing:
 
 ```ruby
-    it 'prunes old images after deploying, but not on a dry run' do
-      expect(executor).to receive(:prune_old_images)
+    context 'image retention' do
+      let(:mock_docker) { instance_double(Odysseus::Docker::Client) }
+      let(:deploy_log) { instance_double(Odysseus::DeployLog) }
 
-      executor.deploy_all(image_tag: 'v1.0')
-    end
+      before do
+        allow(Odysseus::Docker::Client).to receive(:new).and_return(mock_docker)
+        allow(Odysseus::DeployLog).to receive(:new).and_return(deploy_log)
+        allow(deploy_log).to receive(:append)
+        allow(deploy_log).to receive(:entries).and_return(
+          [Odysseus::DeployLog::Entry.new(at: '2026-08-01T09:00:00Z', version: 'v_old', role: 'web',
+                                          ref: 'main', deployer: 'dev@example.com',
+                                          kind: 'deployed', from: nil)]
+        )
+        allow(mock_docker).to receive(:image_tags).and_return(%w[v_old])
+        allow(mock_docker).to receive(:versions_in_use).and_return([])
+        allow(mock_docker).to receive(:remove_image)
+      end
 
-    it 'does not prune on a dry run' do
-      expect(executor).not_to receive(:prune_old_images)
+      # retain_versions defaults to 5 and the log has one entry, so nothing is
+      # eligible — which is why this asserts the sweep *ran* by checking the
+      # host was read, not by checking a removal happened.
+      it 'sweeps each host after deploying' do
+        expect(mock_docker).to receive(:versions_in_use)
 
-      executor.deploy_all(image_tag: 'v1.0', dry_run: true)
+        executor.deploy_all(image_tag: 'v1.0')
+      end
+
+      it 'does not touch any host on a dry run' do
+        expect(mock_docker).not_to receive(:versions_in_use)
+        expect(mock_docker).not_to receive(:remove_image)
+
+        executor.deploy_all(image_tag: 'v1.0', dry_run: true)
+      end
     end
 ```
-
-`expect(executor).to receive(...)` on the object under test is a partial double; `verify_partial_doubles` is on, so this fails if the method is misspelled.
 
 - [ ] **Step 5: Run to verify they pass, then the whole suite**
 
@@ -925,8 +1017,18 @@ Expected: PASS. If existing `#deploy_all` examples now fail because they do not 
 4. `return nil if history.empty?` removed → "skips a host with no deploy log" fails.
 5. `rescue StandardError` in `prune_image` → `rescue Odysseus::SSHCommandError` → "survives a raw connection error" fails.
 6. `prune_image`'s `false` → `true` on rescue → "continues after a removal docker refuses" fails.
-7. `prune_old_images unless dry_run` → `prune_old_images` → "does not prune on a dry run" fails.
+7. `prune_old_images unless dry_run` → `prune_old_images` → "does not touch any host on a dry run" fails.
 8. Add `prune_old_images` to `rollback_all` → "does not prune when rolling back" fails.
+9. `RetentionSweeper#sweep`'s body → `{}` → several named examples fail. If none do, the sweep is not actually reached through `Executor` and the whole spec is asserting nothing.
+
+- [ ] **Step 6a: Confirm the size arithmetic held**
+
+The reason this task has its own class is `Metrics/ClassLength`. Verify it worked rather than assuming:
+
+```bash
+cd odysseus-core && bundle exec rubocop lib/odysseus/deployer/executor.rb lib/odysseus/deployer/retention_sweeper.rb
+```
+Expected: no offences, and `.rubocop_todo.yml` untouched. If `Executor` still breaches the limit, say so and stop rather than editing the todo file — something else needs to move.
 
 - [ ] **Step 7: Run rake and commit**
 
@@ -1007,8 +1109,9 @@ Setting this to `1` is allowed but means the previous version's image becomes
 eligible for removal as soon as you deploy, leaving `odysseus rollback` with no
 candidate. Use at least 2 if you want to be able to roll back.
 
-`latest` is never removed automatically; `odysseus cleanup --prune-images`
-remains the manual sweep.
+`latest` is never removed automatically. `odysseus cleanup --prune-images`
+only removes *dangling* images, and a tagged `latest` is never dangling —
+removing it means `docker image rm` by hand on the host.
 ```
 
 - [ ] **Step 5: `TODO.md`**

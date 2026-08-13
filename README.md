@@ -141,6 +141,20 @@ odysseus rollback              # to the previous version
 odysseus rollback --list       # what each host could roll back to
 ```
 
+### Image Retention
+
+After a successful deploy, superseded image versions are pruned from each
+host, keeping the newest `retain_versions` (default 5). A version still
+referenced by a container, running or stopped, is never removed, and
+`latest` never is either:
+
+```yaml
+retain_versions: 5
+```
+
+Setting this below 2 leaves `odysseus rollback` with no candidate, since the
+previous version's image becomes eligible for removal as soon as you deploy.
+
 ## Documentation
 
 See [odysseus-cli/README.md](odysseus-cli/README.md) for complete CLI documentation and configuration reference.

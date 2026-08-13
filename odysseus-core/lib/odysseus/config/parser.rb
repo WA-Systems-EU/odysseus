@@ -5,6 +5,11 @@ require 'yaml'
 module Odysseus
   module Config
     class Parser
+      # Distinct versions of a service's image kept on each host. Five is enough
+      # to roll back through a bad week; the images share layers, so the cost of
+      # keeping a few is small.
+      DEFAULT_RETAIN_VERSIONS = 5
+
       # @param config_path [String] Path to deploy.yml
       def initialize(config_path)
         @config_path = config_path
@@ -48,7 +53,8 @@ module Odysseus
           ssh: parse_ssh(config['ssh']),
           dependencies: parse_dependencies(config['dependencies'] || config['accessories']),
           builder: parse_builder(config['builder']),
-          registry: parse_registry(config['registry'])
+          registry: parse_registry(config['registry']),
+          retain_versions: config['retain_versions'] || DEFAULT_RETAIN_VERSIONS
         }
       end
 

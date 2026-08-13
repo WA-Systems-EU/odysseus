@@ -67,9 +67,17 @@ we'd feel their absence.
       `deploy`. A fleet pre-flight requires the target image on every host
       before any host is touched. **Verified on a real host 2026-08-13**, which
       the specs could not do: no unit test proves the deploy path accepts a tag
-      it did not build. Retention/pruning of the images that pile up on hosts,
-      and a git-notes trail for who-deployed-what, are separate future plans and
-      stay open.
+      it did not build.
+- [x] **Retention/pruning of the images that pile up on hosts.** `deploy`
+      prunes each host's superseded image versions once all of that host's
+      roles are deployed, keeping `retain_versions` (default 5) and never a
+      version a container still references. `rollback` deliberately does not
+      prune. **Verified on a real host 2026-08-13**, which the specs could not
+      do: every docker call in the suite is a double, so nothing there proves
+      docker refuses to remove an image a container still references — the
+      third of the three guards. A git-notes trail for who-deployed-what is a
+      separate future plan
+      and stays open.
 - [ ] **Deploy locks.** Nothing stops two people (or a person and CI) deploying
       at once and interleaving container swaps, and the same is true of a
       rollback racing a deploy or another rollback. Kamal: `kamal lock`.
@@ -188,3 +196,42 @@ Smaller findings worth fixing but not blocking anything.
       `dependencies.db` and `servers.db` produce the container service label
       `myapp-db`, so each would see the other's containers. Nothing validates
       against it.
+- [ ] Zeitwerk's `eager_load` raises on `lib/odysseus/core/version.rb`, which
+      defines `VERSION` where the path implies `Version`. Nothing calls
+      `eager_load` today — the gemspec requires that file explicitly, so the
+      constant resolves — but it would break anyone booting the gem eagerly.
+- [ ] **An unknown or mistyped top-level key in deploy.yml is silently
+      ignored.** `Validators::Config#validate!` checks only the keys it knows
+      about, each guarded by `if @config['x']`, so `retain_version:` (singular),
+      `retain-versions:`, or a key at the wrong indent level all fall through to
+      the default with no warning. Hit for real on 2026-08-13: a mistyped
+      `retain_versions` meant a deploy pruned nothing and said nothing about
+      why. Warning on unrecognised top-level keys — or at least on near-misses
+      of known ones — would have made it a five-second diagnosis. Note the same
+      exposure applies to every optional key: `proxy`, `env`, `ssh`, `builder`,
+      `registry`, `dependencies`.
+- [ ] The hardcoded `cleanup_old_containers(keep: 2)` puts a floor under image
+      retention: two stopped containers per service are kept, and
+      `versions_in_use` counts stopped containers, so their images cannot be
+      pruned. In practice you cannot get below roughly three versions (one
+      serving plus two stopped) however low `retain_versions` is set. Correct —
+      the guards working — but undocumented, and it makes the README's
+      `retain_versions: 1` warning read as scarier than it behaves. Document it
+      alongside making `keep:` configurable.
+- [ ] `Executor#record_deploy` appends to `deploys.log` unconditionally once the
+      orchestrator returns, so an orchestrator that reports failure by returning
+      `success: false` rather than raising writes a phantom "deployed" entry.
+      Both built-in orchestrators raise, so this is only reachable through a
+      sail plugin — but the phantom entry consumes a retention keep-slot and
+      pushes one extra real version out of the window, and it would offer a
+      version that never served as a rollback candidate.
+- [ ] `RetentionPlanner` and `RollbackPlanner` both rank log entries with
+      `sort_by(&:at)`, which is not stable, while `DeployLog::TIME_FORMAT` has
+      second granularity. Two *different* versions logged in the same second
+      rank arbitrarily. Fix both together or neither: they must never disagree
+      about the ordering of one log.
+- [ ] `deploy_all` prunes images on every host without inspecting its results,
+      so a run where one host reported `success: false` (again, only reachable
+      via a non-raising sail) still prunes everywhere. Blast radius is bounded —
+      the planner reads each host's own log and in-use set — but the choice
+      should be deliberate rather than incidental.
