@@ -49,7 +49,14 @@ module Odysseus
     def candidates
       return logged_versions unless logged_versions.empty?
 
-      @surveys.first.available
+      # No deploy log exists anywhere to name a specific version, so this is
+      # the fallback path. 'latest' is a moving pointer, not a version — the
+      # image tagged 'latest' today need not be the one that was running
+      # yesterday — so naming it as a rollback target is exactly the
+      # ambiguity this whole design exists to remove. Only excluded here: a
+      # version the log actually recorded is real and stays a candidate even
+      # if, unusually, it is literally tagged 'latest'.
+      @surveys.first.available.reject { |version| version == 'latest' }
     end
 
     # Every logged version across all hosts, newest deploy first, de-duplicated.

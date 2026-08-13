@@ -36,4 +36,21 @@ RSpec.describe Odysseus::Docker::Labels do
       expect(described_class.version_of({ 'Labels' => 'foo=bar' })).to be_nil
     end
   end
+
+  describe '.service_for' do
+    # WebDeploy labels the web role with the bare service name.
+    it 'is the bare service name for the web role' do
+      expect(described_class.service_for(service: 'myapp', role: :web)).to eq('myapp')
+    end
+
+    # JobDeploy labels every other role "<service>-<role>".
+    it 'is service-role for any other role' do
+      expect(described_class.service_for(service: 'myapp', role: :jobs)).to eq('myapp-jobs')
+    end
+
+    it 'accepts a String role as readily as a Symbol' do
+      expect(described_class.service_for(service: 'myapp', role: 'jobs')).to eq('myapp-jobs')
+      expect(described_class.service_for(service: 'myapp', role: 'web')).to eq('myapp')
+    end
+  end
 end

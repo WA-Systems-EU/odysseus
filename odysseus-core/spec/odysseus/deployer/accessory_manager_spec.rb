@@ -183,4 +183,43 @@ RSpec.describe Odysseus::Deployer::AccessoryManager do
       verbose_executor.accessory_status
     end
   end
+
+  # The three examples below construct AccessoryManager directly with config
+  # shapes the real parser never produces — a hash with no :accessories key,
+  # an accessory hash with no :hosts key, and a host whose list_status omits
+  # an accessory it is configured for. Going through Executor and the real
+  # parser can only ever exercise the normalized shape (config/parser.rb
+  # defaults :accessories to {} and every accessory to a :hosts array), so
+  # the defensive guards at accessory_manager.rb's `&.any?`, `if acc_status`
+  # and `|| []` can never be reached that way, and mutating any of them away
+  # left the rest of this file green. Direct construction is the only way to
+  # pin them, so it is used here even though the rest of this file avoids it.
+  describe 'defensive fallbacks against a config shape the parser never produces' do
+    let(:connector) { ->(_host) { mock_ssh } }
+
+    it 'treats a missing :accessories key as none configured, not a NoMethodError on nil' do
+      manager = described_class.new(config: {}, secrets_loader: nil, connector: connector)
+
+      expect(manager.status).to eq([])
+    end
+
+    it 'skips an accessory that list_status does not report, rather than recording a nil entry' do
+      manager = described_class.new(
+        config: { accessories: { redis: { hosts: ['acc1.example.com'] } } },
+        secrets_loader: nil, connector: connector
+      )
+      allow(orchestrator).to receive(:list_status).and_return([])
+
+      expect(manager.status).to eq([])
+    end
+
+    it 'treats a missing :hosts key on an accessory as no hosts, not a NoMethodError on nil' do
+      manager = described_class.new(
+        config: { accessories: { redis: {} } }, secrets_loader: nil, connector: connector
+      )
+
+      expect { manager.deploy(name: 'redis') }
+        .to raise_error(Odysseus::ConfigError, 'No hosts configured for accessory redis')
+    end
+  end
 end

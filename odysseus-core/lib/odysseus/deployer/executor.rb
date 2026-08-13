@@ -167,12 +167,12 @@ module Odysseus
       #
       # @return [Array<Odysseus::HostVersions>]
       def version_survey
-        collect_all_hosts.map do |host|
+        host_roles.map do |host, roles|
           ssh = connect_to_server(host)
 
           begin
             Odysseus::HostVersions.read(
-              host: host, ssh: ssh, service: @config[:service], image: @config[:image]
+              host: host, ssh: ssh, service: @config[:service], image: @config[:image], roles: roles
             )
           ensure
             ssh.close
@@ -397,14 +397,24 @@ module Odysseus
       end
 
       def collect_all_hosts
-        hosts = []
+        host_roles.keys
+      end
 
-        @config[:servers].each_value do |role_config|
-          role_hosts = resolve_hosts(role_config)
-          hosts.concat(role_hosts)
+      # Every configured host mapped to the roles it serves, each in config
+      # order. A host serving two roles (e.g. web and cron on the same box)
+      # gets both, in the order its roles are declared in deploy.yml — the
+      # order #version_survey depends on to know which role's containers to
+      # look for first.
+      #
+      # @return [Hash{String => Array<Symbol>}]
+      def host_roles
+        roles_by_host = {}
+
+        @config[:servers].each do |role, role_config|
+          resolve_hosts(role_config).each { |host| (roles_by_host[host] ||= []) << role }
         end
 
-        hosts.uniq
+        roles_by_host
       end
 
       # Resolve hosts for a role using the appropriate provider

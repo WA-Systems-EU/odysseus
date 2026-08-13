@@ -22,8 +22,10 @@ RSpec.describe Odysseus::HostVersions do
     allow(mock_log).to receive(:entries).and_return([])
   end
 
-  def read
-    described_class.read(host: 'host1', ssh: mock_ssh, service: 'myapp', image: 'myapp-production')
+  def read(roles: [:web])
+    described_class.read(
+      host: 'host1', ssh: mock_ssh, service: 'myapp', image: 'myapp-production', roles: roles
+    )
   end
 
   describe '.read' do
@@ -62,6 +64,29 @@ RSpec.describe Odysseus::HostVersions do
       )
 
       expect(read.current).to eq('20260101120000')
+    end
+
+    # JobDeploy labels every non-web role "<service>-<role>" (see
+    # Docker::Labels.service_for), so a worker-only host must be queried
+    # under that suffixed label, not the bare service name.
+    it 'reports the running version of a non-web role under its suffixed label' do
+      allow(mock_docker).to receive(:list).with(service: 'myapp-jobs').and_return(
+        [{ 'ID' => 'abc', 'Labels' => 'odysseus.service=myapp-jobs,odysseus.version=abc123def456' }]
+      )
+
+      expect(read(roles: [:jobs]).current).to eq('abc123def456')
+    end
+
+    # A host can serve more than one role (e.g. web and cron sharing a box).
+    # Roles are scanned in the order given, so a down web role does not hide
+    # a running one behind it.
+    it 'falls through to the next role when the first is not serving' do
+      allow(mock_docker).to receive(:list).with(service: 'myapp').and_return([])
+      allow(mock_docker).to receive(:list).with(service: 'myapp-cron').and_return(
+        [{ 'ID' => 'abc', 'Labels' => 'odysseus.service=myapp-cron,odysseus.version=9f8e7d6c5b4a' }]
+      )
+
+      expect(read(roles: %i[web cron]).current).to eq('9f8e7d6c5b4a')
     end
 
     it 'reports the tags present for the repository as available' do

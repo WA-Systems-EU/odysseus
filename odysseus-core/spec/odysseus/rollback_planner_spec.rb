@@ -144,6 +144,23 @@ RSpec.describe Odysseus::RollbackPlanner do
 
       expect(described_class.new(surveys).plan.ref).to be_nil
     end
+
+    # `latest` is a moving pointer, not a version identifying what actually
+    # ran — the README and spec both say only a logged (0.4.2+) deploy can be
+    # a rollback target. Without this, a fleet that has never deployed under
+    # 0.4.2 could have `rollback` silently target `latest`.
+    it 'never offers latest as a fallback candidate, even when present' do
+      surveys = [host('host1', current: 'v2', available: %w[latest v1], history: [])]
+
+      expect(described_class.new(surveys).plan.version).to eq('v1')
+    end
+
+    it 'refuses rather than target latest when it is the only image on the host' do
+      surveys = [host('host1', current: 'v2', available: %w[latest], history: [])]
+
+      expect { described_class.new(surveys).plan }
+        .to raise_error(Odysseus::RollbackError, /No version to roll back to/)
+    end
   end
 
   describe '#plan with an explicit version' do

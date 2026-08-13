@@ -351,8 +351,18 @@ RSpec.describe Odysseus::Deployer::Executor do
       allow(Odysseus::DeployLog).to receive(:new).and_return(deploy_log)
       allow(deploy_log).to receive(:append)
       allow(deploy_log).to receive(:entries).and_return([])
-      allow(mock_docker).to receive(:list).and_return(
-        [{ 'ID' => 'abc', 'Labels' => 'odysseus.version=v2' }]
+      # web1 serves web then cron (config order), web2 serves only web,
+      # jobs1 serves only jobs. Constrained by the exact label each role
+      # actually carries (Docker::Labels.service_for) rather than answering
+      # identically for every filter — an unconstrained stub cannot tell a
+      # correct filter from a wrong one, which is how the fleet-survey bug
+      # (only the web role's containers were ever found) escaped every
+      # per-task review.
+      allow(mock_docker).to receive(:list).with(service: 'myapp').and_return(
+        [{ 'ID' => 'abc', 'Labels' => 'odysseus.service=myapp,odysseus.version=v2' }]
+      )
+      allow(mock_docker).to receive(:list).with(service: 'myapp-jobs').and_return(
+        [{ 'ID' => 'abc', 'Labels' => 'odysseus.service=myapp-jobs,odysseus.version=v2' }]
       )
       allow(mock_docker).to receive(:image_tags).and_return(%w[v2 v1])
     end
@@ -378,6 +388,29 @@ RSpec.describe Odysseus::Deployer::Executor do
 
         expect { multihost.version_survey }.to raise_error(Odysseus::SSHCommandError)
       end
+
+      # jobs1 only ever serves the :jobs role, so #current must come from the
+      # 'myapp-jobs' label JobDeploy actually writes, not the bare service
+      # name WebDeploy writes. Before the fix, every host was queried under
+      # the bare name, so a worker-only host always reported nothing running.
+      it 'reports the running version of a host serving only a non-web role' do
+        jobs_survey = multihost.version_survey.find { |s| s.host == 'jobs1.example.com' }
+
+        expect(jobs_survey.current).to eq('v2')
+      end
+
+      # web1 serves web and cron, in that config order. With web down, the
+      # survey must fall through to cron rather than reporting nil.
+      it 'falls through to a second role on a host when the first is not serving' do
+        allow(mock_docker).to receive(:list).with(service: 'myapp').and_return([])
+        allow(mock_docker).to receive(:list).with(service: 'myapp-cron').and_return(
+          [{ 'ID' => 'abc', 'Labels' => 'odysseus.service=myapp-cron,odysseus.version=v3' }]
+        )
+
+        web1_survey = multihost.version_survey.find { |s| s.host == 'web1.example.com' }
+
+        expect(web1_survey.current).to eq('v3')
+      end
     end
 
     describe '#rollback_plan' do
@@ -401,6 +434,17 @@ RSpec.describe Odysseus::Deployer::Executor do
 
         expect { multihost.rollback_plan(version: 'v1') }
           .to raise_error(Odysseus::RollbackError, /web2\.example\.com/)
+      end
+
+      # This is what carries a from= into jobs1's deploys.log line for a
+      # rollback: RollbackCommands writes it from plan.from_for(host), which
+      # reads plan.replacing[host]. A worker-only host whose current version
+      # was never seen (the bug in Finding 1) would carry nil here instead,
+      # silently losing the audit record.
+      it 'carries a non-nil replacing value for a worker-only host' do
+        plan = multihost.rollback_plan
+
+        expect(plan.replacing['jobs1.example.com']).to eq('v2')
       end
     end
 

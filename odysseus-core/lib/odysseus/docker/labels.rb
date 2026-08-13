@@ -23,6 +23,21 @@ module Odysseus
       def self.version_of(container)
         parse(container['Labels'])[VERSION_KEY]
       end
+
+      # The odysseus.service label value carried by a role's containers.
+      #
+      # WebDeploy labels the web role with the bare service name; JobDeploy
+      # labels every other role "<service>-<role>". Both conventions predate
+      # this method, which exists so that reading containers back cannot
+      # disagree with writing them. docker ps filters on an exact label match,
+      # so a wrong value here silently reports nothing running.
+      #
+      # @param service [String] the service name from deploy.yml
+      # @param role [Symbol, String] the server role
+      # @return [String]
+      def self.service_for(service:, role:)
+        role.to_sym == :web ? service.to_s : "#{service}-#{role}"
+      end
     end
   end
 end

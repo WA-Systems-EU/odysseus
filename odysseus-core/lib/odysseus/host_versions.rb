@@ -15,25 +15,37 @@ module Odysseus
     # @param ssh [Odysseus::Deployer::SSH] open connection to that host
     # @param service [String] the service name from deploy.yml
     # @param image [String] the repository from deploy.yml, without a tag
+    # @param roles [Array<Symbol>] the roles this host serves, in config order.
+    #   current scans them in this order and stops at the first that is
+    #   serving, so a host whose web role is down but whose jobs role is up
+    #   still reports something rather than nil.
     # @return [HostVersions]
-    def self.read(host:, ssh:, service:, image:)
+    def self.read(host:, ssh:, service:, image:, roles:)
       docker = Odysseus::Docker::Client.new(ssh)
 
       new(
         host: host,
-        current: current_version(docker, service),
+        current: current_version(docker, service, roles),
         available: docker.image_tags(image),
         history: Odysseus::DeployLog.new(ssh: ssh, service: service).entries
       )
     end
 
-    # The version label of the first running container. During a deploy two can
-    # briefly overlap; either answers "what is serving", and the planner only
-    # uses this to avoid offering a version that is already up.
-    def self.current_version(docker, service)
-      docker.list(service: service)
-            .filter_map { |container| Odysseus::Docker::Labels.version_of(container) }
-            .first
+    # The version label of the first running container of the first role, in
+    # role order, that is actually serving. WebDeploy and JobDeploy label
+    # their containers differently (see Docker::Labels.service_for), so each
+    # role must be queried under its own label or a non-web role reports
+    # nothing running.
+    def self.current_version(docker, service, roles)
+      roles.each do |role|
+        label = Odysseus::Docker::Labels.service_for(service: service, role: role)
+        version = docker.list(service: label)
+                        .filter_map { |container| Odysseus::Docker::Labels.version_of(container) }
+                        .first
+        return version if version
+      end
+
+      nil
     end
 
     private_class_method :current_version

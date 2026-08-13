@@ -465,6 +465,38 @@ RSpec.describe Odysseus::CLI::CLI do
       expect(output_of { cli.rollback(config: config_file, list: true) })
         .to match(/no deploy history/i)
     end
+
+    # A version deployed twice must sort by its LATEST deploy, not its first.
+    # v1's newest entry (Aug 3) is more recent than v2's only entry (Aug 2),
+    # so v1 belongs above v2 — the same version `RollbackPlanner#plan` would
+    # target with this exact history. Ordering by first-deploy instead (the
+    # pre-fix bug) would put v2 on top.
+    it 'orders a redeployed version by its latest deploy, matching what the planner would pick' do
+      redeployed_older = Odysseus::DeployLog::Entry.new(
+        at: '2026-08-01T09:00:00Z', version: 'v1', role: 'web', ref: 'main',
+        deployer: 'dev@example.com', kind: 'deployed', from: nil
+      )
+      between = Odysseus::DeployLog::Entry.new(
+        at: '2026-08-02T09:00:00Z', version: 'v2', role: 'web', ref: 'main',
+        deployer: 'dev@example.com', kind: 'deployed', from: nil
+      )
+      redeployed_newer = Odysseus::DeployLog::Entry.new(
+        at: '2026-08-03T09:00:00Z', version: 'v1', role: 'web', ref: 'main',
+        deployer: 'dev@example.com', kind: 'rolled-back', from: 'v2'
+      )
+      allow(executor).to receive(:version_survey).and_return(
+        [Odysseus::HostVersions.new(
+          host: 'web1.example.com', current: 'v1', available: %w[v1 v2],
+          history: [redeployed_older, between, redeployed_newer]
+        )]
+      )
+
+      out = output_of { cli.rollback(config: config_file, list: true) }
+      rows = out.lines.grep(/^\s*v[12]\b/)
+
+      expect(rows.first).to match(/^\s*v1\b/)
+      expect(rows.last).to match(/^\s*v2\b/)
+    end
   end
 
   def with_master_key(key)
