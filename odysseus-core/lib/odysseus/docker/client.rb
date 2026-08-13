@@ -155,6 +155,32 @@ module Odysseus
         output.lines.map(&:strip).reject { |tag| tag.empty? || tag == '<none>' }
       end
 
+      # Remove one image by reference.
+      #
+      # Lets SSHCommandError through deliberately: docker refuses to remove an
+      # image a container still references, and the caller prunes one image at a
+      # time so a refusal is a logged skip rather than a failed deploy.
+      #
+      # @param image [String] repository:tag
+      # @return [String] docker's output
+      def remove_image(image)
+        @ssh.execute("docker image rm #{Shellwords.escape(image)}")
+      end
+
+      # The versions any container on this host still references.
+      #
+      # Includes stopped containers (`all: true`): cleanup_old_containers keeps
+      # two per service on purpose, and pruning their images would leave nothing
+      # to fall back to. Used to protect those versions from retention.
+      #
+      # @param service_labels [Array<String>] odysseus.service values to check
+      # @return [Array<String>] distinct odysseus.version labels found
+      def versions_in_use(service_labels)
+        service_labels.flat_map { |label| list(service: label, all: true) }
+                      .filter_map { |container| Odysseus::Docker::Labels.version_of(container) }
+                      .uniq
+      end
+
       # Get logs from a container
       # @param container_id [String] container ID or name
       # @param follow [Boolean] follow log output (streaming)
