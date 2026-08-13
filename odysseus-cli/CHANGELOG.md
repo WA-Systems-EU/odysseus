@@ -7,7 +7,12 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-13
+
 ### Changed
+- Requires odysseus-core `~> 0.5.0`. The previous `~> 0.4.4` constraint
+  excludes 0.5.0 outright, so this is not a tightening but a necessary move:
+  without it the two gems cannot resolve together at all.
 - `odysseus deploy` now prunes old images on each host, keeping the newest
   `retain_versions` (default 5). See odysseus-core's changelog for what is
   protected from removal.

@@ -7,6 +7,12 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-13
+
+A minor bump rather than a patch: odysseus now deletes images on your hosts.
+Nothing did that before, and there is no undo, so the release number should
+make you read this entry.
+
 ### Added
 - `retain_versions` in deploy.yml, default 5: how many distinct versions of a
   service's image each host keeps. After a successful deploy, images beyond
