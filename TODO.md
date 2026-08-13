@@ -196,6 +196,24 @@ Smaller findings worth fixing but not blocking anything.
       defines `VERSION` where the path implies `Version`. Nothing calls
       `eager_load` today — the gemspec requires that file explicitly, so the
       constant resolves — but it would break anyone booting the gem eagerly.
+- [ ] **An unknown or mistyped top-level key in deploy.yml is silently
+      ignored.** `Validators::Config#validate!` checks only the keys it knows
+      about, each guarded by `if @config['x']`, so `retain_version:` (singular),
+      `retain-versions:`, or a key at the wrong indent level all fall through to
+      the default with no warning. Hit for real on 2026-08-13: a mistyped
+      `retain_versions` meant a deploy pruned nothing and said nothing about
+      why. Warning on unrecognised top-level keys — or at least on near-misses
+      of known ones — would have made it a five-second diagnosis. Note the same
+      exposure applies to every optional key: `proxy`, `env`, `ssh`, `builder`,
+      `registry`, `dependencies`.
+- [ ] The hardcoded `cleanup_old_containers(keep: 2)` puts a floor under image
+      retention: two stopped containers per service are kept, and
+      `versions_in_use` counts stopped containers, so their images cannot be
+      pruned. In practice you cannot get below roughly three versions (one
+      serving plus two stopped) however low `retain_versions` is set. Correct —
+      the guards working — but undocumented, and it makes the README's
+      `retain_versions: 1` warning read as scarier than it behaves. Document it
+      alongside making `keep:` configurable.
 - [ ] `Executor#record_deploy` appends to `deploys.log` unconditionally once the
       orchestrator returns, so an orchestrator that reports failure by returning
       `success: false` rather than raising writes a phantom "deployed" entry.
