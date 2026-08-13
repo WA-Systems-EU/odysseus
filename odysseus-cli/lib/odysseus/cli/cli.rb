@@ -201,10 +201,10 @@ module Odysseus
             @ui.blank
           end
 
-          # Accessories
-          if config[:accessories]&.any?
-            @ui.section 'Accessories'
-            rows = config[:accessories].map do |name, acc_config|
+          # Dependencies
+          if config[:dependencies]&.any?
+            @ui.section 'Dependencies'
+            rows = config[:dependencies].map do |name, acc_config|
               acc_service = "#{service_name}-#{name}"
               containers = docker.list(service: acc_service, all: true)
               running = containers.find { |c| c['State'] == 'running' }
@@ -290,102 +290,102 @@ module Odysseus
         @ui.info 'Image', config[:image]
         @ui.info 'Servers', config[:servers].keys.join(', ')
         @ui.info 'Proxy', config[:proxy][:hosts]&.join(', ')
-        @ui.info 'Accessories', config[:accessories].keys.join(', ') if config[:accessories]&.any?
+        @ui.info 'Dependencies', config[:dependencies].keys.join(', ') if config[:dependencies]&.any?
       rescue Odysseus::Error => e
         @ui.error "Validation failed: #{e.message}"
         exit 1
       end
 
-      # Accessory commands
-      def accessory_boot(options = {})
+      # Dependency commands
+      def dependency_boot(options = {})
         config_file = options[:config] || 'deploy.yml'
         name = require_name!(options)
 
-        @ui.header 'Accessory Boot'
-        @ui.info 'Accessory', name
+        @ui.header 'Dependency Boot'
+        @ui.info 'Dependency', name
         @ui.blank
 
         executor = Odysseus::Deployer::Executor.new(config_file)
-        @ui.spin_step("Booting #{name}...") { executor.deploy_accessory(name: name) }
-        @ui.step_ok "Accessory #{name} deployed"
+        @ui.spin_step("Booting #{name}...") { executor.deploy_dependency(name: name) }
+        @ui.step_ok "Dependency #{name} deployed"
       rescue Odysseus::Error => e
         @ui.step_fail e.message
         exit 1
       end
 
-      def accessory_boot_all(options = {})
+      def dependency_boot_all(options = {})
         config_file = options[:config] || 'deploy.yml'
 
-        @ui.header 'Accessory Boot All'
+        @ui.header 'Dependency Boot All'
         @ui.blank
 
         executor = Odysseus::Deployer::Executor.new(config_file)
-        @ui.spin_step('Booting all accessories...') { executor.boot_accessories }
-        @ui.step_ok 'All accessories deployed'
+        @ui.spin_step('Booting all dependencies...') { executor.boot_dependencies }
+        @ui.step_ok 'All dependencies deployed'
       rescue Odysseus::Error => e
         @ui.step_fail e.message
         exit 1
       end
 
-      def accessory_remove(options = {})
-        config_file = options[:config] || 'deploy.yml'
-        name = require_name!(options)
-
-        @ui.header 'Accessory Remove'
-        @ui.info 'Accessory', name
-        @ui.blank
-
-        executor = Odysseus::Deployer::Executor.new(config_file)
-        @ui.spin_step("Removing #{name}...") { executor.remove_accessory(name: name) }
-        @ui.step_ok "Accessory #{name} removed"
-      rescue Odysseus::Error => e
-        @ui.step_fail e.message
-        exit 1
-      end
-
-      def accessory_restart(options = {})
+      def dependency_remove(options = {})
         config_file = options[:config] || 'deploy.yml'
         name = require_name!(options)
 
-        @ui.header 'Accessory Restart'
-        @ui.info 'Accessory', name
+        @ui.header 'Dependency Remove'
+        @ui.info 'Dependency', name
         @ui.blank
 
         executor = Odysseus::Deployer::Executor.new(config_file)
-        @ui.spin_step("Restarting #{name}...") { executor.restart_accessory(name: name) }
-        @ui.step_ok "Accessory #{name} restarted"
+        @ui.spin_step("Removing #{name}...") { executor.remove_dependency(name: name) }
+        @ui.step_ok "Dependency #{name} removed"
       rescue Odysseus::Error => e
         @ui.step_fail e.message
         exit 1
       end
 
-      def accessory_upgrade(options = {})
+      def dependency_restart(options = {})
         config_file = options[:config] || 'deploy.yml'
         name = require_name!(options)
 
-        @ui.header 'Accessory Upgrade'
-        @ui.info 'Accessory', name
+        @ui.header 'Dependency Restart'
+        @ui.info 'Dependency', name
         @ui.blank
 
         executor = Odysseus::Deployer::Executor.new(config_file)
-        @ui.spin_step("Upgrading #{name}...") { executor.upgrade_accessory(name: name) }
-        @ui.step_ok "Accessory #{name} upgraded"
+        @ui.spin_step("Restarting #{name}...") { executor.restart_dependency(name: name) }
+        @ui.step_ok "Dependency #{name} restarted"
       rescue Odysseus::Error => e
         @ui.step_fail e.message
         exit 1
       end
 
-      def accessory_status(options = {})
+      def dependency_upgrade(options = {})
         config_file = options[:config] || 'deploy.yml'
+        name = require_name!(options)
 
-        @ui.header 'Accessory Status'
+        @ui.header 'Dependency Upgrade'
+        @ui.info 'Dependency', name
         @ui.blank
 
         executor = Odysseus::Deployer::Executor.new(config_file)
-        statuses = executor.accessory_status
+        @ui.spin_step("Upgrading #{name}...") { executor.upgrade_dependency(name: name) }
+        @ui.step_ok "Dependency #{name} upgraded"
+      rescue Odysseus::Error => e
+        @ui.step_fail e.message
+        exit 1
+      end
+
+      def dependency_status(options = {})
+        config_file = options[:config] || 'deploy.yml'
+
+        @ui.header 'Dependency Status'
+        @ui.blank
+
+        executor = Odysseus::Deployer::Executor.new(config_file)
+        statuses = executor.dependency_status
 
         if statuses.empty?
-          @ui.step 'No accessories configured'
+          @ui.step 'No dependencies configured'
         else
           rows = statuses.map do |s|
             state = s[:running] ? 'running' : 'stopped'
@@ -443,8 +443,8 @@ module Odysseus
         exit 1
       end
 
-      # Accessory logs
-      def accessory_logs(server, options = {})
+      # Dependency logs
+      def dependency_logs(server, options = {})
         config_file = options[:config] || 'deploy.yml'
         name = require_name!(options)
         follow = options[:follow] || false
@@ -454,7 +454,7 @@ module Odysseus
         config = load_config(config_file)
         service_name = "#{config[:service]}-#{name}"
 
-        @ui.header "Accessory Logs: #{service_name}"
+        @ui.header "Dependency Logs: #{service_name}"
         @ui.info 'Server', server
         @ui.blank
 
@@ -551,8 +551,8 @@ module Odysseus
         exit 1
       end
 
-      # Accessory shell
-      def accessory_shell(server, options = {})
+      # Dependency shell
+      def dependency_shell(server, options = {})
         config_file = options[:config] || 'deploy.yml'
         name = require_name!(options)
 
@@ -581,8 +581,8 @@ module Odysseus
         exit 1
       end
 
-      # Accessory exec
-      def accessory_exec(server, options = {})
+      # Dependency exec
+      def dependency_exec(server, options = {})
         config_file = options[:config] || 'deploy.yml'
         name = require_name!(options)
         command = options[:command]
@@ -595,8 +595,8 @@ module Odysseus
         config = load_config(config_file)
         service_name = "#{config[:service]}-#{name}"
 
-        @ui.header 'Accessory Exec'
-        @ui.info 'Accessory', name
+        @ui.header 'Dependency Exec'
+        @ui.info 'Dependency', name
         @ui.info 'Command', command
         @ui.blank
 
@@ -647,7 +647,7 @@ module Odysseus
 
           service_names = [service_name]
           config[:servers].keys.reject { |r| r == :web }.each { |role| service_names << "#{service_name}-#{role}" }
-          config[:accessories]&.each_key { |name| service_names << "#{service_name}-#{name}" }
+          config[:dependencies]&.each_key { |name| service_names << "#{service_name}-#{name}" }
 
           total_removed = 0
           service_names.each do |svc|
@@ -668,7 +668,7 @@ module Odysseus
             rescue StandardError
               nil
             end
-            config[:accessories]&.each do |name, acc_config|
+            config[:dependencies]&.each do |name, acc_config|
               next unless acc_config[:proxy]
 
               begin
@@ -873,7 +873,7 @@ module Odysseus
       def require_name!(options)
         name = options[:name]
         unless name
-          @ui.error 'Accessory name required (--name)'
+          @ui.error 'Dependency name required (--name)'
           exit 1
         end
         name

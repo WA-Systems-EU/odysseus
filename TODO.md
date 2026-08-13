@@ -109,17 +109,15 @@ we'd feel their absence.
       or `proxy reboot`.
 - [ ] **`retain_containers` equivalent.** Cleanup keeps a hardcoded 2 old
       containers (`cleanup_old_containers(keep: 2)`); not configurable.
-- [ ] **Rename `accessories` to `dependencies`.** Decided 2026-08-13: Kamal's
-      term does not read well, and `dependencies` says what these are — things
-      the app requires, not optional extras. `services:` was rejected because
-      `deploy.yml` already has `service:` and `servers:`. Scope: the
-      `deploy.yml` key, the `odysseus accessory` verb (becoming
-      `odysseus dependency`, with `dep` as an alias), `AccessoryDeploy` and
-      `AccessoryManager`, and four docs. Accept the old key and verb for one
-      release so the seven app configs can be updated at leisure. **No on-host
-      impact:** container names and the `odysseus.service` label come from
-      `"#{service}-#{name}"`, where `name` is the individual accessory's key,
-      so nothing running is affected and no migration is needed.
+- [x] **Rename `accessories` to `dependencies`.** Done 2026-08-13. `services:`
+      was rejected because `deploy.yml` already has `service:` and `servers:`.
+      The old key and the old `odysseus accessory` verb both still work, the
+      verb printing a notice; remove them a release after this one.
+- [ ] **Drop the `accessories:` key and the `accessory` verb**, one release
+      after the rename ships. Both are accepted for back-compat today:
+      `Config::Parser#normalize` falls back to `config['accessories']`, and
+      `bin/odysseus`'s `DEPENDENCY_ALIASES` includes `accessory`. Update the
+      seven app `deploy.yml` files before removing them.
 
 ## P2 — after the gap closes
 
@@ -157,8 +155,8 @@ Smaller findings worth fixing but not blocking anything.
 - [ ] odysseus-cli's spec suite never sets `config.warnings = true`, unlike
       `odysseus-core/spec/spec_helper.rb:24`, so Ruby warnings in CLI specs go
       unnoticed.
-- [ ] `AccessoryManager#status_on` calls `list_status` once per accessory/host
-      pair where once per host would do — O(N²) docker calls for N accessories.
+- [ ] `DependencyManager#status_on` calls `list_status` once per dependency/host
+      pair where once per host would do — O(N²) docker calls for N dependencies.
       Deliberately left as-is for now: restructuring it to call `list_status`
       once per host would change the CLI's row order.
 - [ ] `rollback --list`'s `Image` column holds `present`/`missing`; it would
@@ -175,7 +173,7 @@ Smaller findings worth fixing but not blocking anything.
       still build the value inline. Read and write can therefore still drift —
       which is exactly the bug the whole-branch review caught in the rollback
       survey. Route both writers through it.
-- [ ] An accessory and a server role sharing a name collide: both
-      `accessories.db` and `servers.db` produce the container service label
+- [ ] A dependency and a server role sharing a name collide: both
+      `dependencies.db` and `servers.db` produce the container service label
       `myapp-db`, so each would see the other's containers. Nothing validates
       against it.

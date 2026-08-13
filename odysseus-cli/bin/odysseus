@@ -6,6 +6,10 @@ require 'odysseus/cli/cli'
 require 'odysseus/cli/version'
 require 'optparse'
 
+# `dependency` is the name; `dep` is shorthand; `accessory` is the former
+# name, kept for one release.
+DEPENDENCY_ALIASES = %w[dependency dep accessory].freeze
+
 def main
   # Debug mode: verbose output with no spinners
   debug_mode = ENV['ODYSSEUS_DEBUG'] == '1' || ARGV.include?('--debug')
@@ -30,7 +34,7 @@ def main
     'logs' => { method: :logs, needs_server: true },
     'cleanup' => { method: :cleanup, needs_server: true },
     'validate' => { method: :validate, needs_server: false },
-    'accessory' => { method: :accessory_dispatch, needs_server: false },
+    'dependency' => { method: :dependency_dispatch, needs_server: false },
     'app' => { method: :app_dispatch, needs_server: false },
     'secrets' => { method: :secrets_dispatch, needs_server: false }
   }
@@ -38,9 +42,12 @@ def main
   command = ARGV[0]
   command_args = ARGV[1..] || []
 
-  # Handle accessory subcommands
-  if command == 'accessory'
-    handle_accessory_command(cli, command_args)
+  # Handle dependency subcommands. `dep` is shorthand; `accessory` was the name
+  # before the rename and still works, with a notice — a silent alias never gets
+  # migrated away from.
+  if DEPENDENCY_ALIASES.include?(command)
+    puts "Note: 'accessory' was renamed to 'dependency'. The old name still works for now." if command == 'accessory'
+    handle_dependency_command(cli, command_args)
     return
   end
 
@@ -101,48 +108,48 @@ def main
   end
 end
 
-def handle_accessory_command(cli, args)
+def handle_dependency_command(cli, args)
   subcommand = args[0]
   subcommand_args = args[1..] || []
 
   # Commands that don't need a server argument (hosts come from config)
-  accessory_commands_no_server = {
-    'boot' => :accessory_boot,
-    'boot-all' => :accessory_boot_all,
-    'remove' => :accessory_remove,
-    'restart' => :accessory_restart,
-    'upgrade' => :accessory_upgrade,
-    'status' => :accessory_status
+  dependency_commands_no_server = {
+    'boot' => :dependency_boot,
+    'boot-all' => :dependency_boot_all,
+    'remove' => :dependency_remove,
+    'restart' => :dependency_restart,
+    'upgrade' => :dependency_upgrade,
+    'status' => :dependency_status
   }
 
   # Commands that need a server argument (for interactive/logs on specific host)
-  accessory_commands_with_server = {
-    'logs' => :accessory_logs,
-    'exec' => :accessory_exec,
-    'shell' => :accessory_shell
+  dependency_commands_with_server = {
+    'logs' => :dependency_logs,
+    'exec' => :dependency_exec,
+    'shell' => :dependency_shell
   }
 
-  all_commands = accessory_commands_no_server.merge(accessory_commands_with_server)
+  all_commands = dependency_commands_no_server.merge(dependency_commands_with_server)
 
   unless subcommand && all_commands[subcommand]
-    puts 'Usage: odysseus accessory <subcommand> [options]'
+    puts 'Usage: odysseus dependency <subcommand> [options]'
     puts ''
     puts 'Subcommands (hosts from config):'
-    puts '  boot                  Boot an accessory (requires --name)'
-    puts '  boot-all              Boot all accessories'
-    puts '  remove                Remove an accessory (requires --name)'
-    puts '  restart               Restart an accessory (requires --name)'
-    puts '  upgrade               Upgrade accessory to new image (requires --name)'
-    puts '  status                Show accessory status'
+    puts '  boot                  Boot a dependency (requires --name)'
+    puts '  boot-all              Boot all dependencies'
+    puts '  remove                Remove a dependency (requires --name)'
+    puts '  restart               Restart a dependency (requires --name)'
+    puts '  upgrade               Upgrade a dependency to a new image (requires --name)'
+    puts '  status                Show dependency status'
     puts ''
     puts 'Subcommands (require server):'
-    puts '  logs <server>         Show accessory logs (requires --name)'
-    puts '  exec <server>         Execute command in accessory (requires --name)'
-    puts '  shell <server>        Open interactive shell in accessory (requires --name)'
+    puts '  logs <server>         Show dependency logs (requires --name)'
+    puts '  exec <server>         Execute a command in a dependency (requires --name)'
+    puts '  shell <server>        Open an interactive shell in a dependency (requires --name)'
     puts ''
     puts 'Options:'
     puts '  --config FILE         Path to deploy.yml (default: deploy.yml)'
-    puts '  --name NAME           Accessory name'
+    puts '  --name NAME           Dependency name'
     puts '  -f, --follow          Follow log output (logs only)'
     puts '  -n, --lines N         Number of lines (logs only, default: 100)'
     puts '  --since TIME          Show logs since timestamp (logs only)'
@@ -154,18 +161,18 @@ def handle_accessory_command(cli, args)
 
   OptionParser.new do |opts|
     opts.on('--config FILE', 'Path to deploy.yml') { |v| options[:config] = v }
-    opts.on('--name NAME', 'Accessory name') { |v| options[:name] = v }
+    opts.on('--name NAME', 'Dependency name') { |v| options[:name] = v }
     opts.on('-f', '--follow', 'Follow log output') { |v| options[:follow] = v }
     opts.on('-n', '--lines N', Integer, 'Number of lines') { |v| options[:lines] = v }
     opts.on('--since TIME', 'Show logs since timestamp') { |v| options[:since] = v }
     opts.on('--command CMD', 'Command to execute') { |v| options[:command] = v }
   end.parse!(subcommand_args)
 
-  if accessory_commands_with_server[subcommand]
+  if dependency_commands_with_server[subcommand]
     # These commands need a server argument
     server = subcommand_args[0]
     unless server
-      puts "Error: accessory #{subcommand} requires a server argument"
+      puts "Error: dependency #{subcommand} requires a server argument"
       exit 1
     end
     cli.send(all_commands[subcommand], server, options)
@@ -279,7 +286,7 @@ def print_help
   puts '  logs <server>             Show logs for a service'
   puts '  cleanup <server>          Clean up old containers and images'
   puts '  validate                  Validate deploy.yml'
-  puts '  accessory <subcommand>    Manage accessories'
+  puts '  dependency <subcommand>    Manage dependencies (db, redis, ...); alias: dep'
   puts '  app <subcommand>          Run commands in app containers'
   puts '  secrets <subcommand>      Manage encrypted secrets'
   puts '  version                   Show version information'

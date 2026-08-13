@@ -242,46 +242,46 @@ module Odysseus
         run_deploy(host: host, role: role, resolved: resolved)
       end
 
-      # Deploy an accessory to all its configured hosts
-      # @param name [Symbol] accessory name
-      def deploy_accessory(name:)
-        accessory_manager.deploy(name: name)
+      # Deploy an dependency to all its configured hosts
+      # @param name [Symbol] dependency name
+      def deploy_dependency(name:)
+        dependency_manager.deploy(name: name)
       end
 
-      # Remove an accessory from all its configured hosts
-      # @param name [Symbol] accessory name
-      def remove_accessory(name:)
-        accessory_manager.remove(name: name)
+      # Remove an dependency from all its configured hosts
+      # @param name [Symbol] dependency name
+      def remove_dependency(name:)
+        dependency_manager.remove(name: name)
       end
 
-      # Restart an accessory on all its configured hosts
-      # @param name [Symbol] accessory name
-      def restart_accessory(name:)
-        accessory_manager.restart(name: name)
+      # Restart an dependency on all its configured hosts
+      # @param name [Symbol] dependency name
+      def restart_dependency(name:)
+        dependency_manager.restart(name: name)
       end
 
-      # Upgrade an accessory to a new image version on all its configured hosts
-      # @param name [Symbol] accessory name
-      def upgrade_accessory(name:)
-        accessory_manager.upgrade(name: name)
+      # Upgrade an dependency to a new image version on all its configured hosts
+      # @param name [Symbol] dependency name
+      def upgrade_dependency(name:)
+        dependency_manager.upgrade(name: name)
       end
 
-      # List accessory status on all configured hosts
-      def accessory_status
-        accessory_manager.status
+      # List dependency status on all configured hosts
+      def dependency_status
+        dependency_manager.status
       end
 
-      # Boot all accessories to their configured hosts
-      def boot_accessories
-        accessory_manager.boot_all
+      # Boot all dependencies to their configured hosts
+      def boot_dependencies
+        dependency_manager.boot_all
       end
 
       private
 
-      # Accessory verbs are a distinct concern from deploy/rollback; see
-      # Odysseus::Deployer::AccessoryManager.
-      def accessory_manager
-        @accessory_manager ||= Odysseus::Deployer::AccessoryManager.new(
+      # Dependency verbs are a distinct concern from deploy/rollback; see
+      # Odysseus::Deployer::DependencyManager.
+      def dependency_manager
+        @dependency_manager ||= Odysseus::Deployer::DependencyManager.new(
           config: @config, secrets_loader: @secrets_loader, connector: method(:connect_to_server)
         )
       end

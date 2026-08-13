@@ -18,7 +18,7 @@ RSpec.describe 'bin/odysseus' do
     it 'lists the commands it accepts' do
       stdout, _stderr, _status = run_cli
 
-      %w[deploy rollback build pussh status containers logs cleanup validate accessory app secrets]
+      %w[deploy rollback build pussh status containers logs cleanup validate dependency app secrets]
         .each { |command| expect(stdout).to include(command) }
     end
   end
@@ -43,34 +43,65 @@ RSpec.describe 'bin/odysseus' do
     end
   end
 
-  describe 'accessory' do
+  describe 'dependency' do
     it 'prints its subcommands when none is given' do
-      stdout, _stderr, status = run_cli('accessory')
+      stdout, _stderr, status = run_cli('dependency')
 
-      expect(stdout).to include('Usage: odysseus accessory <subcommand>')
+      expect(stdout).to include('Usage: odysseus dependency <subcommand>')
       %w[boot boot-all remove restart upgrade status logs exec shell]
         .each { |sub| expect(stdout).to include(sub) }
       expect(status.exitstatus).to eq(1)
     end
 
     it 'rejects an unknown subcommand' do
-      _stdout, _stderr, status = run_cli('accessory', 'levitate')
+      _stdout, _stderr, status = run_cli('dependency', 'levitate')
 
       expect(status.exitstatus).to eq(1)
     end
 
     it 'requires --name for boot' do
-      stdout, _stderr, status = run_cli('accessory', 'boot', '--config', fixture_path('deploy.yml'))
+      stdout, _stderr, status = run_cli('dependency', 'boot', '--config', fixture_path('deploy.yml'))
 
-      expect(stdout).to include('Accessory name required')
+      expect(stdout).to include('Dependency name required')
       expect(status.exitstatus).to eq(1)
     end
 
     it 'requires a server for logs' do
-      stdout, _stderr, status = run_cli('accessory', 'logs', '--name', 'db')
+      stdout, _stderr, status = run_cli('dependency', 'logs', '--name', 'db')
 
       expect(stdout).to include('requires a server argument')
       expect(status.exitstatus).to eq(1)
+    end
+
+    it 'accepts dep as a shorthand' do
+      stdout, _stderr, status = run_cli('dep')
+
+      expect(stdout).to include('Usage: odysseus dependency <subcommand>')
+      expect(status.exitstatus).to eq(1)
+    end
+  end
+
+  # `accessory` was the name until 0.4.4. It keeps working for one release so
+  # app repos and muscle memory can migrate, but says so, because a silent
+  # alias never gets migrated away from.
+  describe 'the deprecated accessory alias' do
+    it 'still dispatches to the dependency subcommands' do
+      stdout, _stderr, status = run_cli('accessory')
+
+      expect(stdout).to include('Usage: odysseus dependency <subcommand>')
+      expect(status.exitstatus).to eq(1)
+    end
+
+    it 'warns that the name has changed, naming the replacement' do
+      stdout, _stderr, _status = run_cli('accessory')
+
+      expect(stdout).to match(/accessory.*renamed.*dependency/im)
+    end
+
+    it 'does not warn when the current name is used' do
+      stdout, _stderr, _status = run_cli('dependency')
+
+      expect(stdout).not_to match(/renamed/i)
     end
   end
 

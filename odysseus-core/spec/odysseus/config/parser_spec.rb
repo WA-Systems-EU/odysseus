@@ -104,4 +104,40 @@ RSpec.describe Odysseus::Config::Parser do
       expect(config[:servers][:web][:options]).to eq({})
     end
   end
+
+  # `accessories:` was renamed to `dependencies:` because the old name implied
+  # optional extras, when a database the app cannot boot without is not
+  # optional. The old key keeps working for one release so existing deploy.yml
+  # files can be updated at leisure.
+  describe 'dependencies' do
+    def parse(fixture)
+      described_class.new(fixture_path(fixture)).parse
+    end
+
+    it 'parses the dependencies key' do
+      config = parse('deploy-dependencies.yml')
+
+      expect(config[:dependencies][:redis][:image]).to eq('redis:7')
+      expect(config[:dependencies][:redis][:hosts]).to eq(%w[acc1.example.com acc2.example.com])
+    end
+
+    it 'still accepts the old accessories key' do
+      config = parse('deploy-legacy-accessories.yml')
+
+      expect(config[:dependencies][:redis][:image]).to eq('redis:7')
+    end
+
+    # Asserts non-emptiness first: comparing two nils would pass this happily
+    # while neither key was being read at all.
+    it 'parses the two keys identically' do
+      from_new_key = parse('deploy-dependencies.yml')[:dependencies]
+
+      expect(from_new_key.keys).to eq(%i[redis sidekiq])
+      expect(from_new_key).to eq(parse('deploy-legacy-accessories.yml')[:dependencies])
+    end
+
+    it 'yields an empty hash when neither key is present' do
+      expect(parse('deploy.yml')[:dependencies]).to eq({})
+    end
+  end
 end

@@ -195,24 +195,24 @@ RSpec.describe Odysseus::CLI::CLI do
     end
   end
 
-  describe '#accessory_boot' do
-    it 'boots the named accessory' do
-      expect(executor).to receive(:deploy_accessory).with(name: 'db')
+  describe '#dependency_boot' do
+    it 'boots the named dependency' do
+      expect(executor).to receive(:deploy_dependency).with(name: 'db')
 
-      output_of { cli.accessory_boot(config: config_file, name: 'db') }
+      output_of { cli.dependency_boot(config: config_file, name: 'db') }
     end
 
     it 'exits non-zero when no name is given' do
-      expect { output_of { cli.accessory_boot(config: config_file) } }
+      expect { output_of { cli.dependency_boot(config: config_file) } }
         .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
     end
   end
 
-  describe '#accessory_boot_all' do
-    it 'boots every configured accessory' do
-      expect(executor).to receive(:boot_accessories)
+  describe '#dependency_boot_all' do
+    it 'boots every configured dependency' do
+      expect(executor).to receive(:boot_dependencies)
 
-      output_of { cli.accessory_boot_all(config: config_file) }
+      output_of { cli.dependency_boot_all(config: config_file) }
     end
   end
 

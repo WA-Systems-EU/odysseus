@@ -1,0 +1,29 @@
+# spec/fixtures/deploy-legacy-accessories.yml
+# The former `accessories:` key, kept working for one release so app repos
+# can migrate at leisure. Deliberately identical in content to
+# deploy-dependencies.yml so the two keys can be proved equivalent — if you
+# edit one, edit both, or the equivalence test stops meaning anything.
+
+service: myapp
+image: myapp-production
+
+servers:
+  web:
+    hosts:
+      - web1.example.com
+
+accessories:
+  redis:
+    image: redis:7
+    hosts:
+      - acc1.example.com
+      - acc2.example.com
+  sidekiq:
+    image: sidekiq:latest
+    hosts:
+      - acc1.example.com
+
+ssh:
+  user: root
+  keys:
+    - ~/.ssh/id_ed25519

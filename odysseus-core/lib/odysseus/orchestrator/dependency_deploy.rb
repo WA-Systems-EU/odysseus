@@ -1,10 +1,10 @@
-# lib/odysseus/orchestrator/accessory_deploy.rb
+# lib/odysseus/orchestrator/dependency_deploy.rb
 
 require_relative '../core/volume_namespacer'
 
 module Odysseus
   module Orchestrator
-    class AccessoryDeploy
+    class DependencyDeploy
       include Odysseus::Core::VolumeNamespacer
 
       # @param ssh [Odysseus::Deployer::SSH] SSH connection
@@ -20,43 +20,43 @@ module Odysseus
         @caddy = Odysseus::Caddy::Client.new(ssh: ssh, docker: @docker)
       end
 
-      # Deploy/ensure an accessory is running
-      # @param name [Symbol] accessory name
+      # Deploy/ensure an dependency is running
+      # @param name [Symbol] dependency name
       # @return [Hash] deploy result
       def deploy(name:)
-        accessory_config = @config[:accessories][name]
-        raise Odysseus::ConfigError, "Accessory '#{name}' not found in config" unless accessory_config
+        dependency_config = @config[:dependencies][name]
+        raise Odysseus::ConfigError, "Dependency '#{name}' not found in config" unless dependency_config
 
-        service_name = accessory_name(name)
-        image = accessory_config[:image]
+        service_name = dependency_name(name)
+        image = dependency_config[:image]
 
-        log "Deploying accessory: #{service_name}"
+        log "Deploying dependency: #{service_name}"
         log "  Image: #{image}"
 
-        # Ensure the Docker network exists (accessories may boot before any service deploy)
+        # Ensure the Docker network exists (dependencies may boot before any service deploy)
         ensure_network!
 
-        # Check if accessory is already running
+        # Check if dependency is already running
         existing = @docker.list(service: service_name)
         if existing.any? { |c| c['State'] == 'running' }
           log '  Already running — skipping'
           return { success: true, already_running: true, service: service_name }
         end
 
-        # Start the accessory
+        # Start the dependency
         log "Starting #{service_name}..."
-        container_id = start_accessory(name: name, config: accessory_config)
+        container_id = start_dependency(name: name, config: dependency_config)
         log "  Container started: #{container_id[0..11]}"
 
         # Wait for healthy if healthcheck configured
-        if accessory_config[:healthcheck]
-          hc = accessory_config[:healthcheck]
+        if dependency_config[:healthcheck]
+          hc = dependency_config[:healthcheck]
           log "Waiting for health check... (cmd: #{hc[:cmd]}, interval: #{hc[:interval]}s)"
           unless @docker.wait_healthy(container_id, timeout: 120)
             log_health_failure(container_id)
             @docker.stop(container_id)
             @docker.remove(container_id, force: true)
-            raise Odysseus::DeployError, 'Accessory failed health checks'
+            raise Odysseus::DeployError, 'Dependency failed health checks'
           end
           log '  Health check passed'
         else
@@ -64,20 +64,20 @@ module Odysseus
           sleep 3
           unless @docker.running?(container_id)
             log_health_failure(container_id)
-            raise Odysseus::DeployError, 'Accessory failed to start'
+            raise Odysseus::DeployError, 'Dependency failed to start'
           end
           log '  Container is running'
         end
 
         # Add to Caddy if proxy config is present
-        if accessory_config[:proxy]
-          proxy_hosts = accessory_config[:proxy][:hosts]&.join(', ')
+        if dependency_config[:proxy]
+          proxy_hosts = dependency_config[:proxy][:hosts]&.join(', ')
           log "Configuring proxy (hosts: #{proxy_hosts})..."
-          add_to_caddy(name: name, container_id: container_id, config: accessory_config)
+          add_to_caddy(name: name, container_id: container_id, config: dependency_config)
           log '  Proxy configured'
         end
 
-        log "Accessory #{service_name} deployed"
+        log "Dependency #{service_name} deployed"
 
         {
           success: true,
@@ -86,25 +86,25 @@ module Odysseus
           image: image
         }
       rescue StandardError => e
-        log "Accessory deploy FAILED: #{e.message}", :error
+        log "Dependency deploy FAILED: #{e.message}", :error
         raise
       end
 
-      # Stop and remove an accessory
-      # @param name [Symbol] accessory name
+      # Stop and remove an dependency
+      # @param name [Symbol] dependency name
       def remove(name:)
-        accessory_config = @config[:accessories][name]
-        raise Odysseus::ConfigError, "Accessory '#{name}' not found in config" unless accessory_config
+        dependency_config = @config[:dependencies][name]
+        raise Odysseus::ConfigError, "Dependency '#{name}' not found in config" unless dependency_config
 
-        service_name = accessory_name(name)
-        log "Removing accessory: #{service_name}"
+        service_name = dependency_name(name)
+        log "Removing dependency: #{service_name}"
 
         # Remove from Caddy if proxy configured
-        if accessory_config[:proxy]
+        if dependency_config[:proxy]
           containers = @docker.list(service: service_name)
           containers.each do |c|
             container_name = c['Names'].delete_prefix('/')
-            port = accessory_config[:proxy][:app_port]
+            port = dependency_config[:proxy][:app_port]
             @caddy.drain_upstream(service: service_name, upstream: "#{container_name}:#{port}")
           end
         end
@@ -116,28 +116,28 @@ module Odysseus
           @docker.remove(c['ID'], force: true)
         end
 
-        log "Accessory #{service_name} removed!"
+        log "Dependency #{service_name} removed!"
         { success: true, service: service_name }
       end
 
-      # Restart an accessory (remove and redeploy)
-      # @param name [Symbol] accessory name
+      # Restart an dependency (remove and redeploy)
+      # @param name [Symbol] dependency name
       def restart(name:)
         remove(name: name)
         deploy(name: name)
       end
 
-      # Upgrade an accessory to a new image version (preserves volumes)
-      # @param name [Symbol] accessory name
+      # Upgrade an dependency to a new image version (preserves volumes)
+      # @param name [Symbol] dependency name
       # @return [Hash] upgrade result
       def upgrade(name:)
-        accessory_config = @config[:accessories][name]
-        raise Odysseus::ConfigError, "Accessory '#{name}' not found in config" unless accessory_config
+        dependency_config = @config[:dependencies][name]
+        raise Odysseus::ConfigError, "Dependency '#{name}' not found in config" unless dependency_config
 
-        service_name = accessory_name(name)
-        image = accessory_config[:image]
+        service_name = dependency_name(name)
+        image = dependency_config[:image]
 
-        log "Upgrading accessory: #{service_name}"
+        log "Upgrading dependency: #{service_name}"
         log "  Image: #{image}"
 
         # Ensure the Docker network exists
@@ -153,9 +153,9 @@ module Odysseus
         old_container = existing.first
 
         # Remove from Caddy if proxy configured (before stopping)
-        if accessory_config[:proxy] && old_container && old_container['State'] == 'running'
+        if dependency_config[:proxy] && old_container && old_container['State'] == 'running'
           container_name = old_container['Names'].delete_prefix('/')
-          port = accessory_config[:proxy][:app_port]
+          port = dependency_config[:proxy][:app_port]
           log 'Draining from proxy...'
           @caddy.drain_upstream(service: service_name, upstream: "#{container_name}:#{port}")
           log '  Drained from proxy'
@@ -169,20 +169,20 @@ module Odysseus
           log '  Old container removed'
         end
 
-        # Start the accessory with the new image (volumes are preserved on host)
+        # Start the dependency with the new image (volumes are preserved on host)
         log 'Starting new container...'
-        container_id = start_accessory(name: name, config: accessory_config)
+        container_id = start_dependency(name: name, config: dependency_config)
         log "  Container started: #{container_id[0..11]}"
 
         # Wait for healthy if healthcheck configured
-        if accessory_config[:healthcheck]
-          hc = accessory_config[:healthcheck]
+        if dependency_config[:healthcheck]
+          hc = dependency_config[:healthcheck]
           log "Waiting for health check... (cmd: #{hc[:cmd]}, interval: #{hc[:interval]}s)"
           unless @docker.wait_healthy(container_id, timeout: 120)
             log_health_failure(container_id)
             @docker.stop(container_id)
             @docker.remove(container_id, force: true)
-            raise Odysseus::DeployError, 'Accessory failed health checks after upgrade'
+            raise Odysseus::DeployError, 'Dependency failed health checks after upgrade'
           end
           log '  Health check passed'
         else
@@ -190,20 +190,20 @@ module Odysseus
           sleep 3
           unless @docker.running?(container_id)
             log_health_failure(container_id)
-            raise Odysseus::DeployError, 'Accessory failed to start after upgrade'
+            raise Odysseus::DeployError, 'Dependency failed to start after upgrade'
           end
           log '  Container is running'
         end
 
         # Add to Caddy if proxy config is present
-        if accessory_config[:proxy]
-          proxy_hosts = accessory_config[:proxy][:hosts]&.join(', ')
+        if dependency_config[:proxy]
+          proxy_hosts = dependency_config[:proxy][:hosts]&.join(', ')
           log "Configuring proxy (hosts: #{proxy_hosts})..."
-          add_to_caddy(name: name, container_id: container_id, config: accessory_config)
+          add_to_caddy(name: name, container_id: container_id, config: dependency_config)
           log '  Proxy configured'
         end
 
-        log "Accessory #{service_name} upgraded"
+        log "Dependency #{service_name} upgraded"
 
         {
           success: true,
@@ -213,17 +213,17 @@ module Odysseus
           upgraded: true
         }
       rescue StandardError => e
-        log "Accessory upgrade failed: #{e.message}", :error
+        log "Dependency upgrade failed: #{e.message}", :error
         raise
       end
 
-      # List status of all accessories
-      # @return [Array<Hash>] accessory statuses
+      # List status of all dependencies
+      # @return [Array<Hash>] dependency statuses
       def list_status
-        return [] unless @config[:accessories]
+        return [] unless @config[:dependencies]
 
-        @config[:accessories].map do |name, config|
-          service_name = accessory_name(name)
+        @config[:dependencies].map do |name, config|
+          service_name = dependency_name(name)
           containers = @docker.list(service: service_name, all: true)
           running = containers.find { |c| c['State'] == 'running' }
 
@@ -240,7 +240,7 @@ module Odysseus
 
       private
 
-      def accessory_name(name)
+      def dependency_name(name)
         "#{@config[:service]}-#{name}"
       end
 
@@ -249,8 +249,8 @@ module Odysseus
         @docker.ensure_network('odysseus', labels: { 'odysseus.managed' => 'true' })
       end
 
-      def start_accessory(name:, config:)
-        service_name = accessory_name(name)
+      def start_dependency(name:, config:)
+        service_name = dependency_name(name)
 
         env = build_environment(config[:env])
         log "  Environment: #{env.size} variable(s) injected" if env.any?
@@ -325,7 +325,7 @@ module Odysseus
         upstream = "#{container_name}:#{port}"
 
         @caddy.add_upstream(
-          service: accessory_name(name),
+          service: dependency_name(name),
           hosts: proxy_config[:hosts],
           upstream: upstream,
           ssl: proxy_config[:ssl],
