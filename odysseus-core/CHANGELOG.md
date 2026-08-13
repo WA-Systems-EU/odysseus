@@ -24,8 +24,9 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
   Three independent things must agree before an image is deleted: it must
   fall outside the retain window, no container on the host may reference it
-  (stopped containers included, since cleanup keeps two per service), and
-  docker must accept the removal. Each removal is attempted on its own, so one
+  (stopped containers included, since a stopped container still references its
+  image and an operator may still need it), and docker must accept the
+  removal. Each removal is attempted on its own, so one
   refusal is a logged skip rather than a failed deploy. A host with no
   `deploys.log` is skipped entirely rather than pruned by image creation time,
   which is build time and can be out of order. `latest` is never removed

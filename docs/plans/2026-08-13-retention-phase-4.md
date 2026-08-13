@@ -1106,8 +1106,9 @@ Setting this to `1` is allowed but means the previous version's image becomes
 eligible for removal as soon as you deploy, leaving `odysseus rollback` with no
 candidate. Use at least 2 if you want to be able to roll back.
 
-`latest` is never removed automatically; `odysseus cleanup --prune-images`
-remains the manual sweep.
+`latest` is never removed automatically. `odysseus cleanup --prune-images`
+only removes *dangling* images, and a tagged `latest` is never dangling —
+removing it means `docker image rm` by hand on the host.
 ```
 
 - [ ] **Step 5: `TODO.md`**
