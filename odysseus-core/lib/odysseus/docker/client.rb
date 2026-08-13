@@ -138,6 +138,23 @@ module Odysseus
         !output.strip.empty?
       end
 
+      # Tags of the images present locally for a repository.
+      #
+      # docker orders these newest-created first, which is the fallback
+      # ordering a rollback uses on a host with no deploy log. Untagged
+      # (dangling) images report a tag of '<none>' and are dropped: they cannot
+      # be named in a docker run, so they are never rollback targets.
+      #
+      # @param image [String] repository name, without a tag
+      # @return [Array<String>] tags present on this host
+      def image_tags(image)
+        output = @ssh.execute(
+          "docker images #{Shellwords.escape(image)} --format '{{.Tag}}' 2>/dev/null || true"
+        )
+
+        output.lines.map(&:strip).reject { |tag| tag.empty? || tag == '<none>' }
+      end
+
       # Get logs from a container
       # @param container_id [String] container ID or name
       # @param follow [Boolean] follow log output (streaming)

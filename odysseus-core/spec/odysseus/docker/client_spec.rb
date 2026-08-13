@@ -278,6 +278,40 @@ RSpec.describe Odysseus::Docker::Client do
     end
   end
 
+  describe '#image_tags' do
+    it 'lists the tags docker reports for the repository' do
+      allow(mock_ssh).to receive(:execute).and_return("abc123def456\n9f8e7d6c5b4a\nlatest\n")
+
+      expect(client.image_tags('myapp-production')).to eq(%w[abc123def456 9f8e7d6c5b4a latest])
+    end
+
+    # A dangling image cannot be named in a docker run, so it can never be a
+    # rollback target. Left in, it would be offered as one.
+    it 'drops dangling images' do
+      allow(mock_ssh).to receive(:execute).and_return("abc123def456\n<none>\nlatest\n")
+
+      expect(client.image_tags('myapp-production')).to eq(%w[abc123def456 latest])
+    end
+
+    it 'returns an empty list when the host has no images for the repository' do
+      allow(mock_ssh).to receive(:execute).and_return("\n")
+
+      expect(client.image_tags('myapp-production')).to eq([])
+    end
+
+    it 'asks docker only for the tag, so the output needs no parsing' do
+      expect(mock_ssh).to receive(:execute).with(a_string_including("--format '{{.Tag}}'")).and_return('')
+
+      client.image_tags('myapp-production')
+    end
+
+    it 'escapes the repository name' do
+      expect(mock_ssh).to receive(:execute).with(a_string_including('my\ app')).and_return('')
+
+      client.image_tags('my app')
+    end
+  end
+
   describe '#wait_healthy' do
     before do
       allow(client).to receive(:sleep) # Don't actually sleep in tests
