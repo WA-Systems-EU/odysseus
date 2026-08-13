@@ -42,6 +42,17 @@ RSpec.describe Odysseus::HostVersions do
       expect(read.current).to be_nil
     end
 
+    it 'skips a container with no version label to find the first labelled one' do
+      allow(mock_docker).to receive(:list).with(service: 'myapp').and_return(
+        [
+          { 'ID' => 'abc', 'Labels' => 'odysseus.service=myapp' },
+          { 'ID' => 'def', 'Labels' => 'odysseus.service=myapp,odysseus.version=9f8e7d6c5b4a' }
+        ]
+      )
+
+      expect(read.current).to eq('9f8e7d6c5b4a')
+    end
+
     # A container deployed before 0.4.2 carries a timestamp here, not a SHA.
     # Whatever the label says is what is serving, so it is reported verbatim
     # and the planner decides whether an image exists for it.
