@@ -92,8 +92,6 @@ module Odysseus
         removed_upstreams = @caddy.cleanup_stale_upstreams(service: service)
         log "  Removed #{removed_upstreams.size} stale upstream(s)" if removed_upstreams.any?
 
-        record_deploy(role)
-
         log "Deploy complete for #{service}"
 
         {
@@ -171,26 +169,6 @@ module Odysseus
         resolved = @config[:deploy_version]
         labels['odysseus.git_ref'] = resolved.ref if resolved&.ref
         labels
-      end
-
-      # The host's own record of what it is running. Best effort: a deploy that
-      # reached this point has succeeded, and an unwritable log must not undo
-      # it. Rescues StandardError rather than Odysseus::Error: SSH#execute can
-      # also raise Net::SSH::Disconnect, IOError or Net::SSH::ChannelOpenFailed,
-      # none of which with_connection translates, and any of them escaping here
-      # would turn a completed, traffic-switched deploy into a reported failure.
-      def record_deploy(role)
-        resolved = @config[:deploy_version]
-        return unless resolved
-
-        Odysseus::DeployLog.new(ssh: @ssh, service: @config[:service]).append(
-          version: resolved.version,
-          role: role,
-          ref: resolved.ref,
-          deployer: resolved.deployer
-        )
-      rescue StandardError => e
-        log "Could not record the deploy on this host: #{e.message}", :warn
       end
 
       def internal_port_mapping(app_port)

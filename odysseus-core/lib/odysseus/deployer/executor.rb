@@ -176,14 +176,7 @@ module Odysseus
           return { success: true, dry_run: true }
         end
 
-        ssh = connect_to_server(host)
-
-        begin
-          orchestrator = build_orchestrator(ssh, role, resolved)
-          orchestrator.deploy(image_tag: resolved.version, role: role)
-        ensure
-          ssh.close
-        end
+        run_deploy(host: host, role: role, resolved: resolved)
       end
 
       # Deploy an accessory to all its configured hosts
@@ -287,6 +280,42 @@ module Odysseus
       # travels in the config hash rather than as a new keyword argument.
       def orchestrator_config(resolved)
         @config.merge(deploy_version: resolved)
+      end
+
+      # One role on one host: connect, hand off to the orchestrator, record the
+      # outcome on the host, close. Shared by deploy and rollback so both get
+      # identical health gating, proxy handling and audit trail.
+      #
+      # @param kind [String] 'deployed' or 'rolled-back'
+      # @param from [String, nil] the version being replaced, for a rollback
+      def run_deploy(host:, role:, resolved:, kind: 'deployed', from: nil)
+        ssh = connect_to_server(host)
+
+        begin
+          orchestrator = build_orchestrator(ssh, role, resolved)
+          result = orchestrator.deploy(image_tag: resolved.version, role: role)
+          record_deploy(ssh: ssh, host: host, role: role, resolved: resolved, kind: kind, from: from)
+          result
+        ensure
+          ssh.close
+        end
+      end
+
+      # The host's own record of what it is running, written only after the
+      # orchestrator reports success.
+      #
+      # Best effort, and deliberately rescuing StandardError rather than
+      # Odysseus::Error: SSH#execute can also raise Net::SSH::Disconnect,
+      # IOError or Net::SSH::ChannelOpenFailed, none of which with_connection
+      # translates. Traffic has already switched by this point, so any of them
+      # escaping here would turn a completed deploy into a reported failure.
+      def record_deploy(ssh:, host:, role:, resolved:, kind:, from:)
+        Odysseus::DeployLog.new(ssh: ssh, service: @config[:service]).append(
+          version: resolved.version, role: role, ref: resolved.ref,
+          deployer: resolved.deployer, kind: kind, from: from
+        )
+      rescue StandardError => e
+        build_logger.warn("Could not record the deploy on #{host}: #{e.message}")
       end
 
       def build_orchestrator(ssh, role, resolved)

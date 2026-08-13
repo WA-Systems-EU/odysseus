@@ -12,6 +12,11 @@ RSpec.describe Odysseus::Deployer::Executor do
   before do
     allow(Odysseus::Deployer::SSH).to receive(:new).and_return(mock_ssh)
     allow(mock_ssh).to receive(:close)
+    # Executor now records every successful deploy_role unconditionally (see
+    # 'recording the deploy on the host' below), so any test that reaches
+    # deploy_role needs DeployLog silenced unless it is specifically
+    # exercising recording, where the describe block below overrides this.
+    allow(Odysseus::DeployLog).to receive(:new).and_return(instance_double(Odysseus::DeployLog, append: nil))
   end
 
   describe '#initialize' do
@@ -179,6 +184,69 @@ RSpec.describe Odysseus::Deployer::Executor do
         expect(result[:success]).to be true
         expect(result[:container_id]).to eq('abc123')
       end
+    end
+  end
+
+  describe 'recording the deploy on the host' do
+    let(:deploy_log) { instance_double(Odysseus::DeployLog) }
+    let(:resolver) { instance_double(Odysseus::VersionResolver) }
+    let(:resolved) do
+      Odysseus::DeployVersion.new(version: 'abc123def456', ref: 'main', deployer: 'dev@example.com')
+    end
+
+    before do
+      allow(Odysseus::VersionResolver).to receive(:new).and_return(resolver)
+      allow(resolver).to receive(:resolve).and_return(resolved)
+      allow(Odysseus::DeployLog).to receive(:new).and_return(deploy_log)
+      allow(deploy_log).to receive(:append)
+      # The top-level before stubs SSH.new and #close only; each describe block
+      # stubs its own orchestrator. Without this the real WebDeploy is built and
+      # #deploy reaches the Docker client.
+      allow(Odysseus::Orchestrator::WebDeploy).to receive(:new).and_return(mock_orchestrator)
+      allow(mock_orchestrator).to receive(:deploy).and_return(success: true)
+    end
+
+    it 'records the version, role, ref and deployer for the service' do
+      expect(Odysseus::DeployLog).to receive(:new).with(ssh: mock_ssh, service: 'myapp')
+                                                  .and_return(deploy_log)
+      expect(deploy_log).to receive(:append).with(
+        version: 'abc123def456', role: :web, ref: 'main',
+        deployer: 'dev@example.com', kind: 'deployed', from: nil
+      )
+
+      executor.deploy_role(host: 'app1.example.com', role: :web)
+    end
+
+    it 'records nothing when the orchestrator raises' do
+      allow(mock_orchestrator).to receive(:deploy)
+        .and_raise(Odysseus::DeployError, 'Container failed health checks')
+      expect(deploy_log).not_to receive(:append)
+
+      expect { executor.deploy_role(host: 'app1.example.com', role: :web) }
+        .to raise_error(Odysseus::DeployError)
+    end
+
+    it 'still reports success when the log cannot be written' do
+      allow(deploy_log).to receive(:append).and_raise(Odysseus::SSHCommandError, 'read-only fs')
+
+      expect(executor.deploy_role(host: 'app1.example.com', role: :web)).to include(success: true)
+    end
+
+    # Net::SSH::Disconnect, IOError and Net::SSH::ChannelOpenFailed all
+    # propagate through SSH#execute untranslated. Traffic has already switched
+    # to the new container by this point, so none of them may turn a completed
+    # deploy into a reported failure.
+    it 'still reports success when writing the log raises a raw connection error' do
+      allow(deploy_log).to receive(:append).and_raise(IOError, 'connection reset')
+
+      expect(executor.deploy_role(host: 'app1.example.com', role: :web)).to include(success: true)
+    end
+
+    it 'closes the connection even when recording fails' do
+      allow(deploy_log).to receive(:append).and_raise(IOError, 'connection reset')
+      expect(mock_ssh).to receive(:close)
+
+      executor.deploy_role(host: 'app1.example.com', role: :web)
     end
   end
 
