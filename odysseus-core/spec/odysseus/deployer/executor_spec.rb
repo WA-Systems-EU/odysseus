@@ -87,7 +87,7 @@ RSpec.describe Odysseus::Deployer::Executor do
                                           ref: 'main', deployer: 'dev@example.com',
                                           kind: 'deployed', from: nil)]
         )
-        allow(mock_docker).to receive(:image_tags).and_return(%w[v_old])
+        allow(mock_docker).to receive(:image_tags).with('myapp-production').and_return(%w[v_old])
         allow(mock_docker).to receive(:versions_in_use).and_return([])
         allow(mock_docker).to receive(:remove_image)
       end
@@ -613,7 +613,7 @@ RSpec.describe Odysseus::Deployer::Executor do
             )
           end
         )
-        allow(mock_docker).to receive(:image_tags).and_return(versions.reverse)
+        allow(mock_docker).to receive(:image_tags).with('myapp-production').and_return(versions.reverse)
 
         plan = Odysseus::RollbackPlan.new(version: 'v1', ref: 'main', approximate: false,
                                           replacing: { 'web1.example.com' => 'v2',

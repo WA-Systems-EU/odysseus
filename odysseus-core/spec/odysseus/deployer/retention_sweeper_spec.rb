@@ -30,7 +30,7 @@ RSpec.describe Odysseus::Deployer::RetentionSweeper do
         [entry('v1', '2026-08-01T09:00:00Z'), entry('v2', '2026-08-02T09:00:00Z'),
          entry('v3', '2026-08-03T09:00:00Z')]
       )
-      allow(mock_docker).to receive(:image_tags).and_return(%w[v3 v2 v1])
+      allow(mock_docker).to receive(:image_tags).with('myapp-production').and_return(%w[v3 v2 v1])
       allow(mock_docker).to receive(:versions_in_use).and_return(['v3'])
       allow(mock_docker).to receive(:remove_image)
     end
@@ -80,7 +80,7 @@ RSpec.describe Odysseus::Deployer::RetentionSweeper do
         [entry('v1', '2026-08-01T09:00:00Z'), entry('v2', '2026-08-02T09:00:00Z'),
          entry('v3', '2026-08-03T09:00:00Z'), entry('v4', '2026-08-04T09:00:00Z')]
       )
-      allow(mock_docker).to receive(:image_tags).and_return(%w[v4 v3 v2 v1])
+      allow(mock_docker).to receive(:image_tags).with('myapp-production').and_return(%w[v4 v3 v2 v1])
       allow(mock_docker).to receive(:versions_in_use).and_return(['v4'])
       allow(mock_docker).to receive(:remove_image).with('myapp-production:v1')
                                                   .and_raise(Odysseus::SSHCommandError, 'image is in use')
@@ -105,7 +105,7 @@ RSpec.describe Odysseus::Deployer::RetentionSweeper do
         [entry('v1', '2026-08-01T09:00:00Z'), entry('v2', '2026-08-02T09:00:00Z'),
          entry('v3', '2026-08-03T09:00:00Z'), entry('v4', '2026-08-04T09:00:00Z')]
       )
-      allow(mock_docker).to receive(:image_tags).and_return(%w[v4 v3 v2 v1])
+      allow(mock_docker).to receive(:image_tags).with('myapp-production').and_return(%w[v4 v3 v2 v1])
       allow(mock_docker).to receive(:versions_in_use).and_return(['v4'])
       allow(mock_docker).to receive(:remove_image).with('myapp-production:v1')
                                                   .and_raise(IOError, 'connection reset')
@@ -119,6 +119,46 @@ RSpec.describe Odysseus::Deployer::RetentionSweeper do
       expect(mock_ssh).to receive(:close)
 
       retain_two.prune_old_images
+    end
+  end
+
+  # Constructed directly rather than through Executor, so the injected logger
+  # can be a plain double: RetentionPlan itself carries no reason a version
+  # was kept (see retention_planner_spec.rb), so this is the only place that
+  # guarantee is observable at all.
+  describe 'logging what is retained' do
+    let(:logger) { double('logger', info: nil, warn: nil) }
+    let(:mock_docker) { instance_double(Odysseus::Docker::Client) }
+    let(:deploy_log) { instance_double(Odysseus::DeployLog) }
+    let(:config) { { service: 'myapp', image: 'myapp-production', retain_versions: 2 } }
+    let(:sweeper) do
+      described_class.new(config: config, connector: ->(_host) { mock_ssh }, logger: logger)
+    end
+
+    def entry(version, at)
+      Odysseus::DeployLog::Entry.new(
+        at: at, version: version, role: 'web', ref: 'main',
+        deployer: 'dev@example.com', kind: 'deployed', from: nil
+      )
+    end
+
+    before do
+      allow(mock_ssh).to receive(:close)
+      allow(Odysseus::Docker::Client).to receive(:new).and_return(mock_docker)
+      allow(Odysseus::DeployLog).to receive(:new).and_return(deploy_log)
+      allow(deploy_log).to receive(:entries).and_return(
+        [entry('v1', '2026-08-01T09:00:00Z'), entry('v2', '2026-08-02T09:00:00Z'),
+         entry('v3', '2026-08-03T09:00:00Z')]
+      )
+      allow(mock_docker).to receive(:image_tags).with('myapp-production').and_return(%w[v3 v2 v1])
+      allow(mock_docker).to receive(:versions_in_use).and_return([])
+      allow(mock_docker).to receive(:remove_image)
+    end
+
+    it 'names the versions retained on the host, so the manual verification step has something to check' do
+      expect(logger).to receive(:info).with('  Keeping v3, v2 on web1.example.com')
+
+      sweeper.sweep('web1.example.com' => [:web])
     end
   end
 end

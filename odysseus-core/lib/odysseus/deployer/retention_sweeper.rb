@@ -36,6 +36,7 @@ module Odysseus
           plan = retention_plan(ssh, docker, host, roles)
           return [] if plan.nil?
 
+          @logger.info("  Keeping #{plan.keep.join(', ')} on #{host}")
           plan.remove.select { |version| prune_image(docker, host, version) }
         rescue StandardError => e
           @logger.warn("Could not prune images on #{host}: #{e.message}")

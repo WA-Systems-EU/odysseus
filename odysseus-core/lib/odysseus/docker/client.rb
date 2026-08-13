@@ -169,9 +169,10 @@ module Odysseus
 
       # The versions any container on this host still references.
       #
-      # Includes stopped containers (`all: true`): cleanup_old_containers keeps
-      # two per service on purpose, and pruning their images would leave nothing
-      # to fall back to. Used to protect those versions from retention.
+      # Includes stopped containers (`all: true`): a stopped container still
+      # references its image, whether it stopped from a crash, a reboot, or by
+      # hand, and deleting that image would remove something an operator may
+      # still need. Used to protect those versions from retention.
       #
       # @param service_labels [Array<String>] odysseus.service values to check
       # @return [Array<String>] distinct odysseus.version labels found

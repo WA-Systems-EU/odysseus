@@ -561,6 +561,17 @@ RSpec.describe Odysseus::Docker::Client do
       client.remove_image('myapp-production:abc123')
     end
 
+    # Not -f. A container whose role was removed from deploy.yml keeps
+    # running with no label RetentionSweeper's container_labels(roles) would
+    # ever see, so versions_in_use never protects it; docker's refusal to
+    # remove an image a container still references is the only guard left for
+    # that host. A forced removal would delete the image out from under it.
+    it 'never forces the removal' do
+      expect(mock_ssh).to receive(:execute).with('docker image rm myapp-production:abc123').and_return('')
+
+      client.remove_image('myapp-production:abc123')
+    end
+
     it 'escapes the image reference' do
       expect(mock_ssh).to receive(:execute).with(a_string_including('my\ app')).and_return('')
 

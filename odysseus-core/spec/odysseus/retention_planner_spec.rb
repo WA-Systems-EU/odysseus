@@ -61,8 +61,10 @@ RSpec.describe Odysseus::RetentionPlanner do
   end
 
   # A container on this host still references it. docker would refuse the
-  # removal anyway; refusing here means we do not even try, and the reason is
-  # visible in the plan.
+  # removal anyway; refusing here means we do not even try. The plan itself
+  # does not record why a version was kept — being in use, absent, or
+  # `latest` all land the same way, simply outside `remove` — RetentionSweeper
+  # separately logs the retained set for a host.
   it 'never removes a version a container still references' do
     result = plan(history: history_of('v1', 'v2', 'v3', 'v4'),
                   available: %w[v1 v2 v3 v4], in_use: %w[v1])
@@ -135,5 +137,26 @@ RSpec.describe Odysseus::RetentionPlanner do
 
     expect(result.keep).to eq(%w[v2])
     expect(result.remove).to eq(%w[v1])
+  end
+
+  # A rollback re-promotes an older version by writing a fresh log entry for
+  # it, so ranking must go by that entry's time like any other deploy. A
+  # planner that instead excludes 'rolled-back' entries from ranking would
+  # rank v1 by its ORIGINAL deploy time (oldest) rather than the rollback's
+  # (newest but one), pushing it out of the retain window — deleting the
+  # image for the version an operator who just rolled back is most likely to
+  # want next. Neither of the other two guards catches this: v1's container
+  # is already gone by the time this runs.
+  it 'ranks a rolled-back version by the rollback entry, not its original deploy' do
+    history = [entry(version: 'v1', at: '2026-08-01T09:00:00Z'),
+               entry(version: 'v2', at: '2026-08-02T09:00:00Z'),
+               entry(version: 'v3', at: '2026-08-03T09:00:00Z'),
+               entry(version: 'v1', at: '2026-08-04T09:00:00Z', kind: 'rolled-back'),
+               entry(version: 'v4', at: '2026-08-05T09:00:00Z')]
+
+    result = plan(history: history, available: %w[v1 v2 v3 v4], retain: 2)
+
+    expect(result.keep).to eq(%w[v4 v1])
+    expect(result.remove).to eq(%w[v2 v3])
   end
 end
