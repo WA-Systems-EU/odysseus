@@ -67,9 +67,13 @@ we'd feel their absence.
       `deploy`. A fleet pre-flight requires the target image on every host
       before any host is touched. **Verified on a real host 2026-08-13**, which
       the specs could not do: no unit test proves the deploy path accepts a tag
-      it did not build. Retention/pruning of the images that pile up on hosts,
-      and a git-notes trail for who-deployed-what, are separate future plans and
-      stay open.
+      it did not build.
+- [x] **Retention/pruning of the images that pile up on hosts.** `deploy`
+      prunes each host's superseded image versions once all of that host's
+      roles are deployed, keeping `retain_versions` (default 5) and never a
+      version a container still references. `rollback` deliberately does not
+      prune. A git-notes trail for who-deployed-what is a separate future plan
+      and stays open.
 - [ ] **Deploy locks.** Nothing stops two people (or a person and CI) deploying
       at once and interleaving container swaps, and the same is true of a
       rollback racing a deploy or another rollback. Kamal: `kamal lock`.
@@ -188,3 +192,7 @@ Smaller findings worth fixing but not blocking anything.
       `dependencies.db` and `servers.db` produce the container service label
       `myapp-db`, so each would see the other's containers. Nothing validates
       against it.
+- [ ] Zeitwerk's `eager_load` raises on `lib/odysseus/core/version.rb`, which
+      defines `VERSION` where the path implies `Version`. Nothing calls
+      `eager_load` today — the gemspec requires that file explicitly, so the
+      constant resolves — but it would break anyone booting the gem eagerly.

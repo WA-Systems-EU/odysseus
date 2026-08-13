@@ -7,6 +7,11 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Changed
+- `odysseus deploy` now prunes old images on each host, keeping the newest
+  `retain_versions` (default 5). See odysseus-core's changelog for what is
+  protected from removal.
+
 ## [0.4.4] - 2026-08-13
 
 ### Changed

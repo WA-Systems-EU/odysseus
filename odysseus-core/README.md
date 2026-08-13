@@ -76,6 +76,9 @@ Deployment orchestration:
 - Automatic rollback on failure
 - Roll a service back to a previously deployed version, chosen from what the
   hosts report rather than the local repository
+- Prune a service's superseded image versions from each host after a
+  successful deploy, keeping the newest `retain_versions` and never a version
+  a container still references
 
 ### Odysseus::Secrets::EncryptedFile
 
