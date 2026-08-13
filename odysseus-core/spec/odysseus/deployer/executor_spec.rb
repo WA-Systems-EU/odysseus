@@ -34,6 +34,9 @@ RSpec.describe Odysseus::Deployer::Executor do
     before do
       allow(Odysseus::Orchestrator::WebDeploy).to receive(:new).and_return(mock_orchestrator)
       allow(mock_orchestrator).to receive(:deploy).and_return({ success: true })
+      # These examples are about deploying, not pruning; the 'image retention'
+      # context below exercises the prune pass itself.
+      allow(executor).to receive(:prune_old_images)
     end
 
     it 'deploys to all hosts for each role' do
@@ -64,6 +67,45 @@ RSpec.describe Odysseus::Deployer::Executor do
       it 'outputs deploy info' do
         expect { executor.deploy_all(image_tag: 'v1.0', dry_run: true) }
           .to output(/Dry run/).to_stdout
+      end
+    end
+
+    context 'image retention' do
+      let(:mock_docker) { instance_double(Odysseus::Docker::Client) }
+      let(:deploy_log) { instance_double(Odysseus::DeployLog) }
+
+      before do
+        # Undo the enclosing block's blanket stub: these examples are the ones
+        # actually exercising the prune pass, unlike the plain deploy examples
+        # above.
+        allow(executor).to receive(:prune_old_images).and_call_original
+        allow(Odysseus::Docker::Client).to receive(:new).and_return(mock_docker)
+        allow(Odysseus::DeployLog).to receive(:new).and_return(deploy_log)
+        allow(deploy_log).to receive(:append)
+        allow(deploy_log).to receive(:entries).and_return(
+          [Odysseus::DeployLog::Entry.new(at: '2026-08-01T09:00:00Z', version: 'v_old', role: 'web',
+                                          ref: 'main', deployer: 'dev@example.com',
+                                          kind: 'deployed', from: nil)]
+        )
+        allow(mock_docker).to receive(:image_tags).and_return(%w[v_old])
+        allow(mock_docker).to receive(:versions_in_use).and_return([])
+        allow(mock_docker).to receive(:remove_image)
+      end
+
+      # retain_versions defaults to 5 and the log has one entry, so nothing is
+      # eligible — which is why this asserts the sweep *ran* by checking the
+      # host was read, not by checking a removal happened.
+      it 'sweeps each host after deploying' do
+        expect(mock_docker).to receive(:versions_in_use)
+
+        executor.deploy_all(image_tag: 'v1.0')
+      end
+
+      it 'does not touch any host on a dry run' do
+        expect(mock_docker).not_to receive(:versions_in_use)
+        expect(mock_docker).not_to receive(:remove_image)
+
+        executor.deploy_all(image_tag: 'v1.0', dry_run: true)
       end
     end
   end
@@ -527,6 +569,62 @@ RSpec.describe Odysseus::Deployer::Executor do
         end.at_least(:once)
 
         multihost.rollback_all(plan)
+      end
+    end
+
+    describe 'retention and rollback' do
+      # A non-empty log, unlike the outer describe block's default: an empty
+      # log makes RetentionSweeper skip the host before ever calling
+      # versions_in_use (see retention_sweeper_spec.rb), which would make
+      # 'surveys each host once' below vacuously true no matter how many
+      # hosts prune_old_images actually reached.
+      before do
+        allow(deploy_log).to receive(:entries).and_return(
+          [Odysseus::DeployLog::Entry.new(at: '2026-08-01T09:00:00Z', version: 'v1', role: 'web',
+                                          ref: 'main', deployer: 'dev@example.com',
+                                          kind: 'deployed', from: nil)]
+        )
+        allow(mock_docker).to receive(:versions_in_use).and_return([])
+        allow(mock_docker).to receive(:remove_image)
+      end
+
+      # Deleting images during a recovery is the wrong moment, and the version
+      # just rolled back FROM is the most likely next thing wanted.
+      it 'does not prune when rolling back' do
+        # Six deploys logged against the default retain of five, with the
+        # oldest (v1) present on the host and not in use: if the sweep ran
+        # despite this being a rollback, v1 would genuinely be eligible for
+        # removal. Without this, "not_to receive(:remove_image)" would hold
+        # even if pruning ran, since a single-entry log (the describe block's
+        # default) never has anything eligible either way.
+        versions = %w[v1 v2 v3 v4 v5 v6]
+        allow(deploy_log).to receive(:entries).and_return(
+          versions.each_with_index.map do |version, i|
+            Odysseus::DeployLog::Entry.new(
+              at: format('2026-08-%<day>02dT09:00:00Z', day: i + 1), version: version, role: 'web',
+              ref: 'main', deployer: 'dev@example.com', kind: 'deployed', from: nil
+            )
+          end
+        )
+        allow(mock_docker).to receive(:image_tags).and_return(versions.reverse)
+
+        plan = Odysseus::RollbackPlan.new(version: 'v1', ref: 'main', approximate: false,
+                                          replacing: { 'web1.example.com' => 'v2',
+                                                       'web2.example.com' => 'v2',
+                                                       'jobs1.example.com' => 'v2' })
+        allow(Odysseus::Orchestrator::WebDeploy).to receive(:new).and_return(mock_orchestrator)
+        allow(Odysseus::Orchestrator::JobDeploy).to receive(:new).and_return(mock_orchestrator)
+        allow(mock_orchestrator).to receive(:deploy).and_return(success: true)
+
+        expect(mock_docker).not_to receive(:remove_image)
+
+        multihost.rollback_all(plan)
+      end
+
+      it 'surveys each host once even when a host serves two roles' do
+        expect(mock_docker).to receive(:versions_in_use).exactly(3).times.and_return([])
+
+        multihost.prune_old_images
       end
     end
   end

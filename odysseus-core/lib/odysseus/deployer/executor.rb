@@ -157,6 +157,8 @@ module Odysseus
           end
         end
 
+        prune_old_images unless dry_run
+
         results
       end
 
@@ -221,6 +223,13 @@ module Odysseus
         end
 
         results
+      end
+
+      # Delete a service's images that no host needs any more.
+      #
+      # @return [Hash{String => Array<String>}] versions removed, keyed by host
+      def prune_old_images
+        retention_sweeper.sweep(host_roles)
       end
 
       # Deploy a single role to a specific host
@@ -288,6 +297,14 @@ module Odysseus
 
       def version_resolver
         @version_resolver ||= Odysseus::VersionResolver.new(config_dir: @config_dir, logger: build_logger)
+      end
+
+      # Image retention is a distinct concern from deploy/rollback; see
+      # Odysseus::Deployer::RetentionSweeper.
+      def retention_sweeper
+        @retention_sweeper ||= Odysseus::Deployer::RetentionSweeper.new(
+          config: @config, connector: method(:connect_to_server), logger: build_logger
+        )
       end
 
       # Sails are constructed with a fixed keyword set, so version metadata
