@@ -7,6 +7,10 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-08-13
+
+A rename, with the old names still working. Nothing on a host changes.
+
 ### Changed
 - `accessories:` in deploy.yml is now `dependencies:`. The old name implied
   optional extras, when a database the app cannot boot without is not optional.

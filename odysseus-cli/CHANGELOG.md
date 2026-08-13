@@ -7,7 +7,14 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-08-13
+
 ### Changed
+- Requires odysseus-core `~> 0.4.4`. The dependency was `~> 0.4.3`, which
+  allowed installing a core whose `Executor` still named its six methods
+  `deploy_accessory`, `boot_accessories` and so on — all of which the dependency
+  commands call under their new names, so they would have failed with a
+  NoMethodError rather than a resolvable error.
 - `odysseus accessory` is now `odysseus dependency`, with `dep` accepted as
   shorthand. The old verb still works and prints a notice naming the
   replacement, because a silent alias never gets migrated away from; it will be
