@@ -152,7 +152,7 @@ Smaller findings worth fixing but not blocking anything.
       once per host would change the CLI's row order.
 - [ ] `rollback --list`'s `Image` column holds `present`/`missing`; it would
       read better as `Available`.
-- [ ] `bin/odysseus`'s positional-VERSION extraction for `rollback`
+- [ ] `odysseus-cli/bin/odysseus`'s positional-VERSION extraction for `rollback`
       (`options[:version] = command_args[0] if command == 'rollback' && ...`)
       has no regression test. It is awkward to cover offline because the
       version is only echoed back after `rollback_plan` has connected to

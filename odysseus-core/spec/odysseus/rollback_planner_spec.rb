@@ -100,6 +100,19 @@ RSpec.describe Odysseus::RollbackPlanner do
       expect(described_class.new(surveys).plan.version).to eq('v1')
     end
 
+    # `candidates` excludes 'latest' only from the fallback path (no log
+    # anywhere on the fleet). A version literally tagged 'latest' that a
+    # deploy log actually recorded is a real deploy, not the moving
+    # pointer the fallback exclusion exists to distrust, so it stays a
+    # candidate here.
+    it 'targets latest when the deploy log recorded it as a real deploy' do
+      log = [entry(version: 'v1', at: '2026-08-01T09:00:00Z'),
+             entry(version: 'latest', at: '2026-08-02T09:00:00Z')]
+      surveys = [host('host1', current: 'v2', available: %w[v2 v1 latest], history: log)]
+
+      expect(described_class.new(surveys).plan.version).to eq('latest')
+    end
+
     it 'requires the target to be present on every host' do
       surveys = [
         host('host1', current: 'v2', available: %w[v2 v1], history: history),

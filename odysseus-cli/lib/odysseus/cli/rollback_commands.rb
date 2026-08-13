@@ -71,13 +71,16 @@ module Odysseus
       # One row per distinct version, most recently deployed first. A version
       # deployed repeatedly is reported once, at its latest deploy time.
       #
-      # Ordered the same way RollbackPlanner#logged_versions picks a target —
-      # newest entry first, then dedupe keeping the first (newest) occurrence
-      # of each version — so the top row here is always what a plain
-      # `odysseus rollback` would do. A hash keyed by version and reassigned
-      # in history order looks equivalent but is not: Ruby keeps a
-      # reassigned key at its *first* insertion position, so it orders by
-      # each version's first deploy rather than its latest.
+      # Ordered the same way RollbackPlanner#logged_versions ranks
+      # candidates — newest entry first, then dedupe keeping the first
+      # (newest) occurrence of each version. That is candidate order, not
+      # the planner's chosen target: RollbackPlanner#previous_version then
+      # skips candidates that are already serving somewhere or missing on
+      # some host, so a plain `odysseus rollback` can pick a version below
+      # the top row shown here. A hash keyed by version and reassigned in
+      # history order looks equivalent but is not: Ruby keeps a reassigned
+      # key at its *first* insertion position, so it orders by each
+      # version's first deploy rather than its latest.
       def rollback_rows(host_versions)
         host_versions.history.sort_by(&:at).reverse.uniq(&:version).map do |e|
           [e.version, e.at, e.ref, e.deployer,
