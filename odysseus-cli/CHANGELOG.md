@@ -22,6 +22,11 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   before the subcommand shipped in 0.2.0; see odysseus-core's changelog for the
   root cause and fix.
 
+### Internal
+- Rollback commands moved out of the main `CLI` class into
+  `Odysseus::CLI::RollbackCommands`, to keep the class under its existing size
+  limit without changing its public API.
+
 ## [0.4.2] - 2026-08-13
 
 ### Changed

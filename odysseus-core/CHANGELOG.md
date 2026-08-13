@@ -41,15 +41,11 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   `list_status` breaks the build instead of the command.
 
 ### Internal
-- Accessory lifecycle methods (`boot`, `boot_all`, `remove`, `restart`,
-  `upgrade`, `status_on`) moved out of `Executor` into
+- Accessory lifecycle methods (`deploy`, `remove`, `restart`, `upgrade`,
+  `status`, `boot_all`) moved out of `Executor` into
   `Deployer::AccessoryManager`, to keep both classes under their existing size
   limits. The public API is unchanged, and `AccessoryManager` gets the first
   spec coverage that code has ever had.
-- odysseus-cli's rollback commands moved out of its main CLI class into
-  `Odysseus::CLI::RollbackCommands`, the same kind of extraction and for the
-  same reason — keeping the class under its existing size limit without
-  changing its public API.
 
 ## [0.4.2] - 2026-08-13
 
