@@ -196,3 +196,20 @@ Smaller findings worth fixing but not blocking anything.
       defines `VERSION` where the path implies `Version`. Nothing calls
       `eager_load` today — the gemspec requires that file explicitly, so the
       constant resolves — but it would break anyone booting the gem eagerly.
+- [ ] `Executor#record_deploy` appends to `deploys.log` unconditionally once the
+      orchestrator returns, so an orchestrator that reports failure by returning
+      `success: false` rather than raising writes a phantom "deployed" entry.
+      Both built-in orchestrators raise, so this is only reachable through a
+      sail plugin — but the phantom entry consumes a retention keep-slot and
+      pushes one extra real version out of the window, and it would offer a
+      version that never served as a rollback candidate.
+- [ ] `RetentionPlanner` and `RollbackPlanner` both rank log entries with
+      `sort_by(&:at)`, which is not stable, while `DeployLog::TIME_FORMAT` has
+      second granularity. Two *different* versions logged in the same second
+      rank arbitrarily. Fix both together or neither: they must never disagree
+      about the ordering of one log.
+- [ ] `deploy_all` prunes images on every host without inspecting its results,
+      so a run where one host reported `success: false` (again, only reachable
+      via a non-raising sail) still prunes everywhere. Blast radius is bounded —
+      the planner reads each host's own log and in-use set — but the choice
+      should be deliberate rather than incidental.
