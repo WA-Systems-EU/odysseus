@@ -204,6 +204,26 @@ Validate your deploy.yml configuration.
 odysseus validate [--config FILE]
 ```
 
+### rollback
+
+Return every role on every host to a previously deployed version.
+
+```bash
+odysseus rollback              # to the previous version
+odysseus rollback abc123def456 # to a specific version
+odysseus rollback --list       # what each host could roll back to
+```
+
+The target is chosen from what the hosts have, not from your checkout: the
+version must still have an image on **every** host, or the rollback refuses
+without touching any of them.
+
+A rollback re-runs the deploy path, so it starts a container and waits for
+health checks — roughly the time of a normal deploy, minus build and transfer.
+
+Only versions deployed by odysseus 0.4.2 or later can be rolled back to.
+Earlier deploys were built from `:latest`, so no image identifies them.
+
 ### accessory
 
 Manage accessories (databases, Redis, etc).

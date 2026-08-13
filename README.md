@@ -131,6 +131,16 @@ proxy:
     expect_status: 200
 ```
 
+### Rollback
+
+Return every role on every host to a previously deployed version, chosen from
+what the hosts actually have rather than your local checkout:
+
+```bash
+odysseus rollback              # to the previous version
+odysseus rollback --list       # what each host could roll back to
+```
+
 ## Documentation
 
 See [odysseus-cli/README.md](odysseus-cli/README.md) for complete CLI documentation and configuration reference.

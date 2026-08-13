@@ -7,6 +7,21 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Added
+- `odysseus rollback [VERSION]`, returning every role on every host to a
+  previously deployed version. With no VERSION, the target is the most recent
+  version in the hosts' deploy logs that is not already serving and whose image
+  is still present everywhere. Refuses, changing nothing, when any host lacks
+  the image.
+- `odysseus rollback --list`, showing per host: every version deployed, when,
+  by whom, from which commit, whether the image is still present, and what is
+  serving. Reads only the hosts, so it works without a git repository.
+
+### Fixed
+- `odysseus accessory status` now works. It has raised `NoMethodError` since
+  before the subcommand shipped in 0.2.0; see odysseus-core's changelog for the
+  root cause and fix.
+
 ## [0.4.2] - 2026-08-13
 
 ### Changed
