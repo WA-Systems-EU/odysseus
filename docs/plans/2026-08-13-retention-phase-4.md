@@ -35,7 +35,7 @@ The spec leaves these open; a reviewer should read them as decisions, not omissi
 
 **A host with no `deploys.log` is skipped entirely.** Retention needs the log to know what "newest N" means. Falling back to image creation time would risk deleting a version someone still wants, and creation time is *build* time — images can reach a host out of order. Skipping is the safe default and is logged.
 
-**`latest` is never pruned automatically.** Per the spec. Pre-0.4.2 deploys were built from it, something may still reference it, and it is a moving pointer. `cleanup --prune-images` remains the manual sweep.
+**`latest` is never pruned automatically.** Per the spec. Pre-0.4.2 deploys were built from it, something may still reference it, and it is a moving pointer. Removing it means `docker image rm` by hand on the host — not `cleanup --prune-images`, which only removes dangling images, and a tagged `latest` is never dangling.
 
 **The sweep lives in its own class, not in `Executor`.** Measured before writing this plan: `Executor` is **249 lines against its `Metrics/ClassLength` limit of 273**, and the prune logic is about 42 lines of code. Putting it inline would breach the limit and force exactly the choice the Global Constraints forbid. `Deployer::RetentionSweeper` mirrors `Deployer::DependencyManager`, which exists for the same reason: it takes the config, a connector, and a logger, and `Executor` delegates to it in three lines. Phase 3 hit this wall twice mid-task and improvised; this plan does the arithmetic up front.
 
@@ -480,7 +480,10 @@ RSpec.describe Odysseus::RetentionPlanner do
   end
 
   # latest is a moving pointer and pre-0.4.2 deploys were built from it, so
-  # something may still reference it. cleanup --prune-images is the manual sweep.
+  # something may still reference it. It is never removed automatically;
+  # removing it means `docker image rm` by hand on the host. (Not
+  # `cleanup --prune-images`: that only removes dangling images, and a
+  # tagged latest is never dangling.)
   it 'never removes latest' do
     history = history_of('latest', 'v2', 'v3', 'v4')
     result = plan(history: history, available: %w[latest v2 v3 v4])

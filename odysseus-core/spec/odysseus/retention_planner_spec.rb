@@ -73,7 +73,10 @@ RSpec.describe Odysseus::RetentionPlanner do
   end
 
   # latest is a moving pointer and pre-0.4.2 deploys were built from it, so
-  # something may still reference it. cleanup --prune-images is the manual sweep.
+  # something may still reference it. It is never removed automatically;
+  # removing it means `docker image rm` by hand on the host. (Not
+  # `cleanup --prune-images`: that only removes dangling images, and a
+  # tagged latest is never dangling.)
   it 'never removes latest' do
     history = history_of('latest', 'v2', 'v3', 'v4')
     result = plan(history: history, available: %w[latest v2 v3 v4])

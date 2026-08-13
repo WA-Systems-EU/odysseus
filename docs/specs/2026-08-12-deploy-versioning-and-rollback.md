@@ -180,8 +180,9 @@ non-zero, which now raises `SSHCommandError`, and one unremovable image must not
 fail a successful deploy. Skipped images are logged.
 
 `latest` images left over from before this change are never removed automatically,
-since something may still reference them. `cleanup --prune-images` remains the
-manual sweep.
+since something may still reference them. Removing one means `docker image rm` by
+hand on the host — not `cleanup --prune-images`, which only removes dangling
+images, and a tagged `latest` is never dangling.
 
 ### Git notes
 
