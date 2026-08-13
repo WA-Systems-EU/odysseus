@@ -7,6 +7,16 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Changed
+- `odysseus accessory` is now `odysseus dependency`, with `dep` accepted as
+  shorthand. The old verb still works and prints a notice naming the
+  replacement, because a silent alias never gets migrated away from; it will be
+  removed in a later release. The `accessories:` key in deploy.yml is likewise
+  now `dependencies:`, with the old key still accepted — see odysseus-core's
+  changelog for why nothing on a host changes when you rename it.
+- Help text, subcommand output and the `Dependency name required` error read
+  "dependency" throughout.
+
 ## [0.4.3] - 2026-08-13
 
 ### Added

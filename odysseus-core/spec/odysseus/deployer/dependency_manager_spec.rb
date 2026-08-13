@@ -1,22 +1,22 @@
-# spec/odysseus/deployer/accessory_manager_spec.rb
+# spec/odysseus/deployer/dependency_manager_spec.rb
 
 require 'spec_helper'
 
-# Exercised through Executor's delegating API (deploy_accessory, remove_accessory,
-# restart_accessory, upgrade_accessory, accessory_status, boot_accessories) rather
-# than by instantiating AccessoryManager directly, because those six methods are
+# Exercised through Executor's delegating API (deploy_dependency, remove_dependency,
+# restart_dependency, upgrade_dependency, dependency_status, boot_dependencies) rather
+# than by instantiating DependencyManager directly, because those six methods are
 # the CLI's actual entry points (see odysseus-cli/lib/odysseus/cli/cli.rb) and the
 # `connector: method(:connect_to_server)` seam is part of what needs covering.
-RSpec.describe Odysseus::Deployer::AccessoryManager do
-  let(:fixture_file) { fixture_path('deploy-accessories.yml') }
+RSpec.describe Odysseus::Deployer::DependencyManager do
+  let(:fixture_file) { fixture_path('deploy-dependencies.yml') }
   let(:executor) { Odysseus::Deployer::Executor.new(fixture_file) }
   let(:mock_ssh) { instance_double(Odysseus::Deployer::SSH) }
-  let(:orchestrator) { instance_double(Odysseus::Orchestrator::AccessoryDeploy) }
+  let(:orchestrator) { instance_double(Odysseus::Orchestrator::DependencyDeploy) }
 
   before do
     allow(Odysseus::Deployer::SSH).to receive(:new).and_return(mock_ssh)
     allow(mock_ssh).to receive(:close)
-    allow(Odysseus::Orchestrator::AccessoryDeploy).to receive(:new).and_return(orchestrator)
+    allow(Odysseus::Orchestrator::DependencyDeploy).to receive(:new).and_return(orchestrator)
   end
 
   describe 'the four verbs' do
@@ -28,11 +28,11 @@ RSpec.describe Odysseus::Deployer::AccessoryManager do
     end
 
     {
-      deploy_accessory: :deploy, remove_accessory: :remove,
-      restart_accessory: :restart, upgrade_accessory: :upgrade
+      deploy_dependency: :deploy, remove_dependency: :remove,
+      restart_dependency: :restart, upgrade_dependency: :upgrade
     }.each do |executor_method, orchestrator_method|
       describe "##{executor_method}" do
-        it 'returns a Hash keyed by every host the accessory is configured on' do
+        it 'returns a Hash keyed by every host the dependency is configured on' do
           result = executor.public_send(executor_method, name: 'redis')
 
           expect(result.keys).to eq(%w[acc1.example.com acc2.example.com])
@@ -44,16 +44,16 @@ RSpec.describe Odysseus::Deployer::AccessoryManager do
           executor.public_send(executor_method, name: 'redis')
         end
 
-        it 'raises with the exact message for an accessory not in config' do
+        it 'raises with the exact message for an dependency not in config' do
           expect { executor.public_send(executor_method, name: 'nope') }
-            .to raise_error(Odysseus::ConfigError, "Accessory 'nope' not found in config")
+            .to raise_error(Odysseus::ConfigError, "Dependency 'nope' not found in config")
         end
 
-        it 'raises with the exact message for a configured accessory with no hosts' do
-          no_hosts_executor = Odysseus::Deployer::Executor.new(fixture_path('deploy-accessory-no-hosts.yml'))
+        it 'raises with the exact message for a configured dependency with no hosts' do
+          no_hosts_executor = Odysseus::Deployer::Executor.new(fixture_path('deploy-dependency-no-hosts.yml'))
 
           expect { no_hosts_executor.public_send(executor_method, name: 'ghost') }
-            .to raise_error(Odysseus::ConfigError, 'No hosts configured for accessory ghost')
+            .to raise_error(Odysseus::ConfigError, 'No hosts configured for dependency ghost')
         end
 
         it 'closes one SSH connection per host' do
@@ -73,8 +73,8 @@ RSpec.describe Odysseus::Deployer::AccessoryManager do
     end
   end
 
-  describe '#accessory_status' do
-    context 'with accessories configured' do
+  describe '#dependency_status' do
+    context 'with dependencies configured' do
       before do
         allow(orchestrator).to receive(:list_status).and_return(
           [
@@ -86,23 +86,23 @@ RSpec.describe Odysseus::Deployer::AccessoryManager do
         )
       end
 
-      # This is the pin for the get_status -> list_status fix: AccessoryDeploy
-      # exposes #list_status (no args, every accessory on the host), not a
-      # per-accessory #get_status. Because `orchestrator` is a verifying
-      # double (instance_double(Odysseus::Orchestrator::AccessoryDeploy)),
-      # stubbing a method AccessoryDeploy does not define — such as
+      # This is the pin for the get_status -> list_status fix: DependencyDeploy
+      # exposes #list_status (no args, every dependency on the host), not a
+      # per-dependency #get_status. Because `orchestrator` is a verifying
+      # double (instance_double(Odysseus::Orchestrator::DependencyDeploy)),
+      # stubbing a method DependencyDeploy does not define — such as
       # get_status — raises immediately, so this example fails loudly the
       # moment #status_on regresses to the old, broken call.
-      it 'returns the status for the requested accessory with host set, via list_status' do
-        statuses = executor.accessory_status
+      it 'returns the status for the requested dependency with host set, via list_status' do
+        statuses = executor.dependency_status
 
         redis_entries = statuses.select { |s| s[:name] == :redis }
         expect(redis_entries.map { |s| s[:host] }).to eq(%w[acc1.example.com acc2.example.com])
         expect(redis_entries.first).to include(running: true, container_id: 'abc123')
       end
 
-      it 'reports every accessory on every host it is configured on, accessory-then-host' do
-        statuses = executor.accessory_status
+      it 'reports every dependency on every host it is configured on, dependency-then-host' do
+        statuses = executor.dependency_status
 
         entries = statuses.map { |s| [s[:name], s[:host]] }
         expect(entries).to eq(
@@ -116,46 +116,46 @@ RSpec.describe Odysseus::Deployer::AccessoryManager do
       it 'closes one SSH connection per host queried' do
         expect(mock_ssh).to receive(:close).exactly(3).times
 
-        executor.accessory_status
+        executor.dependency_status
       end
 
       it 'still closes the connection when list_status raises' do
         allow(orchestrator).to receive(:list_status).and_raise(Odysseus::SSHCommandError, 'no docker')
         expect(mock_ssh).to receive(:close).at_least(:once)
 
-        expect { executor.accessory_status }.to raise_error(Odysseus::SSHCommandError)
+        expect { executor.dependency_status }.to raise_error(Odysseus::SSHCommandError)
       end
     end
 
-    context 'with no accessories configured' do
+    context 'with no dependencies configured' do
       let(:executor) { Odysseus::Deployer::Executor.new(fixture_path('deploy.yml')) }
 
       it 'returns an empty array without connecting anywhere' do
         expect(Odysseus::Deployer::SSH).not_to receive(:new)
 
-        expect(executor.accessory_status).to eq([])
+        expect(executor.dependency_status).to eq([])
       end
     end
   end
 
-  describe '#boot_accessories' do
-    context 'with accessories configured' do
+  describe '#boot_dependencies' do
+    context 'with dependencies configured' do
       before do
         allow(orchestrator).to receive(:deploy).and_return(success: true)
       end
 
-      it 'returns a Hash keyed by accessory name' do
-        expect(executor.boot_accessories.keys).to eq(%i[redis sidekiq])
+      it 'returns a Hash keyed by dependency name' do
+        expect(executor.boot_dependencies.keys).to eq(%i[redis sidekiq])
       end
     end
 
-    context 'with no accessories configured' do
+    context 'with no dependencies configured' do
       let(:executor) { Odysseus::Deployer::Executor.new(fixture_path('deploy.yml')) }
 
       it 'returns an empty Hash without connecting anywhere' do
         expect(Odysseus::Deployer::SSH).not_to receive(:new)
 
-        expect(executor.boot_accessories).to eq({})
+        expect(executor.boot_dependencies).to eq({})
       end
     end
   end
@@ -169,7 +169,7 @@ RSpec.describe Odysseus::Deployer::AccessoryManager do
         use_tailscale: true, verbose: false
       ).at_least(:once).and_return(mock_ssh)
 
-      executor.accessory_status
+      executor.dependency_status
     end
 
     it 'carries verbose: true through when the executor was built verbose' do
@@ -180,32 +180,32 @@ RSpec.describe Odysseus::Deployer::AccessoryManager do
         use_tailscale: true, verbose: true
       ).at_least(:once).and_return(mock_ssh)
 
-      verbose_executor.accessory_status
+      verbose_executor.dependency_status
     end
   end
 
-  # The three examples below construct AccessoryManager directly with config
-  # shapes the real parser never produces — a hash with no :accessories key,
-  # an accessory hash with no :hosts key, and a host whose list_status omits
-  # an accessory it is configured for. Going through Executor and the real
+  # The three examples below construct DependencyManager directly with config
+  # shapes the real parser never produces — a hash with no :dependencies key,
+  # an dependency hash with no :hosts key, and a host whose list_status omits
+  # an dependency it is configured for. Going through Executor and the real
   # parser can only ever exercise the normalized shape (config/parser.rb
-  # defaults :accessories to {} and every accessory to a :hosts array), so
-  # the defensive guards at accessory_manager.rb's `&.any?`, `if acc_status`
+  # defaults :dependencies to {} and every dependency to a :hosts array), so
+  # the defensive guards at dependency_manager.rb's `&.any?`, `if acc_status`
   # and `|| []` can never be reached that way, and mutating any of them away
   # left the rest of this file green. Direct construction is the only way to
   # pin them, so it is used here even though the rest of this file avoids it.
   describe 'defensive fallbacks against a config shape the parser never produces' do
     let(:connector) { ->(_host) { mock_ssh } }
 
-    it 'treats a missing :accessories key as none configured, not a NoMethodError on nil' do
+    it 'treats a missing :dependencies key as none configured, not a NoMethodError on nil' do
       manager = described_class.new(config: {}, secrets_loader: nil, connector: connector)
 
       expect(manager.status).to eq([])
     end
 
-    it 'skips an accessory that list_status does not report, rather than recording a nil entry' do
+    it 'skips an dependency that list_status does not report, rather than recording a nil entry' do
       manager = described_class.new(
-        config: { accessories: { redis: { hosts: ['acc1.example.com'] } } },
+        config: { dependencies: { redis: { hosts: ['acc1.example.com'] } } },
         secrets_loader: nil, connector: connector
       )
       allow(orchestrator).to receive(:list_status).and_return([])
@@ -213,13 +213,13 @@ RSpec.describe Odysseus::Deployer::AccessoryManager do
       expect(manager.status).to eq([])
     end
 
-    it 'treats a missing :hosts key on an accessory as no hosts, not a NoMethodError on nil' do
+    it 'treats a missing :hosts key on an dependency as no hosts, not a NoMethodError on nil' do
       manager = described_class.new(
-        config: { accessories: { redis: {} } }, secrets_loader: nil, connector: connector
+        config: { dependencies: { redis: {} } }, secrets_loader: nil, connector: connector
       )
 
       expect { manager.deploy(name: 'redis') }
-        .to raise_error(Odysseus::ConfigError, 'No hosts configured for accessory redis')
+        .to raise_error(Odysseus::ConfigError, 'No hosts configured for dependency redis')
     end
   end
 end

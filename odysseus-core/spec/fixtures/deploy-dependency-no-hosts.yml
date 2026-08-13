@@ -1,7 +1,7 @@
-# spec/fixtures/deploy-accessory-no-hosts.yml
-# A single accessory configured with no hosts, isolated in its own fixture so
+# spec/fixtures/deploy-dependency-no-hosts.yml
+# A single dependency configured with no hosts, isolated in its own fixture so
 # the "no hosts configured" guard can be exercised without also tripping over
-# it in tests that expect a full accessory run (e.g. boot_accessories) to
+# it in tests that expect a full dependency run (e.g. boot_dependencies) to
 # succeed.
 
 service: myapp
@@ -12,7 +12,7 @@ servers:
     hosts:
       - web1.example.com
 
-accessories:
+dependencies:
   ghost:
     image: ghost:1
     hosts: []

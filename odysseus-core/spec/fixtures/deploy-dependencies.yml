@@ -1,0 +1,34 @@
+# spec/fixtures/deploy-dependencies.yml
+# The `dependencies:` key that replaced `accessories:`.
+#
+# redis serves both hosts and sidekiq only the first, so dependency-then-host
+# result ordering is provable (redis before sidekiq; acc1 before acc2 within
+# redis) and a verb's result Hash has more than one key, proving it is
+# host-keyed rather than overwritten.
+#
+# Deliberately identical in content to deploy-legacy-accessories.yml so the two
+# keys can be proved equivalent — if you edit one, edit both.
+
+service: myapp
+image: myapp-production
+
+servers:
+  web:
+    hosts:
+      - web1.example.com
+
+dependencies:
+  redis:
+    image: redis:7
+    hosts:
+      - acc1.example.com
+      - acc2.example.com
+  sidekiq:
+    image: sidekiq:latest
+    hosts:
+      - acc1.example.com
+
+ssh:
+  user: root
+  keys:
+    - ~/.ssh/id_ed25519

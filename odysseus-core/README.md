@@ -49,7 +49,7 @@ executor.deploy_all(image_tag: 'v1.0.0')
 Parses deploy.yml configuration files with support for:
 - Server roles (web, jobs, workers)
 - Proxy configuration (Caddy)
-- Accessories (databases, Redis, etc.)
+- Dependencies (databases, Redis, etc.)
 - Environment variables and secrets
 
 ### Odysseus::Docker::Client

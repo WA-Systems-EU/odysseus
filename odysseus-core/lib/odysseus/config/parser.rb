@@ -46,7 +46,7 @@ module Odysseus
           env: parse_env(config['env']),
           secrets_file: config['secrets_file'],
           ssh: parse_ssh(config['ssh']),
-          accessories: parse_accessories(config['accessories']),
+          dependencies: parse_dependencies(config['dependencies'] || config['accessories']),
           builder: parse_builder(config['builder']),
           registry: parse_registry(config['registry'])
         }
@@ -179,11 +179,16 @@ module Odysseus
         }
       end
 
-      # Parse accessories config
-      def parse_accessories(accessories)
-        return {} unless accessories
+      # Parse dependencies config — the supporting services a deploy needs
+      # (a database, a cache, a search index).
+      #
+      # Accepts the former `accessories:` key as well; the caller resolves
+      # which one was present. Kept because renaming a deploy.yml key should
+      # not be a flag day for every app repository.
+      def parse_dependencies(dependencies)
+        return {} unless dependencies
 
-        accessories.each_with_object({}) do |(name, config), acc|
+        dependencies.each_with_object({}) do |(name, config), acc|
           acc[name.to_sym] = {
             image: config['image'],
             hosts: config['hosts'],
@@ -191,14 +196,14 @@ module Odysseus
             ports: config['ports'],
             volumes: config['volumes'],
             env: parse_env(config['env']),
-            healthcheck: parse_accessory_healthcheck(config['healthcheck']),
-            proxy: parse_accessory_proxy(config['proxy'])
+            healthcheck: parse_dependency_healthcheck(config['healthcheck']),
+            proxy: parse_dependency_proxy(config['proxy'])
           }
         end
       end
 
-      # Parse accessory healthcheck
-      def parse_accessory_healthcheck(healthcheck)
+      # Parse dependency healthcheck
+      def parse_dependency_healthcheck(healthcheck)
         return nil unless healthcheck
 
         {
@@ -209,8 +214,8 @@ module Odysseus
         }
       end
 
-      # Parse accessory proxy config
-      def parse_accessory_proxy(proxy)
+      # Parse dependency proxy config
+      def parse_dependency_proxy(proxy)
         return nil unless proxy
 
         {

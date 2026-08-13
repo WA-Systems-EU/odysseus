@@ -95,12 +95,12 @@ servers:
     cmd: bundle exec good_job
 ```
 
-### Accessories
+### Dependencies
 
 Manage databases, Redis, and other services:
 
 ```yaml
-accessories:
+dependencies:
   db:
     image: postgres:16
     hosts:

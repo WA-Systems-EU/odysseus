@@ -1,8 +1,8 @@
-# spec/odysseus/orchestrator/accessory_deploy_spec.rb
+# spec/odysseus/orchestrator/dependency_deploy_spec.rb
 
 require 'spec_helper'
 
-RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
+RSpec.describe Odysseus::Orchestrator::DependencyDeploy do
   let(:mock_ssh) { instance_double(Odysseus::Deployer::SSH) }
   let(:mock_docker) { instance_double(Odysseus::Docker::Client) }
   let(:mock_caddy) { instance_double(Odysseus::Caddy::Client) }
@@ -10,7 +10,7 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
   let(:config) do
     {
       service: 'myapp',
-      accessories: {
+      dependencies: {
         redis: {
           image: 'redis:7-alpine',
           volumes: ['/var/lib/redis:/data'],
@@ -62,7 +62,7 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
   end
 
   describe '#deploy' do
-    context 'when accessory is not running' do
+    context 'when dependency is not running' do
       let(:container_id) { 'redis123456' * 4 }
 
       before do
@@ -78,7 +78,7 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
         orchestrator.deploy(name: :redis)
       end
 
-      it 'starts the accessory container' do
+      it 'starts the dependency container' do
         expect(mock_docker).to receive(:run).with(
           name: 'myapp-redis',
           image: 'redis:7-alpine',
@@ -102,9 +102,35 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
         expect(result[:success]).to be true
         expect(result[:service]).to eq('myapp-redis')
       end
+
+      # This is what makes renaming the `accessories:` key to `dependencies:`
+      # safe to ship without a migration. The container name and the
+      # odysseus.service label are built from "#{service}-#{name}" using the
+      # *individual* dependency's key, so the top-level YAML key never reaches
+      # a host. Runs the real parser over a real legacy fixture rather than an
+      # inline hash, so it fails if either the back-compat key handling or the
+      # naming changes — if it does, upgrading orphans every running
+      # dependency container instead of adopting it.
+      it 'names the container identically whichever config key deploy.yml used' do
+        # The fixtures declare no healthcheck, so this takes the running? path
+        # rather than the wait_healthy path the inline config above exercises.
+        allow(mock_docker).to receive(:running?).and_return(true)
+
+        %w[deploy-dependencies.yml deploy-legacy-accessories.yml].each do |fixture|
+          parsed = Odysseus::Config::Parser.new(fixture_path(fixture)).parse
+          from_file = described_class.new(ssh: mock_ssh, config: parsed, logger: silent_logger)
+          allow(from_file).to receive(:sleep)
+
+          expect(mock_docker).to receive(:run)
+            .with(hash_including(name: 'myapp-redis', options: hash_including(service: 'myapp-redis')))
+            .and_return(container_id)
+
+          expect(from_file.deploy(name: :redis)[:service]).to eq('myapp-redis')
+        end
+      end
     end
 
-    context 'when accessory is already running' do
+    context 'when dependency is already running' do
       before do
         allow(mock_docker).to receive(:list).and_return([
                                                           { 'ID' => 'existing123', 'State' => 'running' }
@@ -145,7 +171,7 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
       end
     end
 
-    context 'when accessory does not exist in config' do
+    context 'when dependency does not exist in config' do
       it 'raises ConfigError' do
         expect do
           orchestrator.deploy(name: :nonexistent)
@@ -186,7 +212,7 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
   end
 
   describe '#upgrade' do
-    context 'when accessory exists and is running' do
+    context 'when dependency exists and is running' do
       let(:container_id) { 'redis123456' * 4 }
       let(:new_container_id) { 'redis789abc' * 4 }
 
@@ -239,7 +265,7 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
       end
     end
 
-    context 'when accessory is not running' do
+    context 'when dependency is not running' do
       let(:new_container_id) { 'redis789abc' * 4 }
 
       before do
@@ -300,7 +326,7 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
       end
     end
 
-    context 'when accessory does not exist in config' do
+    context 'when dependency does not exist in config' do
       it 'raises ConfigError' do
         expect do
           orchestrator.upgrade(name: :nonexistent)
@@ -310,7 +336,7 @@ RSpec.describe Odysseus::Orchestrator::AccessoryDeploy do
   end
 
   describe '#list_status' do
-    it 'returns status of all accessories' do
+    it 'returns status of all dependencies' do
       allow(mock_docker).to receive(:list).with(service: 'myapp-redis', all: true).and_return([
                                                                                                 { 'ID' => 'redis123',
                                                                                                   'State' => 'running' }

@@ -7,6 +7,32 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Changed
+- `accessories:` in deploy.yml is now `dependencies:`. The old name implied
+  optional extras, when a database the app cannot boot without is not optional.
+  The old key is still accepted and parses identically, so existing deploy.yml
+  files keep working; it will be removed in a later release.
+- Nothing on a host changes as a result. Container names and the
+  `odysseus.service` label are built from the service name plus the individual
+  dependency's name, so the top-level key never reaches a host and running
+  containers are adopted rather than orphaned. A spec runs the real parser over
+  a legacy fixture and asserts the resulting container name, so this cannot
+  regress silently.
+- `Orchestrator::AccessoryDeploy` is `Orchestrator::DependencyDeploy`,
+  `Deployer::AccessoryManager` is `Deployer::DependencyManager`, and
+  `Executor`'s six accessory methods are now `deploy_dependency`,
+  `remove_dependency`, `restart_dependency`, `upgrade_dependency`,
+  `dependency_status` and `boot_dependencies`. No deprecated aliases: nothing
+  outside odysseus-cli consumes these, and the two gems ship in lockstep.
+- The config error messages changed accordingly: `Dependency 'x' not found in
+  config` and `No hosts configured for dependency x`.
+
+### Internal
+- `Config::Parser#parse_accessories` and its two helpers are now
+  `parse_dependencies`, `parse_dependency_healthcheck` and
+  `parse_dependency_proxy`. The parser gained its first coverage for this block
+  in the process.
+
 ## [0.4.3] - 2026-08-13
 
 Rollback. A previously deployed version can be put back on the whole fleet, and

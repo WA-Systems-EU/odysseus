@@ -224,26 +224,42 @@ health checks — roughly the time of a normal deploy, minus build and transfer.
 Only versions deployed by odysseus 0.4.2 or later can be rolled back to.
 Earlier deploys were built from `:latest`, so no image identifies them.
 
-### accessory
+### dependency
 
-Manage accessories (databases, Redis, etc).
+Manage dependencies (databases, Redis, etc). `dep` is accepted as shorthand.
 
-```bash
-# These commands use hosts from accessory config (no server argument needed)
-odysseus accessory boot --name db
-odysseus accessory boot-all
-odysseus accessory remove --name db
-odysseus accessory restart --name db
-odysseus accessory upgrade --name db
-odysseus accessory status
+**Renamed from `accessory`.** The old command name and the old `accessories:`
+key in deploy.yml both still work, and the command prints a notice when you use
+the old name. They will be removed in a later release, so rename the key in your
+deploy.yml when convenient:
 
-# These commands require a server argument
-odysseus accessory logs <server> --name db [-f] [-n 100]
-odysseus accessory exec <server> --name db --command "psql -U postgres"
-odysseus accessory shell <server> --name db
+```yaml
+dependencies:   # was: accessories:
+  db:
+    image: postgres:16
 ```
 
-Accessory commands like `boot`, `remove`, `restart`, `upgrade`, and `status` read the target hosts from the accessory's `hosts` configuration in deploy.yml, similar to how `deploy` works. Only `logs`, `exec`, and `shell` require a server argument since they operate on a specific host.
+Nothing on your hosts changes when you rename the key. Container names and the
+`odysseus.service` label are built from the service name plus the individual
+dependency's name, so `db` stays `myapp-db` either way and running containers
+are adopted rather than orphaned.
+
+```bash
+# These commands use hosts from dependency config (no server argument needed)
+odysseus dependency boot --name db
+odysseus dependency boot-all
+odysseus dependency remove --name db
+odysseus dependency restart --name db
+odysseus dependency upgrade --name db
+odysseus dependency status
+
+# These commands require a server argument
+odysseus dependency logs <server> --name db [-f] [-n 100]
+odysseus dependency exec <server> --name db --command "psql -U postgres"
+odysseus dependency shell <server> --name db
+```
+
+Dependency commands like `boot`, `remove`, `restart`, `upgrade`, and `status` read the target hosts from the dependency's `hosts` configuration in deploy.yml, similar to how `deploy` works. Only `logs`, `exec`, and `shell` require a server argument since they operate on a specific host.
 
 ### app
 
@@ -376,12 +392,12 @@ RAILS_MASTER_KEY: abc123def456
 
 During deploy, secrets listed in `env.secret` are loaded from the encrypted file. If a key is not found in the secrets file, it falls back to the server's environment variables.
 
-### accessories
+### dependencies
 
 Long-running services like databases:
 
 ```yaml
-accessories:
+dependencies:
   db:
     image: postgres:16
     hosts:
@@ -398,7 +414,7 @@ accessories:
       timeout: 5
 ```
 
-Each accessory must define `hosts` - the servers where it should run.
+Each dependency must define `hosts` - the servers where it should run.
 
 ### ssh
 
