@@ -7,6 +7,11 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-08-13
+
+A running container can now be traced back to the commit it was built from. The
+notable behaviour change is that the image tag no longer defaults to `latest`.
+
 ### Added
 - The image tag now defaults to the git commit being deployed, and containers
   carry `odysseus.version`, `odysseus.deployed_at` and `odysseus.git_ref` labels,

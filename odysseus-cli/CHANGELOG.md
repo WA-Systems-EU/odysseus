@@ -7,6 +7,8 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-08-13
+
 ### Changed
 - `deploy`, `build` and `pussh` no longer default `--image` to the `latest`
   tag; the tag now defaults to the git commit being deployed, and is required
@@ -14,6 +16,10 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 - `status` reports the version, ref and deploy time of each container.
 - `app exec`, `app shell` and `app console` run the version that is currently
   serving instead of `:latest`.
+- Requires odysseus-core `~> 0.4.2`. The dependency was `~> 0.4`, which allowed
+  installing a core without `Executor#deploy_version` or `Docker::Labels` — both
+  of which these commands now call, so `deploy` would have failed with a
+  NoMethodError rather than a resolvable error.
 
 ## [0.4.1] - 2026-08-12
 
