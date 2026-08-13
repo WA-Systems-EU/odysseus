@@ -72,7 +72,11 @@ we'd feel their absence.
       prunes each host's superseded image versions once all of that host's
       roles are deployed, keeping `retain_versions` (default 5) and never a
       version a container still references. `rollback` deliberately does not
-      prune. A git-notes trail for who-deployed-what is a separate future plan
+      prune. **Verified on a real host 2026-08-13**, which the specs could not
+      do: every docker call in the suite is a double, so nothing there proves
+      docker refuses to remove an image a container still references — the
+      third of the three guards. A git-notes trail for who-deployed-what is a
+      separate future plan
       and stays open.
 - [ ] **Deploy locks.** Nothing stops two people (or a person and CI) deploying
       at once and interleaving container swaps, and the same is true of a
