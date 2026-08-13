@@ -65,9 +65,11 @@ we'd feel their absence.
 - [x] **`rollback`.** `odysseus rollback [VERSION]` and `--list` ship, reusing
       the deploy path so health gating and proxy handling are shared with
       `deploy`. A fleet pre-flight requires the target image on every host
-      before any host is touched. Retention/pruning of the images that pile up
-      on hosts, and a git-notes trail for who-deployed-what, are separate future
-      plans and stay open.
+      before any host is touched. **Verified on a real host 2026-08-13**, which
+      the specs could not do: no unit test proves the deploy path accepts a tag
+      it did not build. Retention/pruning of the images that pile up on hosts,
+      and a git-notes trail for who-deployed-what, are separate future plans and
+      stay open.
 - [ ] **Deploy locks.** Nothing stops two people (or a person and CI) deploying
       at once and interleaving container swaps, and the same is true of a
       rollback racing a deploy or another rollback. Kamal: `kamal lock`.
@@ -161,6 +163,15 @@ Smaller findings worth fixing but not blocking anything.
       once per host would change the CLI's row order.
 - [ ] `rollback --list`'s `Image` column holds `present`/`missing`; it would
       read better as `Available`.
+- [ ] `rollback --list` should mark the running release in the table itself —
+      an arrow or dot on that row — instead of only naming it in the `Serving`
+      line above the table. Reported from real use: scanning IDs to work out
+      which one is live is the wrong job to give a reader mid-incident. Note
+      this reverses a call I made during the rollback plan: the original design
+      had a `Serving` column carrying `←`, and I dropped it as a column
+      repeating one value down every row. A marker on one row is the better
+      shape — it costs no width and answers the question at a glance. Fold the
+      `Available` rename above into the same change.
 - [ ] `odysseus-cli/bin/odysseus`'s positional-VERSION extraction for `rollback`
       (`options[:version] = command_args[0] if command == 'rollback' && ...`)
       has no regression test. It is awkward to cover offline because the
