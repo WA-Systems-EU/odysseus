@@ -1,0 +1,40 @@
+# spec/fixtures/deploy-multihost.yml
+# Three roles over three hosts, with cron sharing web1: four role/host pairs
+# but only three hosts, so per-host survey de-duplication is provable. cron
+# also names a deploy strategy, so the sail path is reachable.
+
+service: myapp
+image: myapp-production
+
+servers:
+  web:
+    hosts:
+      - web1.example.com
+      - web2.example.com
+  jobs:
+    hosts:
+      - jobs1.example.com
+    cmd: bundle exec sidekiq
+  cron:
+    hosts:
+      - web1.example.com
+    cmd: bundle exec whenever
+    deploy:
+      strategy: rolling
+
+proxy:
+  ssl: false
+  hosts:
+    - app.example.com
+  app_port: 3000
+  healthcheck:
+    path: "/health"
+
+env:
+  clear:
+    RAILS_ENV: production
+
+ssh:
+  user: root
+  keys:
+    - ~/.ssh/id_ed25519

@@ -45,14 +45,20 @@ module Odysseus
       DeployVersion.new(version: sha, ref: git.ref, deployer: deployer)
     end
 
+    # Who is running this command: git's configured email, falling back to the
+    # shell user. Works outside a repository — `git config user.email` reads
+    # global config — so a rollback can name a deployer even when the version
+    # came from a host rather than a commit.
+    #
+    # @return [String]
+    def deployer
+      git.committer_email || ENV.fetch('USER', 'unknown')
+    end
+
     private
 
     def git
       @git ||= Odysseus::Git.new(@config_dir)
-    end
-
-    def deployer
-      git.committer_email || ENV.fetch('USER', 'unknown')
     end
 
     # The build context includes untracked files unless .dockerignore excludes

@@ -314,4 +314,165 @@ RSpec.describe Odysseus::Deployer::Executor do
       executor.deploy_role(host: 'test-server', image_tag: nil, role: :web)
     end
   end
+
+  describe 'rollback' do
+    let(:multihost) { described_class.new(fixture_path('deploy-multihost.yml')) }
+    let(:mock_docker) { instance_double(Odysseus::Docker::Client) }
+    let(:deploy_log) { instance_double(Odysseus::DeployLog) }
+
+    # The fixture's cron role names deploy.strategy: rolling, and the config
+    # validator refuses a strategy that is not registered (validators/config.rb:88)
+    # — so the sail has to exist before the config parses. That makes every
+    # example here exercise a sail-deployed role alongside the built-in
+    # orchestrators, which is what pins "a sail role gets recorded too".
+    let(:sail_class) do
+      Class.new do
+        def initialize(ssh:, config:, logger:, secrets_loader:); end
+
+        def deploy(image_tag:, role:)
+          { success: true, image_tag: image_tag, role: role }
+        end
+      end
+    end
+
+    # sails_spec.rb:8 and validators/config_spec.rb:182 both guard the global
+    # registry with around/reset!; match that so example order cannot matter.
+    around do |example|
+      Odysseus::Sails.reset!
+      Odysseus::Sails.register(:rolling, sail_class)
+      example.run
+      Odysseus::Sails.reset!
+    end
+
+    before do
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(mock_ssh)
+      allow(mock_ssh).to receive(:close)
+      allow(Odysseus::Docker::Client).to receive(:new).and_return(mock_docker)
+      allow(Odysseus::DeployLog).to receive(:new).and_return(deploy_log)
+      allow(deploy_log).to receive(:append)
+      allow(deploy_log).to receive(:entries).and_return([])
+      allow(mock_docker).to receive(:list).and_return(
+        [{ 'ID' => 'abc', 'Labels' => 'odysseus.version=v2' }]
+      )
+      allow(mock_docker).to receive(:image_tags).and_return(%w[v2 v1])
+    end
+
+    describe '#version_survey' do
+      # The fixture has four role/host pairs over three hosts: cron shares
+      # web1 with web. Surveying a host twice would open two connections and
+      # report it twice in rollback --list.
+      it 'reports one entry per host even when a host serves two roles' do
+        expect(multihost.version_survey.map(&:host))
+          .to eq(%w[web1.example.com web2.example.com jobs1.example.com])
+      end
+
+      it 'closes every connection it opened' do
+        expect(mock_ssh).to receive(:close).exactly(3).times
+
+        multihost.version_survey
+      end
+
+      it 'closes the connection even when reading a host fails' do
+        allow(mock_docker).to receive(:image_tags).and_raise(Odysseus::SSHCommandError, 'no docker')
+        expect(mock_ssh).to receive(:close).at_least(:once)
+
+        expect { multihost.version_survey }.to raise_error(Odysseus::SSHCommandError)
+      end
+    end
+
+    describe '#rollback_plan' do
+      it 'plans against every host, not just the first' do
+        plan = multihost.rollback_plan
+
+        expect(plan.version).to eq('v1')
+        expect(plan.replacing.keys)
+          .to eq(%w[web1.example.com web2.example.com jobs1.example.com])
+      end
+
+      it 'refuses when the target is missing on one host' do
+        tags = { 'web1.example.com' => %w[v2 v1], 'web2.example.com' => %w[v2],
+                 'jobs1.example.com' => %w[v2 v1] }
+        seen = []
+        allow(Odysseus::Deployer::SSH).to receive(:new) do |args|
+          seen << args[:host]
+          mock_ssh
+        end
+        allow(mock_docker).to receive(:image_tags) { tags.fetch(seen.last) }
+
+        expect { multihost.rollback_plan(version: 'v1') }
+          .to raise_error(Odysseus::RollbackError, /web2\.example\.com/)
+      end
+    end
+
+    describe '#rollback_all' do
+      let(:plan) do
+        Odysseus::RollbackPlan.new(
+          version: 'v1', ref: 'main', approximate: false,
+          replacing: { 'web1.example.com' => 'v2', 'web2.example.com' => 'v2',
+                       'jobs1.example.com' => 'v2' }
+        )
+      end
+
+      before do
+        allow(Odysseus::Orchestrator::WebDeploy).to receive(:new).and_return(mock_orchestrator)
+        allow(Odysseus::Orchestrator::JobDeploy).to receive(:new).and_return(mock_orchestrator)
+        allow(mock_orchestrator).to receive(:deploy).and_return(success: true)
+      end
+
+      it 'deploys the planned version to every role on every host' do
+        expect(mock_orchestrator).to receive(:deploy).with(image_tag: 'v1', role: :web).twice
+        expect(mock_orchestrator).to receive(:deploy).with(image_tag: 'v1', role: :jobs).once
+
+        multihost.rollback_all(plan)
+      end
+
+      it 'returns results keyed by role@host, including a shared host twice' do
+        expect(multihost.rollback_all(plan).keys).to contain_exactly(
+          'web@web1.example.com', 'web@web2.example.com',
+          'jobs@jobs1.example.com', 'cron@web1.example.com'
+        )
+      end
+
+      # cron is deployed by the sail, not by WebDeploy or JobDeploy. Before
+      # recording moved into Executor, a sail-deployed role left no trace in
+      # deploys.log at all, which would make it invisible to a later rollback.
+      it 'records a role that a sail strategy deployed' do
+        expect(deploy_log).to receive(:append).with(hash_including(role: :cron))
+
+        multihost.rollback_all(plan)
+      end
+
+      it 'records the rollback as such, naming the version it came from' do
+        expect(deploy_log).to receive(:append).with(
+          hash_including(version: 'v1', kind: 'rolled-back', from: 'v2')
+        ).at_least(:once)
+
+        multihost.rollback_all(plan)
+      end
+
+      it 'carries the commit ref recovered by the plan into the record' do
+        expect(deploy_log).to receive(:append).with(hash_including(ref: 'main')).at_least(:once)
+
+        multihost.rollback_all(plan)
+      end
+
+      it 'names who ran the rollback rather than leaving it blank' do
+        expect(deploy_log).to receive(:append)
+          .with(hash_including(deployer: a_string_matching(/\S/))).at_least(:once)
+
+        multihost.rollback_all(plan)
+      end
+
+      # The label a container carries must be the version it is actually
+      # running, or status and the next rollback both lie.
+      it 'labels the rolled-back container with the target version' do
+        expect(Odysseus::Orchestrator::WebDeploy).to receive(:new) do |args|
+          expect(args[:config][:deploy_version].version).to eq('v1')
+          mock_orchestrator
+        end.at_least(:once)
+
+        multihost.rollback_all(plan)
+      end
+    end
+  end
 end
