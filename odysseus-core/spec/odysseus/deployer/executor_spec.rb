@@ -584,7 +584,14 @@ RSpec.describe Odysseus::Deployer::Executor do
                                           ref: 'main', deployer: 'dev@example.com',
                                           kind: 'deployed', from: nil)]
         )
-        allow(mock_docker).to receive(:versions_in_use).and_return([])
+        # Constrained by the exact label(s) each host's containers actually
+        # carry, the same reasoning as the mock_docker.list stubs above and
+        # guarding the same bug: an unconstrained double cannot tell a correct
+        # label from the bare service name, which is how the fleet-survey bug
+        # escaped every per-task review before.
+        allow(mock_docker).to receive(:versions_in_use).with(%w[myapp myapp-cron]).and_return([])
+        allow(mock_docker).to receive(:versions_in_use).with(['myapp']).and_return([])
+        allow(mock_docker).to receive(:versions_in_use).with(['myapp-jobs']).and_return([])
         allow(mock_docker).to receive(:remove_image)
       end
 
@@ -625,6 +632,47 @@ RSpec.describe Odysseus::Deployer::Executor do
         expect(mock_docker).to receive(:versions_in_use).exactly(3).times.and_return([])
 
         multihost.prune_old_images
+      end
+
+      # The unconstrained double above can't tell a correct label from a wrong
+      # one. web1 serves web + cron and jobs1 serves only jobs, so a
+      # container_labels that answered with the bare service name for every
+      # host (identical to what Labels.service_for returns for :web alone)
+      # would still call versions_in_use three times without ever being
+      # caught by a call-count assertion. A wrong label here is worse than a
+      # bad report: versions_in_use is the only thing protecting a
+      # running-but-old version from deletion, which is exactly the state a
+      # host is in right after a rollback.
+      it 'protects containers under the exact label each role carries, not the bare service name' do
+        expect(mock_docker).to receive(:versions_in_use).with(%w[myapp myapp-cron]).and_return([])
+        expect(mock_docker).to receive(:versions_in_use).with(['myapp']).and_return([])
+        expect(mock_docker).to receive(:versions_in_use).with(['myapp-jobs']).and_return([])
+
+        multihost.prune_old_images
+      end
+
+      # The brief's central guarantee: a host that cannot be reached at all
+      # must not fail a deploy that already succeeded. Raising from #entries,
+      # rather than from remove_image, is what actually reaches sweep_host's
+      # own rescue: a removal failure is swallowed by prune_image's own
+      # rescue first, and never gets anywhere near this one.
+      it 'keeps sweeping the other hosts when one cannot be read at all' do
+        calls = 0
+        allow(deploy_log).to receive(:entries) do
+          calls += 1
+          raise IOError, 'connection reset' if calls == 1
+
+          [Odysseus::DeployLog::Entry.new(at: '2026-08-01T09:00:00Z', version: 'v1', role: 'web',
+                                          ref: 'main', deployer: 'dev@example.com',
+                                          kind: 'deployed', from: nil)]
+        end
+
+        result = nil
+        expect { result = multihost.prune_old_images }.not_to raise_error
+
+        expect(result['web1.example.com']).to eq([])
+        expect(mock_docker).to have_received(:versions_in_use).with(['myapp']).once
+        expect(mock_docker).to have_received(:versions_in_use).with(['myapp-jobs']).once
       end
     end
   end
