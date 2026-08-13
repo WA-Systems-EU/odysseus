@@ -765,7 +765,7 @@ cd ../odysseus-sail-rolling && git add docs && \
 
 ## Out of scope
 
-- **`odysseus-sail-aws-asg`.** It will load through the same mechanism, but its suite cannot run locally, so nothing here verifies it.
+- **`odysseus-sail-aws-asg`.** It will load through the same mechanism, but nothing in this plan exercises it. (An earlier draft claimed its suite could not run locally; that was wrong — it passes 14 examples once bundled. Its real problem is a gemspec requiring `odysseus-core ~> 0.3`, which excludes 0.5.0.)
 - **Auto-discovery of installed `odysseus-sail-*` gems**, and folding rolling into core — both considered and rejected in the spec.
 - **Adding RuboCop or a Rakefile to the sail repo.**
 - **Releasing the sail gem.** It cannot be published until core 0.5.1 is, because its gemspec will require `~> 0.5`.

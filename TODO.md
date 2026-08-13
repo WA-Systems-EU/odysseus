@@ -89,7 +89,11 @@ we'd feel their absence.
       **`odysseus-sail-aws-asg` remains unverified by this task**: it was
       deliberately out of scope here (own repo, own suite), so nothing in
       this change exercises it even though the loading mechanism covers it
-      the same way `odysseus-sail-rolling` is covered.
+      the same way `odysseus-sail-rolling` is covered. Its suite does pass
+      (14 examples) once the repo is bundled. What it needs before anyone
+      can use it: its gemspec requires `odysseus-core ~> 0.3`, which
+      excludes 0.5.0 — the same constraint problem the rolling sail had,
+      and it would fail to resolve as a published gem today.
       **The rolling sail itself has not been run against a real host**;
       see `odysseus-sail-rolling`'s `docs/rolling-deploy.md` and this repo's
       READMEs for what that means.

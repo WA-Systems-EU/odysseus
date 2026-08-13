@@ -188,10 +188,15 @@ The sail cannot be released until core is, because its gemspec will require `~> 
   with a real deploy to dedalus-prod, which caught defects no double could. Rolling
   will not be, because there is no near-term need for it. The READMEs must say so
   rather than imply parity with the built-in strategies.
-- **`odysseus-sail-aws-asg` is untouched.** It cannot `bundle install` locally —
-  `aws-sdk-autoscaling`, `aws-sdk-ec2` and `aws-partitions` are missing — so its suite
-  cannot run. It will load through the same `plugins:` mechanism, but nothing here
-  verifies it. Recorded in `TODO.md`.
+- **`odysseus-sail-aws-asg` is untouched by this work**, though it will load through the
+  same `plugins:` mechanism. **Correction to an earlier draft of this spec**, which
+  claimed the gem could not `bundle install` and that its suite could not run: that was
+  wrong. Once bundled, its suite passes 14 examples. The original observation came from
+  running `bundle exec rspec` in a checkout that had never been `bundle install`ed, and
+  reported a broken gem where the truth was an unbundled directory.
+  What *is* true and does matter: its gemspec requires `odysseus-core ~> 0.3`, which
+  excludes 0.5.0 — the same constraint problem the rolling sail had. Recorded in
+  `TODO.md`.
 - **One plugin does not prove an architecture.** If a second strategy never
   materialises, folding rolling into core and retiring the gem stays the better end
   state. This design keeps the gem because it is close to usable and may be tried
