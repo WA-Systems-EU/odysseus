@@ -244,3 +244,37 @@ Smaller findings worth fixing but not blocking anything.
       via a non-raising sail) still prunes everywhere. Blast radius is bounded —
       the planner reads each host's own log and in-use set — but the choice
       should be deliberate rather than incidental.
+- [ ] **A sail's validator is never called.** `odysseus-sail-rolling` ships
+      `lib/odysseus/sail/rolling/validator.rb` with five green specs, but
+      `Odysseus::Sails` has no validator registry and `Plugins.load!` only
+      `require`s the gem, so nothing in core ever calls it. Its rules —
+      rolling needs `containers.count >= 2`, and the web role needs `proxy:` —
+      are therefore unenforced: a rolling role with no `containers:` block
+      silently deploys three slots. Core's `Validators::Config` still checks
+      that the strategy is registered and validates the timeouts, so the gap is
+      narrower than it looks. Either give `Sails.register` an optional
+      validator that `validate_deploy!` calls, or delete the file — specs that
+      guarantee nothing about a real deploy are worse than no specs.
+- [ ] **A non-web rolling role cannot describe its own health check.** Rolling
+      builds the Docker `HEALTHCHECK` only from `proxy.healthcheck` and reads
+      `deploy.health_check` only as an HTTP poll against `proxy.app_port` —
+      both under `proxy:`, which a non-web role now correctly has no reason to
+      define. It never reads the role-level `servers.<role>.healthcheck` that
+      core's `JobDeploy` uses. So a jobs role under rolling depends on its
+      image defining its own `HEALTHCHECK`, or the deploy aborts at
+      `boot_timeout`. Documented in the sail's `docs/rolling-deploy.md`.
+- [ ] **`odysseus-sail-rolling` has no RuboCop configuration at all**, so it
+      runs on pure defaults (128 offences) while both gems here share a config
+      and are clean. Give it the same config and its own `.rubocop_todo.yml`
+      debt snapshot.
+- [ ] `web_deploy_spec.rb` and `job_deploy_spec.rb` pair `version:` with an
+      identical `image_tag:`, so both branches of `deploy_version_tag` yield
+      the same string and a mutation of it is invisible there. Harmless today —
+      `deploy_versioning_spec.rb` covers the method since the extraction, and
+      is the only thing that catches that mutation — but the fixtures should be
+      de-uniformed so they stop looking like coverage they do not provide.
+- [ ] A `deploy.yml` that is empty, or whose top level is not a Hash, crashes
+      with a raw `NoMethodError`/`TypeError` that the CLI's `rescue
+      Odysseus::Error` does not catch, so the user gets a backtrace instead of a
+      message. Pre-dates plugin loading (which merely moved which line raises).
+      One shape check at the top of `Config::Parser#parse` fixes it.
