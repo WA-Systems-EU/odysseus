@@ -7,6 +7,12 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-15
+
+A minor bump: `plugins:` is a new key, and `odysseus validate` can now fail
+where it used to pass — on a machine that does not have a named plugin gem
+installed. That is the point of the change, but it is a behaviour change.
+
 ### Added
 - `plugins:` in deploy.yml, a list of gem names loaded before the config is
   validated, so a sail can register its strategy in time for

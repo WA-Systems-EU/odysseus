@@ -7,12 +7,19 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-15
+
 ### Changed
 - `odysseus validate` now loads `plugins:`/`sails:` before checking the rest
   of the config, so it catches a plugin gem that is not installed instead of
   only discovering the gap at deploy time. It will fail on a machine that
   does not have the gem, where it passed before. See odysseus-core's
   changelog for the loading mechanism itself.
+- Requires odysseus-core `~> 0.6.0`. The dependency was `~> 0.5.0`, which
+  excludes 0.6.0 outright, so the two gems could not resolve together at all.
+- The README documents dynamic ASG hosts again, now that `plugins:` makes them
+  reachable. The example it previously carried could not have parsed: it showed
+  an `aws:` role with no `hosts:` key, which every role requires.
 
 ## [0.5.0] - 2026-08-13
 
