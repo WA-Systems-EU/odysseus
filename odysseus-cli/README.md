@@ -385,6 +385,7 @@ plugins:
 
 servers:
   web:
+    hosts: []                   # required, and left empty — the ASG fills it in
     aws:
       asg: my-web-asg           # ASG name (required)
       region: us-east-1         # AWS region (required)
@@ -394,11 +395,23 @@ servers:
       memory: 4g
 ```
 
+`hosts:` is not optional even here: every role must carry a `hosts` array or
+config validation rejects it with `server role 'web' must have 'hosts'
+array`. Leave it empty and the ASG supplies the addresses at deploy time.
+
 **AWS credentials** are loaded from the standard AWS credential chain:
 environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`), the
 shared credentials file (`~/.aws/credentials`), or an IAM instance profile
-when running on EC2. Without `odysseus-sail-aws-asg` loaded, an `aws:` block
-fails config validation rather than being silently ignored.
+when running on EC2.
+
+**Without the plugin loaded, an `aws:` block is not caught by config
+validation** — the validator knows nothing about `aws:`. What happens depends
+on how the plugin is missing. Name it in `plugins:` without having installed
+it and the config fails to load at all, naming the gem. Leave it out of
+`plugins:` altogether and the config parses cleanly; the failure arrives when
+the deploy resolves the role's hosts, as `AWS ASG host provider not available
+— is the odysseus-sail-aws-asg gem loaded?`. Either way it is not silently
+ignored, but only the first is caught by `odysseus validate`.
 
 **SSH configuration** (bastions, ProxyJump, etc.) is your responsibility. Odysseus only needs the hostnames/IPs and relies on your local SSH config.
 
