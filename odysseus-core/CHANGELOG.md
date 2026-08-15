@@ -27,6 +27,14 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 - `odysseus validate` loads plugins, so it now catches a plugin gem that is
   not installed. It will fail on a machine without the gem, where it passed
   before.
+- A plugin that fails to load now reports the file that was actually missing,
+  and says so differently when the plugin itself was found. A sail whose own
+  dependency is absent — `odysseus-sail-aws-asg` without `aws-sdk-autoscaling`
+  — used to read as if the sail were not installed, advising an install that
+  could not fix it. The advice also names the Gemfile, which is what a
+  `bundle exec odysseus` run needs.
+- Plugin errors quote the key the deploy.yml actually used. Writing `sails:`
+  and getting told about `plugins:` named a key that was not in the file.
 
 ## [0.5.0] - 2026-08-13
 

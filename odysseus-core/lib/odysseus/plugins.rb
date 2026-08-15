@@ -1,8 +1,8 @@
 # lib/odysseus/plugins.rb
 
 module Odysseus
-  # Loads the gems named in deploy.yml's `plugins:` list, so that the sail and
-  # host-provider registries have something in them.
+  # Loads the gems named in deploy.yml's `plugins:` (or `sails:`) list, so that
+  # the sail and host-provider registries have something in them.
   #
   # Runs before config validation, because the validator is what asks whether a
   # named strategy is registered. That ordering is why this validates its own
@@ -20,22 +20,23 @@ module Odysseus
     # @raise [Odysseus::ConfigError] on an ambiguous pair, a bad shape, or a
     #   gem that will not load
     def self.load!(raw_config)
-      names = names_from(raw_config)
-      return if names.nil? && !key_present?(raw_config)
+      key, names = names_from(raw_config)
+      return if key.nil?
 
       unless names.is_a?(Array) && names.all?(String)
         raise Odysseus::ConfigError,
-              "`plugins:` must be a list of gem names, got #{names.inspect}"
+              "`#{key}:` must be a list of gem names, got #{names.inspect}"
       end
 
-      names.each { |name| require_plugin(name) }
+      names.each { |name| require_plugin(name, key) }
       nil
     end
 
-    def self.key_present?(raw_config)
-      KEYS.any? { |key| raw_config.key?(key) }
-    end
-
+    # Returns the key the config actually used alongside its value, so every
+    # diagnostic can quote the key the user wrote rather than whichever of the
+    # two aliases we happen to name first.
+    #
+    # @return [Array(String, Object)] the key and its value, or [nil, nil]
     def self.names_from(raw_config)
       present = KEYS.select { |key| raw_config.key?(key) }
 
@@ -44,17 +45,28 @@ module Odysseus
               'deploy.yml has both `plugins:` and `sails:` — use one; they name the same thing'
       end
 
-      present.empty? ? nil : raw_config[present.first]
+      present.empty? ? [nil, nil] : [present.first, raw_config[present.first]]
     end
 
-    def self.require_plugin(name)
+    def self.require_plugin(name, key)
       require name
-    rescue LoadError
-      raise Odysseus::ConfigError,
-            "Could not load the plugin `#{name}` named in deploy.yml. Install it with " \
-            "`gem install #{name}`, or remove it from `plugins:`."
+    rescue LoadError => e
+      raise Odysseus::ConfigError, load_failure_message(name, key, e)
     end
 
-    private_class_method :key_present?, :names_from, :require_plugin
+    # A plugin whose own `require` fails is installed already, so repeating the
+    # install advice sends the user after a gem they have. The two cases read
+    # differently, and both carry the file that was actually missing — without
+    # it, a sail missing its SDK is indistinguishable from a sail missing.
+    def self.load_failure_message(name, key, error)
+      if error.path && error.path != name
+        "The plugin `#{name}` named in deploy.yml is installed but failed to load: #{error.message}."
+      else
+        "Could not load the plugin `#{name}` named in deploy.yml (#{error.message}). Add it to your " \
+          "Gemfile or run `gem install #{name}`, or remove it from `#{key}:`."
+      end
+    end
+
+    private_class_method :names_from, :require_plugin, :load_failure_message
   end
 end
