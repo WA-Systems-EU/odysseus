@@ -16,7 +16,7 @@
 - **Two repositories.** Tasks 1, 2 and 4a are in `Odysseus` (`/home/tsultrim/Code/WaConstellation/WaSystems/OdysseusProject/Odysseus`). Tasks 3 and 4b are in `odysseus-sail-rolling` (`../odysseus-sail-rolling`), a separate git repo at one commit. Commit in each repo separately; never stage across them.
 - **The two repos verify differently.** In `Odysseus`, `bundle exec rake` runs RSpec **and** RuboCop and must be clean in both gems. **`odysseus-sail-rolling` has no `Rakefile` and no `.rubocop.yml`** — use `bundle exec rspec` there, and do not add either.
 - **Do NOT edit `.rubocop_todo.yml`** in either odysseus gem, and do not add an inline `rubocop:disable`.
-- `config.warnings = true` in odysseus-core: no unused variables, shadowed locals, or method redefinitions.
+- `config.warnings = true` in odysseus-core **and in the sail** (`spec/spec_helper.rb:22` — verified): no unused variables, shadowed locals, or method redefinitions in either repo.
 - Specs never open a network connection; `Odysseus::Deployer::SSH` and `Odysseus::Docker::Client` are always doubles. The one deliberate exception is `Plugins.load!`, which must really `require` a real file (Task 1).
 - Every new spec is checked against a deliberate mutation of the code under test — break it, confirm a **named** example fails, restore. Every defect found across the last three branches came this way, most often from a fixture too uniform to tell the mutant from correct code.
 - The sail's Gemfile already points at `../Odysseus/odysseus-core` via `path:`, so it picks up Task 2's mixin with no version juggling. Task 3 depends on Task 2 having landed.
@@ -63,7 +63,7 @@
 | `lib/odysseus/sail/rolling/orchestrator.rb` | Include the mixin; real version and labels; role-correct container label at **two** sites; conditional pull. |
 | `odysseus-sail-rolling.gemspec` | `odysseus-core` `~> 0.2` → `~> 0.5`. |
 | `spec/odysseus/sail/rolling/orchestrator_spec.rb` | Cover all four fixes. |
-| `docs/rolling-deploy.md` | Document `plugins:`, and that this is unverified on a real host. |
+| `docs/rolling-deploy.md` | Document `plugins:`, and that this is unverified on a real host. **Note: this file exists on disk but is untracked** — `git ls-files docs/` returns nothing. Task 4 adds it to git for the first time. |
 
 **Docs — `Odysseus`:** both CHANGELOGs, `odysseus-core/README.md`, `odysseus-cli/README.md`, `README.md`, `TODO.md`.
 
@@ -765,7 +765,7 @@ cd ../odysseus-sail-rolling && git add docs && \
 
 ## Out of scope
 
-- **`odysseus-sail-aws-asg`.** It will load through the same mechanism, but its suite cannot run locally, so nothing here verifies it.
+- **`odysseus-sail-aws-asg`.** It will load through the same mechanism, but nothing in this plan exercises it. (An earlier draft claimed its suite could not run locally; that was wrong — it passes 14 examples once bundled. Its real problem is a gemspec requiring `odysseus-core ~> 0.3`, which excludes 0.5.0.)
 - **Auto-discovery of installed `odysseus-sail-*` gems**, and folding rolling into core — both considered and rejected in the spec.
 - **Adding RuboCop or a Rakefile to the sail repo.**
 - **Releasing the sail gem.** It cannot be published until core 0.5.1 is, because its gemspec will require `~> 0.5`.

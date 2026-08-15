@@ -1,0 +1,23 @@
+# spec/fixtures/deploy-plugin-strategy.yml
+# Names a plugin gem (the spec's fake_sail fixture, put on $LOAD_PATH by the
+# example) and a deploy strategy only that plugin registers. Proves the
+# parser passes the *real* raw config through to Plugins.load! in time for
+# the sail to be registered before Validators::Config checks the strategy.
+
+service: myapp
+image: myapp-production
+
+plugins:
+  - fake_sail
+
+servers:
+  web:
+    hosts:
+      - web1.example.com
+    deploy:
+      strategy: fake
+
+ssh:
+  user: root
+  keys:
+    - ~/.ssh/id_ed25519

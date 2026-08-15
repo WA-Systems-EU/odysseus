@@ -7,6 +7,41 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-15
+
+A minor bump: `plugins:` is a new key, and `odysseus validate` can now fail
+where it used to pass — on a machine that does not have a named plugin gem
+installed. That is the point of the change, but it is a behaviour change.
+
+### Added
+- `plugins:` in deploy.yml, a list of gem names loaded before the config is
+  validated, so a sail can register its strategy in time for
+  `servers.<role>.deploy.strategy` to resolve. `sails:` is accepted as an
+  alias. Until now nothing ever loaded a sail: both registries raised "is the
+  gem loaded?" for every user, so `deploy.strategy` and the `aws:` host hook
+  were unreachable while both READMEs described them.
+- `Odysseus::Core::DeployVersioning`, the shared container version identity —
+  `odysseus.version`, `odysseus.git_ref` and `odysseus.deployed_at` — included
+  by both built-in orchestrators and available to sails. `status`, `rollback`
+  and image retention all read these labels, so an orchestrator that invents
+  its own scheme is invisible to them.
+
+### Changed
+- A deploy.yml carrying both `plugins:` and `sails:`, or both `dependencies:`
+  and `accessories:`, is now an error. Silently preferring one meant editing
+  the wrong key had no visible effect.
+- `odysseus validate` loads plugins, so it now catches a plugin gem that is
+  not installed. It will fail on a machine without the gem, where it passed
+  before.
+- A plugin that fails to load now reports the file that was actually missing,
+  and says so differently when the plugin itself was found. A sail whose own
+  dependency is absent — `odysseus-sail-aws-asg` without `aws-sdk-autoscaling`
+  — used to read as if the sail were not installed, advising an install that
+  could not fix it. The advice also names the Gemfile, which is what a
+  `bundle exec odysseus` run needs.
+- Plugin errors quote the key the deploy.yml actually used. Writing `sails:`
+  and getting told about `plugins:` named a key that was not in the file.
+
 ## [0.5.0] - 2026-08-13
 
 A minor bump rather than a patch: odysseus now deletes images on your hosts.

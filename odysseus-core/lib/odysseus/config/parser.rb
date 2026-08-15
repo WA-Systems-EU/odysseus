@@ -20,6 +20,7 @@ module Odysseus
       # @raise [Odysseus::ConfigError] if invalid
       def parse
         raw_config = load_yaml
+        Odysseus::Plugins.load!(raw_config)
         validate!(raw_config)
         normalize(raw_config)
       rescue Psych::SyntaxError => e
@@ -51,7 +52,7 @@ module Odysseus
           env: parse_env(config['env']),
           secrets_file: config['secrets_file'],
           ssh: parse_ssh(config['ssh']),
-          dependencies: parse_dependencies(config['dependencies'] || config['accessories']),
+          dependencies: parse_dependencies(dependencies_config(config)),
           builder: parse_builder(config['builder']),
           registry: parse_registry(config['registry']),
           retain_versions: config['retain_versions'] || DEFAULT_RETAIN_VERSIONS
@@ -183,6 +184,19 @@ module Odysseus
           user: ssh['user'] || 'root',
           keys: ssh['keys'] || []
         }
+      end
+
+      # `accessories:` is the former name, still accepted. Both present is an
+      # error rather than a silent preference: a config with two contradictory
+      # lists should say so.
+      def dependencies_config(config)
+        if config.key?('dependencies') && config.key?('accessories')
+          raise Odysseus::ConfigError,
+                'deploy.yml has both `dependencies:` and `accessories:` — use one; ' \
+                '`accessories:` is the former name'
+        end
+
+        config['dependencies'] || config['accessories']
       end
 
       # Parse dependencies config — the supporting services a deploy needs

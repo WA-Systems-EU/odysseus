@@ -19,6 +19,9 @@ gem 'odysseus-core'
 Odysseus Core provides the foundational components for Docker container deployment:
 
 - **Configuration parsing** - YAML-based deploy.yml configuration
+- **Sail plugins** - gems named in `plugins:`/`sails:` are loaded before the
+  rest of deploy.yml is validated, so they can register a deploy strategy or
+  a host provider before anything checks whether one exists
 - **Docker client** - Container lifecycle management via SSH
 - **Caddy client** - Reverse proxy configuration and routing
 - **Deployer** - Zero-downtime deployment orchestration
@@ -48,6 +51,8 @@ executor.deploy_all(image_tag: 'v1.0.0')
 
 Parses deploy.yml configuration files with support for:
 - Server roles (web, jobs, workers)
+- Sail plugins (`plugins:`, aliased `sails:`), loaded before the config below
+  it is validated
 - Proxy configuration (Caddy)
 - Dependencies (databases, Redis, etc.)
 - Environment variables and secrets

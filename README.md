@@ -155,6 +155,36 @@ retain_versions: 5
 Setting this below 2 leaves `odysseus rollback` with no candidate, since the
 previous version's image becomes eligible for removal as soon as you deploy.
 
+### Sail Plugins
+
+Some features — a deploy strategy, a way of resolving a role's hosts — ship
+as separate gems rather than being built in. Installing the gem is not
+enough on its own; it also has to be named in deploy.yml, since Odysseus
+never auto-discovers what happens to be installed:
+
+```bash
+gem install odysseus-sail-rolling
+```
+
+```yaml
+plugins:
+  - odysseus-sail-rolling
+
+servers:
+  web:
+    deploy:
+      strategy: rolling
+```
+
+`odysseus-sail-rolling` replaces a role's containers one at a time instead of
+all at once, bounding the extra memory a deploy needs. **It has not been
+exercised against a real host**, unlike `deploy` and `rollback` above — treat
+it as unproven until you've run it yourself. See
+[odysseus-cli/README.md](odysseus-cli/README.md#plugins) for the full
+reference, including `odysseus-sail-aws-asg` for dynamic hosts and a
+container-naming collision worth knowing about before using more than one
+role with `rolling`.
+
 ## Documentation
 
 See [odysseus-cli/README.md](odysseus-cli/README.md) for complete CLI documentation and configuration reference.

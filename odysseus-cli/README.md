@@ -204,6 +204,10 @@ Validate your deploy.yml configuration.
 odysseus validate [--config FILE]
 ```
 
+This loads `plugins:`/`sails:` before checking anything else, the same as
+every other command, so it also catches a plugin gem that is not installed
+on this machine — see `plugins` in the configuration reference below.
+
 ### rollback
 
 Return every role on every host to a previously deployed version.
@@ -301,6 +305,46 @@ The name of your service. Used for container naming and Caddy routing.
 
 The Docker image name (without tag). Tags are specified at deploy time.
 
+### plugins
+
+Some features ship as separate gems ("sails") instead of being built into
+Odysseus — a deploy strategy, a way of resolving a role's hosts. Installing
+one is not enough by itself: it also has to be named here, because Odysseus
+never auto-discovers what happens to be installed. That is deliberate — the
+same deploy.yml should behave identically on every machine, whether or not
+some other gem is sitting in the local bundle.
+
+```yaml
+plugins:
+  - odysseus-sail-rolling
+```
+
+`sails:` is accepted as the same key under a different name; a deploy.yml
+carrying both is a config error, not a silent preference of one over the
+other. Each name is `require`d before the rest of deploy.yml is checked —
+that ordering is what lets `servers.<role>.deploy.strategy` below resolve to
+a strategy the plugin registers. A name that will not `require` (not
+installed, or misspelled) stops validation with an error that names the gem
+and suggests `gem install <name>`, rather than failing later at deploy time.
+`odysseus validate` runs this same loading step, so it now catches a missing
+plugin gem too — which means `validate` can fail on a machine that lacks the
+gem where it used to pass, if your deploy.yml lists one.
+
+Sails available today:
+- **`odysseus-sail-rolling`** adds a `rolling` deploy strategy: it replaces a
+  role's containers one at a time instead of all at once, to bound the extra
+  memory a deploy needs to at most one spare container rather than a whole
+  role's worth. **It has not been exercised against a real host** — unlike
+  `deploy` and `rollback` above, both of which have been. Treat it as
+  unproven until you have run it yourself; see its own
+  `docs/rolling-deploy.md` for the worked example and more caveats,
+  including a container-naming collision to watch for. Config:
+  `servers.<role>.deploy.strategy: rolling` (see `deploy` under `servers`
+  below).
+- **`odysseus-sail-aws-asg`** resolves a role's hosts from an AWS Auto
+  Scaling Group instead of a static `hosts:` list. Config: `servers.<role>.aws`
+  (see below).
+
 ### servers
 
 Define roles and their target hosts:
@@ -329,7 +373,106 @@ Available options:
 - `cpus` - CPU limit (e.g., `2` for 2 cores, `1.5` for 1.5 cores)
 - `cpu_shares` - Relative CPU weight (default: 1024)
 
+#### Dynamic hosts with AWS Auto Scaling Groups
+
+Instead of a static `hosts:` list, a role's hosts can be resolved from an AWS
+Auto Scaling Group, once the `odysseus-sail-aws-asg` plugin is installed and
+loaded (see `plugins` above):
+
+```yaml
+plugins:
+  - odysseus-sail-aws-asg
+
+servers:
+  web:
+    hosts: []                   # required, and left empty — the ASG fills it in
+    aws:
+      asg: my-web-asg           # ASG name (required)
+      region: us-east-1         # AWS region (required)
+      use_private_ip: false     # Use private IPs instead of public (default: false)
+      state: InService          # Instance lifecycle state filter (default: InService)
+    options:
+      memory: 4g
+```
+
+`hosts:` is not optional even here: every role must carry a `hosts` array or
+config validation rejects it with `server role 'web' must have 'hosts'
+array`. Leave it empty and the ASG supplies the addresses at deploy time.
+
+**AWS credentials** are loaded from the standard AWS credential chain:
+environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`), the
+shared credentials file (`~/.aws/credentials`), or an IAM instance profile
+when running on EC2.
+
+**Without the plugin loaded, an `aws:` block is not caught by config
+validation** — the validator knows nothing about `aws:`. What happens depends
+on how the plugin is missing. Name it in `plugins:` without having installed
+it and the config fails to load at all, naming the gem. Leave it out of
+`plugins:` altogether and the config parses cleanly; the failure arrives when
+the deploy resolves the role's hosts, as `AWS ASG host provider not available
+— is the odysseus-sail-aws-asg gem loaded?`. Either way it is not silently
+ignored, but only the first is caught by `odysseus validate`.
+
 **SSH configuration** (bastions, ProxyJump, etc.) is your responsibility. Odysseus only needs the hostnames/IPs and relies on your local SSH config.
+
+#### containers
+
+Run more than one container per host for a role — meaningful only to a
+strategy that reads it, currently `rolling`. The built-in strategy always
+runs exactly one container per role per host and ignores this block:
+
+```yaml
+servers:
+  web:
+    deploy:
+      strategy: rolling
+    containers:
+      count: 3                 # containers per host on this role (default: 1)
+      name_pattern: "web-%d"   # default for every role — see warning below
+```
+
+**`name_pattern` defaults to `"web-%d"` for every role, and a container's
+name is built from the bare service name, not the role**
+(`<service>-<name_pattern % slot>`). Two roles that both leave it at the
+default — say `web` and a multi-container `jobs`, both on `rolling` and both
+deployed to the same host — produce identically-named containers, and each
+role's deploy will see and manage the other's containers. Give every role
+beyond the first its own `name_pattern` (e.g. `"jobs-%d"`) whenever more than
+one role runs multi-container on a shared host. This is a pre-existing sharp
+edge, not new in this release, but it only became reachable now that a
+strategy which actually uses multiple containers per role can be loaded at
+all.
+
+#### deploy
+
+```yaml
+servers:
+  web:
+    deploy:
+      strategy: rolling        # optional — see `plugins` above; omit for the built-in strategy
+      drain_timeout: 30        # seconds to wait for in-flight connections before stopping the old container
+      stop_timeout: 10         # seconds of grace before the old container is force-removed
+      boot_timeout: 60         # seconds to wait for a new container to become healthy
+      health_check:
+        path: /up               # default: /up
+        interval: 2             # seconds between checks (default: 2)
+        threshold: 3            # consecutive successes required (default: 3)
+        timeout: 5              # seconds per check (default: 5)
+```
+
+`strategy` chooses the orchestrator for the role. Leave it out for
+Odysseus's built-in zero-downtime replacement (start new, health-check via
+`proxy.healthcheck`, switch traffic, drain and stop old — its own timings,
+not the ones below). Name a strategy a plugin registers — currently only
+`rolling` — to use that instead; it must be loaded via `plugins:` first, or
+config validation refuses it with "is not registered — is the sail plugin
+gem loaded?".
+
+`drain_timeout`, `stop_timeout`, `boot_timeout` and `health_check` are parsed
+and shape-checked regardless of `strategy`, but **the built-in strategy does
+not read them** — it drains for a fixed 5 seconds and waits up to a fixed 60
+seconds for Docker's own health check, neither of which this block changes.
+They exist for a strategy that chooses to read them; `rolling` does.
 
 ### proxy
 

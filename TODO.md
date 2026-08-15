@@ -81,13 +81,22 @@ we'd feel their absence.
 - [ ] **Deploy locks.** Nothing stops two people (or a person and CI) deploying
       at once and interleaving container swaps, and the same is true of a
       rollback racing a deploy or another rollback. Kamal: `kamal lock`.
-- [ ] **Plugin (sail) loading.** `Sails` and the host-provider registry both
-      raise "is the gem loaded?", but nothing ever loads a sail:
-      `odysseus-sail-rolling` self-registers on `require` and the CLI only
-      requires `odysseus`. With a `gem install`-ed CLI there is no Gemfile to do
-      it, so `deploy.strategy: rolling` and `aws:` are unreachable for any end
-      user. Needs a `plugins:`/`require:` key in deploy.yml or discovery of
-      installed `odysseus-sail-*` gems.
+- [x] **Plugin (sail) loading.** `plugins:` in deploy.yml (`sails:` accepted
+      as an alias) names gems to `require` before the config is validated, so
+      `deploy.strategy: rolling` and the `aws:` host hook are reachable for
+      the first time. `odysseus-sail-rolling` was brought current against
+      `DeployVersioning` and container labelling as the worked example.
+      **`odysseus-sail-aws-asg` remains unverified by this task**: it was
+      deliberately out of scope here (own repo, own suite), so nothing in
+      this change exercises it even though the loading mechanism covers it
+      the same way `odysseus-sail-rolling` is covered. Its suite does pass
+      (14 examples) once the repo is bundled. What it needs before anyone
+      can use it: its gemspec requires `odysseus-core ~> 0.3`, which
+      excludes 0.5.0 — the same constraint problem the rolling sail had,
+      and it would fail to resolve as a published gem today.
+      **The rolling sail itself has not been run against a real host**;
+      see `odysseus-sail-rolling`'s `docs/rolling-deploy.md` and this repo's
+      READMEs for what that means.
 - [ ] **Finish registry support.** The local half exists — build, `docker login`,
       `docker push`, and `Executor#uses_registry?` switching distribution — but no
       deploy target ever logs in, and `WebDeploy`/`JobDeploy` never call
@@ -235,3 +244,37 @@ Smaller findings worth fixing but not blocking anything.
       via a non-raising sail) still prunes everywhere. Blast radius is bounded —
       the planner reads each host's own log and in-use set — but the choice
       should be deliberate rather than incidental.
+- [ ] **A sail's validator is never called.** `odysseus-sail-rolling` ships
+      `lib/odysseus/sail/rolling/validator.rb` with five green specs, but
+      `Odysseus::Sails` has no validator registry and `Plugins.load!` only
+      `require`s the gem, so nothing in core ever calls it. Its rules —
+      rolling needs `containers.count >= 2`, and the web role needs `proxy:` —
+      are therefore unenforced: a rolling role with no `containers:` block
+      silently deploys three slots. Core's `Validators::Config` still checks
+      that the strategy is registered and validates the timeouts, so the gap is
+      narrower than it looks. Either give `Sails.register` an optional
+      validator that `validate_deploy!` calls, or delete the file — specs that
+      guarantee nothing about a real deploy are worse than no specs.
+- [ ] **A non-web rolling role cannot describe its own health check.** Rolling
+      builds the Docker `HEALTHCHECK` only from `proxy.healthcheck` and reads
+      `deploy.health_check` only as an HTTP poll against `proxy.app_port` —
+      both under `proxy:`, which a non-web role now correctly has no reason to
+      define. It never reads the role-level `servers.<role>.healthcheck` that
+      core's `JobDeploy` uses. So a jobs role under rolling depends on its
+      image defining its own `HEALTHCHECK`, or the deploy aborts at
+      `boot_timeout`. Documented in the sail's `docs/rolling-deploy.md`.
+- [ ] **`odysseus-sail-rolling` has no RuboCop configuration at all**, so it
+      runs on pure defaults (128 offences) while both gems here share a config
+      and are clean. Give it the same config and its own `.rubocop_todo.yml`
+      debt snapshot.
+- [ ] `web_deploy_spec.rb` and `job_deploy_spec.rb` pair `version:` with an
+      identical `image_tag:`, so both branches of `deploy_version_tag` yield
+      the same string and a mutation of it is invisible there. Harmless today —
+      `deploy_versioning_spec.rb` covers the method since the extraction, and
+      is the only thing that catches that mutation — but the fixtures should be
+      de-uniformed so they stop looking like coverage they do not provide.
+- [ ] A `deploy.yml` that is empty, or whose top level is not a Hash, crashes
+      with a raw `NoMethodError`/`TypeError` that the CLI's `rescue
+      Odysseus::Error` does not catch, so the user gets a backtrace instead of a
+      message. Pre-dates plugin loading (which merely moved which line raises).
+      One shape check at the top of `Config::Parser#parse` fixes it.

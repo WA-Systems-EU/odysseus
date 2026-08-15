@@ -1,0 +1,28 @@
+# spec/fixtures/deploy-both-dependency-keys.yml
+# Carries both `dependencies:` and `accessories:`, which the parser must
+# refuse rather than silently prefer one.
+
+service: myapp
+image: myapp-production
+
+servers:
+  web:
+    hosts:
+      - web1.example.com
+
+dependencies:
+  redis:
+    image: redis:7
+    hosts:
+      - acc1.example.com
+
+accessories:
+  memcached:
+    image: memcached:1
+    hosts:
+      - acc2.example.com
+
+ssh:
+  user: root
+  keys:
+    - ~/.ssh/id_ed25519
