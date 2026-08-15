@@ -12,7 +12,14 @@ module Odysseus
     # in-use guard could never match a version from the deploy log.
     #
     # The including class must expose @config.
+    #
+    # Both helpers are private, as they were before the extraction: they are
+    # how an orchestrator labels its own containers, not something to call on
+    # one from outside. VolumeNamespacer keeps its internals private the same
+    # way.
     module DeployVersioning
+      private
+
       # The version this deploy identifies. Falls back to the tag in the image
       # reference so a caller passing --image still gets a self-describing name.
       def deploy_version_tag(image)
