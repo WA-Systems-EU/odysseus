@@ -14,8 +14,8 @@ Done, on trunk:
 - [x] **AWS ASG remnants.** Removed from both READMEs. The parsing hook and the
       `HostProviders` `aws:` branch are deliberately kept: they are the contract
       `odysseus-sail-aws-asg` consumes, and that gem has passing specs against
-      them. The docs came back in 0.6.0 when plugin loading landed — and went
-      out again in 0.7.1. **`odysseus-sail-aws-asg` is on ice as of
+      them. The docs came back in 0.6.0 when plugin loading landed, and come
+      out again in the next release. **`odysseus-sail-aws-asg` is on ice as of
       2026-08-16.** It exists (one commit, 14 passing specs) but has never been
       published or run against a real ASG, so documenting it as available was
       the same promise-without-a-feature the docs rule forbids. The ~20 lines
