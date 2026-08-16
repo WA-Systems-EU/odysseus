@@ -17,15 +17,22 @@ RSpec.describe Odysseus::CLI::CLI do
 
   # Commands print to $stdout and exit on failure. Buffer that chatter here so it
   # stays readable after a SystemExit escapes the block.
+  #
+  # Both streams are buffered, and separately: which one a message went to is
+  # itself under test. `odysseus logs web1 > app.log` is the command most
+  # likely to be redirected, so its own diagnostics must not be in what the
+  # redirect captures.
   let(:stdout_buffer) { StringIO.new }
+  let(:stderr_buffer) { StringIO.new }
 
   def output_of
-    original = $stdout
+    original = [$stdout, $stderr]
     $stdout = stdout_buffer
+    $stderr = stderr_buffer
     begin
       yield
     ensure
-      $stdout = original
+      $stdout, $stderr = original
     end
     stdout_buffer.string
   end
@@ -407,17 +414,35 @@ RSpec.describe Odysseus::CLI::CLI do
       allow(docker).to receive(:list).with(service: 'myapp', all: true).and_return([exited])
       allow(docker).to receive(:logs).and_return('segfault')
 
+      output_of { cli.logs('web1.example.com', config: config_file) }
+
+      expect(stderr_buffer.string).to match(/stopped|exited/i)
+      expect(stderr_buffer.string).to include('bbbbbbbbbbbb')
+    end
+
+    # `odysseus logs web1 > app.log` is the command most likely to be
+    # redirected or piped into something that parses it. The notice is about
+    # the logs, not part of them, so it belongs on stderr — where it is still
+    # on the terminal in front of whoever ran the command.
+    it 'keeps the stopped-container notice out of the log stream itself' do
+      allow(docker).to receive(:list).with(service: 'myapp', all: true).and_return([exited])
+      allow(docker).to receive(:logs).and_return('segfault')
+
       out = output_of { cli.logs('web1.example.com', config: config_file) }
 
-      expect(out).to match(/stopped|exited/i)
-      expect(out).to include('bbbbbbbbbbbb')
+      expect(out).to include('segfault')
+      expect(out).not_to match(/stopped|exited/i)
+      expect(out).not_to include('bbbbbbbbbbbb')
     end
 
     it 'does not claim a stopped container when the logs come from a running one' do
       allow(docker).to receive(:list).with(service: 'myapp', all: true).and_return([running])
       allow(docker).to receive(:logs).and_return('hello')
 
-      expect(output_of { cli.logs('web1.example.com', config: config_file) }).not_to match(/stopped|exited/i)
+      output_of { cli.logs('web1.example.com', config: config_file) }
+
+      expect(stdout_buffer.string).not_to match(/stopped|exited/i)
+      expect(stderr_buffer.string).to be_empty
     end
 
     # A request for logs that produced none is a failed request. Exiting 0 told
@@ -427,7 +452,16 @@ RSpec.describe Odysseus::CLI::CLI do
 
       expect { output_of { cli.logs('web1.example.com', config: config_file) } }
         .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
-      expect(stdout_buffer.string).to include('myapp')
+      expect(stderr_buffer.string).to include('myapp')
+    end
+
+    it 'keeps the not-found message out of the log stream too' do
+      allow(docker).to receive(:list).with(service: 'myapp', all: true).and_return([])
+
+      expect { output_of { cli.logs('web1.example.com', config: config_file) } }
+        .to raise_error(SystemExit)
+
+      expect(stdout_buffer.string).not_to match(/no containers found/i)
     end
 
     it 'reads the role named by --role' do
@@ -463,7 +497,7 @@ RSpec.describe Odysseus::CLI::CLI do
       out = output_of { cli.dependency_logs('db.example.com', config: config_file, name: 'db') }
 
       expect(out).to include('FATAL: out of memory')
-      expect(out).to match(/stopped|exited/i)
+      expect(stderr_buffer.string).to match(/stopped|exited/i)
     end
 
     it 'exits non-zero when the dependency has no container at all' do
@@ -471,7 +505,7 @@ RSpec.describe Odysseus::CLI::CLI do
 
       expect { output_of { cli.dependency_logs('db.example.com', config: config_file, name: 'db') } }
         .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
-      expect(stdout_buffer.string).to include('myapp-db')
+      expect(stderr_buffer.string).to include('myapp-db')
     end
   end
 

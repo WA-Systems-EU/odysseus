@@ -810,18 +810,23 @@ module Odysseus
       # Finding nothing is a failed request for logs, not a success, so it
       # exits non-zero. And when the only match is stopped, say so: otherwise
       # the log just ends and the reader has no way to know why.
+      #
+      # Both of those go to stderr. This command's stdout is a log stream —
+      # `odysseus logs web1 > app.log`, or a pipe into something that parses
+      # what it gets — so a line about the logs must not arrive inside them,
+      # while still reaching the terminal of whoever ran the command.
       def log_container_id!(docker, service_name, server)
         containers = docker.list(service: service_name, all: true)
 
         if containers.empty?
-          @ui.error "No containers found for #{service_name} on #{server} (stopped ones included)"
+          @ui.error "No containers found for #{service_name} on #{server} (stopped ones included)", io: $stderr
           exit 1
         end
 
         container = containers.find { |c| c['State'] == 'running' } || containers.first
         unless container['State'] == 'running'
           @ui.warn "No running container for #{service_name}: showing logs from " \
-                   "#{container['State']} container #{container['ID'][0..11]}"
+                   "#{container['State']} container #{container['ID'][0..11]}", io: $stderr
         end
 
         container['ID']

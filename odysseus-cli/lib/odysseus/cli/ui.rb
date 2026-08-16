@@ -290,19 +290,24 @@ module Odysseus
         puts "  #{MINT}✓#{RESET} #{message}"
       end
 
-      def error(message)
-        puts "  #{RED}✗#{RESET} #{message}"
+      # `io` is for the one command whose stdout is data rather than chatter:
+      # `odysseus logs web1 > app.log` captures a log stream, and a notice about
+      # which container the logs came from does not belong in it. A default
+      # rather than a second set of methods, so every other caller keeps writing
+      # to stdout exactly as before.
+      def error(message, io: $stdout)
+        io.puts "  #{RED}✗#{RESET} #{message}"
       end
 
-      def warn(message)
-        puts "  \e[33m!#{RESET} #{message}"
+      def warn(message, io: $stdout)
+        io.puts "  \e[33m!#{RESET} #{message}"
       end
 
-      def step(message)
+      def step(message, io: $stdout)
         if debug?
-          puts "  #{redact(message)}"
+          io.puts "  #{redact(message)}"
         else
-          puts "  #{DIM}›#{RESET} #{message}"
+          io.puts "  #{DIM}›#{RESET} #{message}"
         end
       end
 

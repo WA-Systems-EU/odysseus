@@ -190,7 +190,9 @@ Options:
 
 Stopped containers are included, since the container that has just exited is
 usually the one whose logs you want; when the only match is stopped, the
-command says so before printing them. Finding no container at all — running or
+command says so before printing them. That notice, and the message when no
+container is found at all, go to stderr, so `odysseus logs web1 > app.log`
+captures the logs and nothing else. Finding no container at all — running or
 stopped — exits non-zero.
 
 ### cleanup

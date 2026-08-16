@@ -56,6 +56,11 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   request for logs that produced none is a failed request, not a success. When
   the only match is stopped they say so, and name the container, rather than
   streaming a dead container's logs and leaving you to wonder why it ends.
+- Both of those messages go to **stderr**. `odysseus logs web1 > app.log` is
+  the command most likely to be redirected or piped into something that parses
+  what it gets, and a line about the logs does not belong inside them. The
+  notice still reaches the terminal of whoever ran the command. Every other
+  command writes where it always did.
 - `odysseus app shell|console` and `odysseus dependency shell` now exit
   non-zero when the session fails. They discarded `system`'s return value, so a
   refused ssh, a missing image or a failed `docker run` all reported success.
