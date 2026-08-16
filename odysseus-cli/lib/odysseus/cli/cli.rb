@@ -5,11 +5,13 @@ require 'yaml'
 require 'tempfile'
 require_relative 'ui'
 require_relative 'rollback_commands'
+require_relative 'interactive_commands'
 
 module Odysseus
   module CLI
     class CLI
       include RollbackCommands
+      include InteractiveCommands
 
       def initialize(debug: false)
         @ui = UI.new(debug: debug)
@@ -409,7 +411,7 @@ module Odysseus
         since = options[:since]
 
         config = load_config(config_file)
-        service_name = role == :web ? config[:service] : "#{config[:service]}-#{role}"
+        service_name = Odysseus::Docker::Labels.service_for(service: config[:service], role: role)
 
         @ui.header "Logs: #{service_name}"
         @ui.info 'Server', server
@@ -489,6 +491,7 @@ module Odysseus
       # App exec
       def app_exec(server, options = {})
         config_file = options[:config] || 'deploy.yml'
+        role = (options[:role] || 'web').to_sym
         command = options[:command]
 
         unless command
@@ -497,10 +500,11 @@ module Odysseus
         end
 
         config = load_config(config_file)
-        image = running_image(server, config)
+        image = running_image(server, config, role)
 
         @ui.header 'App Exec'
         @ui.info 'Server', server
+        @ui.info 'Role', role
         @ui.info 'Command', command
         @ui.blank
 
@@ -515,67 +519,6 @@ module Odysseus
         ensure
           ssh.close
         end
-      rescue Odysseus::Error => e
-        @ui.error e.message
-        exit 1
-      end
-
-      # App shell
-      def app_shell(server, options = {})
-        config_file = options[:config] || 'deploy.yml'
-        config = load_config(config_file)
-        image = running_image(server, config)
-
-        ssh_keys = config[:ssh][:keys].map { |k| "-i #{File.expand_path(k)}" }.join(' ')
-        env_flags = config[:env][:clear]&.map { |k, v| "-e #{k}=#{v}" }&.join(' ') || ''
-
-        system("ssh #{ssh_keys} -t #{config[:ssh][:user]}@#{server} 'docker run -it --rm --network odysseus #{env_flags} #{image} /bin/sh'")
-      rescue Odysseus::Error => e
-        @ui.error e.message
-        exit 1
-      end
-
-      # App console
-      def app_console(server, options = {})
-        config_file = options[:config] || 'deploy.yml'
-        console_cmd = options[:cmd] || '/bin/sh'
-        config = load_config(config_file)
-        image = running_image(server, config)
-
-        ssh_keys = config[:ssh][:keys].map { |k| "-i #{File.expand_path(k)}" }.join(' ')
-        env_flags = config[:env][:clear]&.map { |k, v| "-e #{k}=#{v}" }&.join(' ') || ''
-
-        system("ssh #{ssh_keys} -t #{config[:ssh][:user]}@#{server} 'docker run -it --rm --network odysseus #{env_flags} #{image} #{console_cmd}'")
-      rescue Odysseus::Error => e
-        @ui.error e.message
-        exit 1
-      end
-
-      # Dependency shell
-      def dependency_shell(server, options = {})
-        config_file = options[:config] || 'deploy.yml'
-        name = require_name!(options)
-
-        config = load_config(config_file)
-        service_name = "#{config[:service]}-#{name}"
-
-        ssh = connect_to_server(server, config)
-        begin
-          docker = Odysseus::Docker::Client.new(ssh)
-          containers = docker.list(service: service_name)
-
-          if containers.empty?
-            @ui.error "No running containers found for #{service_name}"
-            exit 1
-          end
-
-          container_id = containers.first['ID']
-        ensure
-          ssh.close
-        end
-
-        ssh_keys = config[:ssh][:keys].map { |k| "-i #{File.expand_path(k)}" }.join(' ')
-        system("ssh #{ssh_keys} -t #{config[:ssh][:user]}@#{server} 'docker exec -it #{container_id} /bin/sh'")
       rescue Odysseus::Error => e
         @ui.error e.message
         exit 1
@@ -843,15 +786,25 @@ module Odysseus
       # tagged `latest`, so reconstruction would name a tag that was never
       # pushed. Falling back to reconstruction only covers the case where
       # Image is somehow absent from docker's own output.
-      def running_image(server, config)
+      #
+      # The lookup goes through Labels.service_for because only the web role is
+      # labelled with the bare service name. Asking for that name on a jobs host
+      # matches nothing, and on a service with no web role it matches nothing
+      # anywhere — which is what these commands did before they took a role.
+      def running_image(server, config, role)
+        service_name = Odysseus::Docker::Labels.service_for(service: config[:service], role: role)
         ssh = connect_to_server(server, config)
 
         begin
           docker = Odysseus::Docker::Client.new(ssh)
-          container = docker.list(service: config[:service]).first
+          container = docker.list(service: service_name).first
 
           unless container
-            @ui.error "No running container for #{config[:service]} on #{server}"
+            # No search of other roles: running a command against a role other
+            # than the one asked for is worse than being told what to type.
+            @ui.error "No running container for role '#{role}' on #{server} " \
+                      "(nothing labelled odysseus.service=#{service_name})"
+            @ui.step "Name the role with --role. Roles in this config: #{config[:servers].keys.join(', ')}"
             exit 1
           end
 

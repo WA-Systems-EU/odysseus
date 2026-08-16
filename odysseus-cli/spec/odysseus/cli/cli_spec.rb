@@ -179,6 +179,98 @@ RSpec.describe Odysseus::CLI::CLI do
     end
   end
 
+  # Every container carries odysseus.service=<label>, and Docker::Labels
+  # decides that label: the bare service name for the web role,
+  # "<service>-<role>" for every other. docker ps filters on an exact match, so
+  # a command that searches the bare name finds nothing on a jobs host — and
+  # nothing anywhere at all for a service that has no web role.
+  #
+  # These examples are deliberately not on the web role: there
+  # `service_for` and the bare service name are byte-identical, so an
+  # assertion made against a web fixture is satisfied by the bug as readily as
+  # by the fix.
+  describe 'app commands on a non-web role' do
+    let(:ssh) { instance_double(Odysseus::Deployer::SSH, close: nil) }
+    let(:docker) { instance_double(Odysseus::Docker::Client) }
+    let(:worker_only) { fixture_path('worker-only.yml') }
+    let(:jobs_containers) do
+      [{ 'ID' => 'abc', 'Image' => 'myapp-production:abc123def456',
+         'Labels' => 'odysseus.service=myapp-jobs,odysseus.version=abc123def456' }]
+    end
+
+    before do
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      allow(Odysseus::Docker::Client).to receive(:new).and_return(docker)
+      allow(cli).to receive(:system).and_return(true)
+    end
+
+    it 'exec asks for the label the jobs role carries, not the bare service' do
+      allow(docker).to receive(:list).with(service: 'myapp-jobs').and_return(jobs_containers)
+      expect(docker).to receive(:run_once)
+        .with(image: 'myapp-production:abc123def456', command: 'true', options: anything)
+        .and_return('done')
+
+      output_of { cli.app_exec('worker1.example.com', config: config_file, command: 'true', role: 'jobs') }
+    end
+
+    it 'shell asks for the label the jobs role carries' do
+      expect(docker).to receive(:list).with(service: 'myapp-jobs').and_return(jobs_containers)
+
+      output_of { cli.app_shell('worker1.example.com', config: config_file, role: 'jobs') }
+    end
+
+    it 'console asks for the label the jobs role carries' do
+      expect(docker).to receive(:list).with(service: 'myapp-jobs').and_return(jobs_containers)
+
+      output_of { cli.app_console('worker1.example.com', config: config_file, role: 'jobs') }
+    end
+
+    # A worker-only service deploys through JobDeploy and passes validate, so
+    # nothing it runs is ever labelled with the bare service name. Before
+    # --role reached these commands there was no host at all on which they
+    # worked, and no workaround.
+    it 'exec works for a service that has no web role at all' do
+      allow(docker).to receive(:list).with(service: 'myapp-jobs').and_return(jobs_containers)
+      expect(docker).to receive(:run_once)
+        .with(image: 'myapp-production:abc123def456', command: 'true', options: anything)
+        .and_return('done')
+
+      output_of { cli.app_exec('worker1.example.com', config: worker_only, command: 'true', role: 'jobs') }
+    end
+
+    it 'still looks up the bare service name when no role is named' do
+      allow(docker).to receive(:list).with(service: 'myapp').and_return(
+        [{ 'ID' => 'abc', 'Image' => 'myapp-production:latest', 'Labels' => 'odysseus.service=myapp' }]
+      )
+      expect(docker).to receive(:run_once)
+        .with(image: 'myapp-production:latest', command: 'true', options: anything)
+        .and_return('done')
+
+      output_of { cli.app_exec('web1.example.com', config: config_file, command: 'true') }
+    end
+
+    it 'names the role, the label it searched and the option that changes it' do
+      allow(docker).to receive(:list).with(service: 'myapp-jobs').and_return([])
+
+      expect { output_of { cli.app_exec('worker1.example.com', config: config_file, command: 'true', role: 'jobs') } }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+
+      expect(stdout_buffer.string).to include('jobs')
+      expect(stdout_buffer.string).to include('myapp-jobs')
+      expect(stdout_buffer.string).to include('--role')
+    end
+
+    # Execing against a role other than the one you named is worse than being
+    # told what to type, so the failure must not search anywhere else.
+    it 'does not fall back to another role when the named one has nothing running' do
+      allow(docker).to receive(:list).with(service: 'myapp-jobs').and_return([])
+      expect(docker).not_to receive(:list).with(service: 'myapp')
+
+      expect { output_of { cli.app_exec('worker1.example.com', config: config_file, command: 'true', role: 'jobs') } }
+        .to raise_error(SystemExit)
+    end
+  end
+
   describe '#validate' do
     it 'summarises a valid config' do
       out = output_of { cli.validate(config: config_file) }

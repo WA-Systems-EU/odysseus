@@ -129,6 +129,26 @@ RSpec.describe 'bin/odysseus' do
       expect(stdout).to include('Command required')
       expect(status.exitstatus).to eq(1)
     end
+
+    # The app parser had no --role at all, so naming one raised
+    # OptionParser::InvalidOption and printed a backtrace. Stopping at the
+    # missing --command proves the flag was accepted and the run got past
+    # argument handling.
+    it 'accepts --role' do
+      stdout, stderr, status = run_cli(
+        'app', 'exec', 'worker1.example.com', '--role', 'jobs', '--config', fixture_path('deploy.yml')
+      )
+
+      expect(stderr).not_to match(/invalid option/i)
+      expect(stdout).to include('Command required')
+      expect(status.exitstatus).to eq(1)
+    end
+
+    it 'documents --role in its usage' do
+      stdout, _stderr, _status = run_cli('app')
+
+      expect(stdout).to include('--role')
+    end
   end
 
   describe 'secrets' do

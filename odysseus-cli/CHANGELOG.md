@@ -7,6 +7,19 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Fixed
+- `odysseus app exec|shell|console` now take `--role` (default `web`) and look
+  the container up by the label that role actually carries. They asked for the
+  bare service name, which only the web role wears: on a jobs host they
+  reported `No running container for myapp` while `myapp-jobs` containers were
+  running, and for a service with no web role at all they could not work on any
+  host, with no workaround. The `app` parser had no `--role` either, so naming
+  one raised an `OptionParser::InvalidOption` backtrace.
+- The not-found message from those commands now names the role, the
+  `odysseus.service` label it searched for and the `--role` option, and lists
+  the roles in the config. It does not search other roles: running your command
+  against a role you did not name would be worse than being told what to type.
+
 ## [0.6.0] - 2026-08-15
 
 ### Changed
