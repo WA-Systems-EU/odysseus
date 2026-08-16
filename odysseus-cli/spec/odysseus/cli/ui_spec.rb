@@ -107,6 +107,33 @@ RSpec.describe Odysseus::CLI::UI do
         expect(elsewhere.string).to include('a message')
       end
     end
+
+    # The header the interactive sessions print opts out the same way: the
+    # terminal they hand over writes its own output to stdout, and a line about
+    # which container that is does not belong in it.
+    it '#header writes to stdout by default and to the io it was given instead' do
+      expect(to_stdout { ui.header('A Title') }).to include('A Title')
+      expect(elsewhere.string).to be_empty
+
+      expect(to_stdout { ui.header('A Title', io: elsewhere) }).to be_empty
+      expect(elsewhere.string).to include('A Title')
+    end
+
+    it '#info writes to stdout by default and to the io it was given instead' do
+      expect(to_stdout { ui.info('Label', 'value') }).to include('Label: value')
+      expect(elsewhere.string).to be_empty
+
+      expect(to_stdout { ui.info('Label', 'value', io: elsewhere) }).to be_empty
+      expect(elsewhere.string).to include('Label: value')
+    end
+
+    it '#blank writes to stdout by default and to the io it was given instead' do
+      expect(to_stdout { ui.blank }).to eq("\n")
+      expect(elsewhere.string).to be_empty
+
+      expect(to_stdout { ui.blank(io: elsewhere) }).to be_empty
+      expect(elsewhere.string).to eq("\n")
+    end
   end
 
   describe 'step numbering' do

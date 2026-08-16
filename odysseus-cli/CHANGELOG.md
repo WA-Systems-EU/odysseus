@@ -96,6 +96,23 @@ change in what those jobs see.
 - `odysseus app console --cmd` is split into words the way a shell would, so
   `--cmd "rails c"` still reaches docker as two arguments, and a `--cmd` whose
   own quoting cannot be read is reported instead of being passed on.
+- `odysseus app shell|console` print a header before handing the terminal over.
+  They printed nothing at all: `odysseus app shell dedalus-prod` answered with
+  `/app $` and no way to tell which host you had reached, which role, or which
+  build you were looking at. `app exec` has had a header from the start. The
+  new one names the server, the role, the image that is serving and the command
+  the container runs, in the same shape as `app exec`'s.
+- It also says the thing a prompt inside a container invites you to assume the
+  other way round: this is a **new container** started from the serving image,
+  not an attach to the container taking traffic. Nothing done in it reaches the
+  running app and all of it goes when the session ends. `odysseus dependency
+  shell` is deliberately not given the same line — it `docker exec`s into the
+  running dependency, where the opposite is true.
+- That header goes to **stderr**. `odysseus app console web1 --cmd "rails
+  runner 'puts Thing.count'" > count` is a reasonable way to read a value out
+  of a deployment, and a header inside that file would be a bug: stdout carries
+  what the session itself produced and nothing else. `app exec`'s header is
+  unchanged, on stdout, where the output of its `run_once` already is.
 
 ### Changed
 - `bin/odysseus`'s dispatch table no longer lists `dependency`, `app` and

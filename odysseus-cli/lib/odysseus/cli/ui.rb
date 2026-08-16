@@ -68,27 +68,32 @@ module Odysseus
       end
 
       # --- Header ---
+      #
+      # These three take `io` for the same reason error/warn/step below do: the
+      # interactive sessions print a header describing a terminal whose own
+      # output is stdout, so the description has to go somewhere else. The
+      # default keeps every other caller writing exactly where it did.
 
-      def header(title)
+      def header(title, io: $stdout)
         reset_steps!
         if debug?
-          puts "\e[36m#{title}\e[0m"
+          io.puts "\e[36m#{title}\e[0m"
         else
-          puts ''
-          puts "  #{COPPER}#{title}#{RESET}"
+          io.puts ''
+          io.puts "  #{COPPER}#{title}#{RESET}"
         end
       end
 
-      def info(label, value)
+      def info(label, value, io: $stdout)
         if debug?
-          puts "  #{label}: #{value}"
+          io.puts "  #{label}: #{value}"
         else
-          puts "  #{DIM}#{label}:#{RESET} #{value}"
+          io.puts "  #{DIM}#{label}:#{RESET} #{value}"
         end
       end
 
-      def blank
-        puts ''
+      def blank(io: $stdout)
+        io.puts ''
       end
 
       # --- Single spin step ---
@@ -290,7 +295,7 @@ module Odysseus
         puts "  #{MINT}✓#{RESET} #{message}"
       end
 
-      # `io` is for the one command whose stdout is data rather than chatter:
+      # `io` is for the commands whose stdout is data rather than chatter:
       # `odysseus logs web1 > app.log` captures a log stream, and a notice about
       # which container the logs came from does not belong in it. A default
       # rather than a second set of methods, so every other caller keeps writing

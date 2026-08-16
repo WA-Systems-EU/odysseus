@@ -301,6 +301,29 @@ talks to the same database as the app running beside it. The values travel in an
 env file rather than on the command line; see [env](#env) for what that means
 and for the one case where the file is left behind.
 
+`shell` and `console` print a header before handing the terminal over — the
+server, the role, the image that is serving and the command being run — because
+the prompt you land on tells you none of it:
+
+```
+  App Shell
+  Server: dedalus-prod
+  Role: web
+  Image: dedalus-production:v1.4.2
+  Command: /bin/sh
+  › New container from that image: the running app is untouched, and this one is discarded on exit.
+```
+
+That last line is the point. These commands `docker run` the serving image; they
+do not attach to the container taking traffic. Nothing you do inside reaches the
+running app, and the container is removed when you leave. `dependency shell` is
+the other way round — it `docker exec`s into the running dependency, so what you
+do there is live.
+
+The header goes to **stderr**, so a session whose output you are capturing —
+`odysseus app console web1 --cmd "rails runner 'puts Thing.count'" > count` —
+gets the session's own output on stdout and nothing else.
+
 ### secrets
 
 Manage encrypted secrets files.

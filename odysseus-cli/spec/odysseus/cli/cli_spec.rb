@@ -754,6 +754,115 @@ RSpec.describe Odysseus::CLI::CLI do
     end
   end
 
+  # `odysseus app shell dedalus-prod` printed nothing at all before handing the
+  # terminal over: no host, no role, no image, and nothing to say that the
+  # `/app $` prompt belongs to a container started for this session rather than
+  # the one serving traffic. `app exec` had a header from the start; these two
+  # never did.
+  #
+  # The role is `jobs` throughout, on the fixture with no web role: for `web`
+  # the role name and the service name are byte-identical, so a header that
+  # printed the service would satisfy the assertion as readily as one that
+  # printed the role.
+  describe 'the header the interactive sessions print' do
+    let(:ssh) { instance_double(Odysseus::Deployer::SSH, close: nil) }
+    let(:docker) { instance_double(Odysseus::Docker::Client) }
+    let(:worker_only) { fixture_path('worker-only.yml') }
+    let(:session_output) { "hello from the container\n" }
+
+    before do
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      allow(Odysseus::Docker::Client).to receive(:new).and_return(docker)
+      allow(docker).to receive(:list).with(service: 'myapp-jobs')
+                                     .and_return([{ 'ID' => 'j0b123456789', 'Image' => 'myapp-production:v9' }])
+      allow(docker).to receive(:with_env_file) { |_env, &block| block.call(nil) }
+      # Stands in for the session itself, which writes to the terminal's stdout.
+      allow(cli).to receive(:system) do
+        print session_output
+        true
+      end
+    end
+
+    def shell_stderr
+      output_of { cli.app_shell('worker1.example.com', config: worker_only, role: 'jobs') }
+      stderr_buffer.string
+    end
+
+    def console_stderr
+      output_of { cli.app_console('worker1.example.com', config: worker_only, role: 'jobs', cmd: 'rails c') }
+      stderr_buffer.string
+    end
+
+    it 'names the command it belongs to' do
+      expect(shell_stderr).to include('App Shell')
+      expect(console_stderr).to include('App Console')
+    end
+
+    it 'names the server the session reached' do
+      expect(shell_stderr).to include('Server: worker1.example.com')
+    end
+
+    # The role, not the label the lookup was made with: `myapp-jobs` is what
+    # docker was asked for, `jobs` is what the caller typed and what they would
+    # have to type again.
+    it 'names the role the container was found under' do
+      expect(shell_stderr).to include('Role: jobs')
+    end
+
+    it 'names the image that is actually serving, tag and all' do
+      expect(shell_stderr).to include('Image: myapp-production:v9')
+    end
+
+    it 'names the command the container will run' do
+      expect(shell_stderr).to include('Command: /bin/sh')
+      expect(console_stderr).to include('Command: rails c')
+    end
+
+    # The single most useful thing the header can say, and the thing a prompt
+    # in a container invites you to assume the other way round: this is a new
+    # container from the serving image, not an attach to the one taking traffic.
+    it 'says the container is a new one, that the running app is untouched and that it is discarded' do
+      expect(shell_stderr).to match(/new container/i)
+      expect(shell_stderr).to match(/running app/i)
+      expect(shell_stderr).to match(/discarded/i)
+    end
+
+    it 'says the same of the console' do
+      expect(console_stderr).to match(/new container/i)
+      expect(console_stderr).to match(/discarded/i)
+    end
+
+    # `odysseus app console web1 --cmd "rails runner 'puts Thing.count'" > count`
+    # is a plausible way to get a value out of a deployment, and a header on
+    # stdout would land in the file. The session's own output is the only thing
+    # that may reach it.
+    it 'writes the header to stderr, leaving stdout to the session' do
+      out = output_of { cli.app_shell('worker1.example.com', config: worker_only, role: 'jobs') }
+
+      expect(out).to eq(session_output)
+      expect(stderr_buffer.string).to include('worker1.example.com')
+    end
+
+    it 'keeps the console header off stdout too' do
+      out = output_of do
+        cli.app_console('worker1.example.com', config: worker_only, role: 'jobs', cmd: 'rails c')
+      end
+
+      expect(out).to eq(session_output)
+      expect(stderr_buffer.string).to include('myapp-production:v9')
+    end
+
+    # A header naming an image that was never found would be a lie, so it waits
+    # for the lookup. Nothing is printed but the failure.
+    it 'prints no header when there is no container to name an image from' do
+      allow(docker).to receive(:list).with(service: 'myapp-jobs').and_return([])
+
+      expect { output_of { cli.app_shell('worker1.example.com', config: worker_only, role: 'jobs') } }
+        .to raise_error(SystemExit)
+      expect(stderr_buffer.string).not_to include('App Shell')
+    end
+  end
+
   describe '#validate' do
     it 'summarises a valid config' do
       out = output_of { cli.validate(config: config_file) }

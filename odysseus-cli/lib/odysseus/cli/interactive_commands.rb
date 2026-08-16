@@ -25,6 +25,7 @@ module Odysseus
         role = (options[:role] || 'web').to_sym
         config = load_config(config_file)
         image = running_image(server, config, role)
+        session_header('App Shell', server: server, role: role, image: image, command: '/bin/sh')
 
         with_container_env(server, config, config_file) do |env_file|
           remote = remote_command(['docker', 'run', '-it', '--rm', '--network', 'odysseus',
@@ -46,6 +47,7 @@ module Odysseus
         # Read before the env file is written: a --cmd that cannot be parsed is
         # not worth putting a file of secrets on the host for.
         words = console_words(console_cmd)
+        session_header('App Console', server: server, role: role, image: image, command: console_cmd)
 
         with_container_env(server, config, config_file) do |env_file|
           remote = remote_command(['docker', 'run', '-it', '--rm', '--network', 'odysseus',
@@ -88,6 +90,32 @@ module Odysseus
       end
 
       private
+
+      # What these two print before the terminal goes away. `app shell web1`
+      # used to print nothing at all: the first thing you saw was `/app $`, from
+      # which the host, the role and the build serving it are all unreadable.
+      #
+      # The last line is the one worth the space. These commands `docker run` a
+      # new container from the image that is serving, not `docker exec` into the
+      # container taking traffic, and a shell prompt inside a container invites
+      # exactly the opposite assumption — that a file written or a process
+      # killed here lands on the running app. It does neither, and the container
+      # goes when the session does.
+      #
+      # It all goes to stderr. The session's own stdout is the caller's:
+      # `app console --cmd "rails runner 'puts Thing.count'" > count` is a
+      # reasonable way to read a value out of a deployment, and a header in that
+      # file would be a bug. Diagnostics go where diagnostics go.
+      def session_header(title, server:, role:, image:, command:)
+        @ui.header title, io: $stderr
+        @ui.info 'Server', server, io: $stderr
+        @ui.info 'Role', role, io: $stderr
+        @ui.info 'Image', image, io: $stderr
+        @ui.info 'Command', command, io: $stderr
+        @ui.step 'New container from that image: the running app is untouched, and this one is discarded on exit.',
+                 io: $stderr
+        @ui.blank io: $stderr
+      end
 
       # Layer 2, the REMOTE shell: ssh hands this string to the login shell on
       # the host, which splits it into words. Escaping here is what keeps an
