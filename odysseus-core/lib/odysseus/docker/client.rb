@@ -9,9 +9,6 @@ module Odysseus
     class Client
       HEALTHCHECK_POLL_INTERVAL = 2 # seconds
 
-      # Env files are written here just long enough for docker run to read them.
-      ENV_FILE_DIR = '/var/lib/odysseus/env'.freeze
-
       # @param ssh [Odysseus::Deployer::SSH] SSH connection to server
       def initialize(ssh)
         @ssh = ssh
@@ -367,6 +364,12 @@ module Odysseus
 
       private
 
+      # Where this connection's env files go. Derived rather than constant
+      # because a deploy user cannot write — or chmod — the system directory.
+      def host_paths
+        @host_paths ||= Odysseus::HostPaths.new(@ssh)
+      end
+
       # Where a container's env file goes, or nil when there is nothing to
       # write. Settled before the write rather than returned by it: scp creates
       # the remote file and then streams into it, so an upload that dies partway
@@ -378,7 +381,7 @@ module Odysseus
       def env_file_path(name, env)
         return nil if env.nil? || env.empty?
 
-        "#{ENV_FILE_DIR}/#{name}.env"
+        "#{host_paths.env_dir}/#{name}.env"
       end
 
       # Write the container's environment to a private file on the host.
@@ -390,7 +393,8 @@ module Odysseus
       def write_env_file(path, env)
         return unless path
 
-        @ssh.execute("mkdir -p #{ENV_FILE_DIR} && chmod 700 #{ENV_FILE_DIR}")
+        dir = host_paths.env_dir
+        @ssh.execute("mkdir -p #{Shellwords.escape(dir)} && chmod 700 #{Shellwords.escape(dir)}")
         @ssh.upload_string(format_env_file(env), path, mode: 0o600)
       end
 

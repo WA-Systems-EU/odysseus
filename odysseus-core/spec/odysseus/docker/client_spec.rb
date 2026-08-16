@@ -4,7 +4,7 @@ require 'spec_helper'
 require 'shellwords'
 
 RSpec.describe Odysseus::Docker::Client do
-  let(:mock_ssh) { instance_double(Odysseus::Deployer::SSH) }
+  let(:mock_ssh) { instance_double(Odysseus::Deployer::SSH, user: 'root') }
   let(:client) { described_class.new(mock_ssh) }
   let(:container_id) { 'a' * 64 } # Valid 64-char hex container ID
 
@@ -748,6 +748,39 @@ RSpec.describe Odysseus::Docker::Client do
         expect { client.with_env_file('A' => 'b') { |_path| nil } }.not_to raise_error
         expect(commands.count { |c| c.start_with?('rm -f') }).to eq(2)
       end
+    end
+  end
+
+  describe 'where env files are written' do
+    it 'uses the system directory for root' do
+      commands = []
+      ssh = instance_double(Odysseus::Deployer::SSH, user: 'root')
+      allow(ssh).to receive(:execute) do |cmd|
+        commands << cmd
+        ''
+      end
+      allow(ssh).to receive(:upload_string)
+
+      described_class.new(ssh).with_env_file({ 'A' => '1' }) { |path| commands << "used #{path}" }
+
+      expect(commands).to include(a_string_matching(%r{mkdir -p /var/lib/odysseus/env}))
+      expect(commands).to include(a_string_matching(%r{used /var/lib/odysseus/env/}))
+    end
+
+    it 'uses the home directory for a deploy user' do
+      commands = []
+      ssh = instance_double(Odysseus::Deployer::SSH, user: 'odysseus')
+      allow(ssh).to receive(:execute) do |cmd|
+        commands << cmd
+        cmd == 'echo $HOME' ? "/home/odysseus\n" : ''
+      end
+      allow(ssh).to receive(:upload_string)
+
+      described_class.new(ssh).with_env_file({ 'A' => '1' }) { |path| commands << "used #{path}" }
+
+      expect(commands).to include(a_string_matching(%r{mkdir -p /home/odysseus/\.odysseus/env}))
+      expect(commands).to include(a_string_matching(%r{used /home/odysseus/\.odysseus/env/}))
+      expect(commands).not_to include(a_string_matching(%r{/var/lib/odysseus}))
     end
   end
 
