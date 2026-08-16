@@ -498,8 +498,7 @@ module Odysseus
 
         begin
           docker = Odysseus::Docker::Client.new(ssh)
-          env = {}
-          config[:env][:clear]&.each { |k, v| env[k.to_s] = v.to_s }
+          env = build_environment(config, config_file, ssh)
 
           puts docker.run_once(image: image, command: command, options: { env: env, network: 'odysseus' })
         ensure
@@ -826,6 +825,19 @@ module Odysseus
         end
 
         container['ID']
+      end
+
+      # The environment a one-off container starts with, built by the same class
+      # the deploy paths use. These commands used to inject env.clear alone, so
+      # `app exec … --command "rails db:migrate"` ran against a container with
+      # no DATABASE_URL while the container deployed seconds earlier had one.
+      #
+      # The secrets loader resolves a relative secrets_file against the
+      # directory holding deploy.yml rather than the working directory, which is
+      # what Executor does and what `--config ../other/deploy.yml` needs.
+      def build_environment(config, config_file, ssh)
+        loader = Odysseus::Secrets::Loader.new(config, config_dir: File.dirname(config_file))
+        Odysseus::Core::Environment.new(config: config, secrets_loader: loader, ssh: ssh).build
       end
 
       def connect_to_server(server, config)

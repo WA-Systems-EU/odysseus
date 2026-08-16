@@ -5,6 +5,12 @@
 # a different part of the command string the app/dependency shells build, and
 # each broke it before those strings were escaped. PLAIN is included so a spec
 # cannot pass by mangling every value equally.
+#
+# DATABASE_URL is here because the app commands injected env.clear and nothing
+# else. No secrets_file is configured, so it resolves the way it does on a host
+# that keeps its secrets in the environment; the spec that reads it gives it a
+# value with a space and an apostrophe in it, so a leak into a command string
+# is not merely visible in `ps` but breaks the string it leaked into.
 service: myapp
 image: myapp-production
 
@@ -24,6 +30,8 @@ env:
     SMTP_FROM: My App <hi@x.com>
     MOTD: it's fine
     PLAIN: simple
+  secret:
+    - DATABASE_URL
 
 ssh:
   user: deploy

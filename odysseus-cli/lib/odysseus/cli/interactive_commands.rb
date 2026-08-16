@@ -9,6 +9,10 @@
 # Two shells stand between this file and the container, and each needs its own
 # quoting. Escaping for one and not the other is how these commands came to
 # break on an env value with a space in it.
+#
+# Those env values are no longer in the string at all — they go in an env file
+# on the host, and only its path is named here — but the console command, the
+# image and the SSH key paths still are, so both layers still matter.
 
 require 'shellwords'
 
@@ -22,9 +26,11 @@ module Odysseus
         config = load_config(config_file)
         image = running_image(server, config, role)
 
-        remote = remote_command(['docker', 'run', '-it', '--rm', '--network', 'odysseus',
-                                 *env_args(config), image, '/bin/sh'])
-        run_interactive!(ssh_command(config, server, remote))
+        with_container_env(server, config, config_file) do |env_file|
+          remote = remote_command(['docker', 'run', '-it', '--rm', '--network', 'odysseus',
+                                   *env_file_args(env_file), image, '/bin/sh'])
+          run_interactive!(ssh_command(config, server, remote))
+        end
       rescue Odysseus::Error => e
         @ui.error e.message
         exit 1
@@ -37,10 +43,15 @@ module Odysseus
         console_cmd = options[:cmd] || '/bin/sh'
         config = load_config(config_file)
         image = running_image(server, config, role)
+        # Read before the env file is written: a --cmd that cannot be parsed is
+        # not worth putting a file of secrets on the host for.
+        words = console_words(console_cmd)
 
-        remote = remote_command(['docker', 'run', '-it', '--rm', '--network', 'odysseus',
-                                 *env_args(config), image, *console_words(console_cmd)])
-        run_interactive!(ssh_command(config, server, remote))
+        with_container_env(server, config, config_file) do |env_file|
+          remote = remote_command(['docker', 'run', '-it', '--rm', '--network', 'odysseus',
+                                   *env_file_args(env_file), image, *words])
+          run_interactive!(ssh_command(config, server, remote))
+        end
       rescue Odysseus::Error => e
         @ui.error e.message
         exit 1
@@ -80,8 +91,8 @@ module Odysseus
 
       # Layer 2, the REMOTE shell: ssh hands this string to the login shell on
       # the host, which splits it into words. Escaping here is what keeps an
-      # env value with a space in it one argument, instead of docker reading
-      # the second half of it as the image name.
+      # argument containing a space — `--cmd "rails runner 'puts 1'"`, say —
+      # one argument, instead of docker reading part of it as the image name.
       def remote_command(words)
         Shellwords.join(words)
       end
@@ -95,11 +106,40 @@ module Odysseus
         Shellwords.join(['ssh', *keys, '-t', "#{config[:ssh][:user]}@#{server}", remote])
       end
 
-      # env.clear as docker flags. The -e KEY=VALUE mechanism is unchanged; the
-      # values are simply no longer interpolated raw. Secrets do not belong on
-      # a command line and are not put there — that is a separate change.
-      def env_args(config)
-        (config[:env][:clear] || {}).flat_map { |k, v| ['-e', "#{k}=#{v}"] }
+      # Holds the container's environment — env.clear and env.secret both, the
+      # same as a deploy injects — in a 0600 file on the host for as long as the
+      # session lasts, and yields its path. Docker::Client owns the file: where
+      # it lives, how it is permissioned and when it goes away.
+      #
+      # These values used to be `-e KEY=VALUE` in the command string, which is
+      # where `ps` on the deploy target reads them from. Nothing but a path goes
+      # there now, so a DATABASE_URL is no longer legible to every user on the
+      # box for the length of the session.
+      #
+      # The file is removed when the block ends, however it ends: a session that
+      # exits non-zero, an ssh that never connected, and Ctrl-C all pass back
+      # through with_env_file's ensure. What that cannot cover is this process
+      # being killed outright (SIGKILL, or the machine going down): no ensure
+      # runs, so the file stays until something else removes it. It is mode 0600
+      # inside /var/lib/odysseus/env, which write_env_file chmods to 0700, so no
+      # other user on the host can read it — but it is a file of secrets that
+      # nobody is coming back for: the next deploy or one-off run writes its own
+      # rather than tidying this one.
+      def with_container_env(server, config, config_file, &)
+        ssh = connect_to_server(server, config)
+
+        begin
+          docker = Odysseus::Docker::Client.new(ssh)
+          docker.with_env_file(build_environment(config, config_file, ssh), &)
+        ensure
+          ssh.close
+        end
+      end
+
+      # with_env_file yields nil when there is no environment to write, so a
+      # config with no env at all does not get a flag pointing at nothing.
+      def env_file_args(env_file)
+        env_file ? ['--env-file', env_file] : []
       end
 
       # --cmd is a command line ("rails c"), so split it into words the way a

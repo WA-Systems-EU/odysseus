@@ -292,6 +292,12 @@ where the default matches nothing on any host:
 odysseus app exec worker1.example.com --role jobs --command "rails runner …"
 ```
 
+The container is given the same environment a deploy gives it — `env.clear` and
+`env.secret` both — so `odysseus app exec web1 --command "rails db:migrate"`
+talks to the same database as the app running beside it. The values travel in an
+env file rather than on the command line; see [env](#env) for what that means
+and for the one case where the file is left behind.
+
 ### secrets
 
 Manage encrypted secrets files.
@@ -533,6 +539,16 @@ Both are handed to the container through an env file written to
 `/var/lib/odysseus/env` with `0600` permissions and removed once the container
 has been created, so secrets never appear in the host's process list. A value
 containing a newline is rejected, since a Docker env file cannot represent one.
+
+`app exec`, `app shell` and `app console` get the same environment the same way.
+An interactive session holds its env file for as long as the session lasts and
+removes it on the way out, whether the session ended cleanly, exited non-zero or
+was interrupted. The exception is the `odysseus` process being killed outright —
+`SIGKILL`, or the machine going down — where no cleanup can run and the file is
+left on the host. It is mode `0600` in `/var/lib/odysseus/env`, which is mode
+`0700`, so another user on the box still cannot read it; but nothing comes back
+to remove it, since the next run writes its own file rather than tidying old
+ones.
 
 ### secrets_file
 

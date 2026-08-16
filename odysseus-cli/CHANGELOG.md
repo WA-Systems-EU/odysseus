@@ -8,6 +8,28 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 ## [Unreleased]
 
 ### Fixed
+- `odysseus app exec|shell|console` now inject `env.secret` as well as
+  `env.clear`. They injected the clear values alone, so the README's own
+  example — `odysseus app exec web1 --command "rails db:migrate"` — started a
+  container with no `DATABASE_URL` while the container deployed seconds earlier
+  had one. Both orchestrators had always injected both; these three never did.
+  The environment is now built by the same `Core::Environment` the deploy paths
+  use, so a secret resolves from the encrypted file when one is configured and
+  from the host's own environment otherwise, exactly as a deploy resolves it.
+- A relative `secrets_file` is resolved against the directory holding the
+  `deploy.yml` these commands were pointed at, not the working directory, which
+  is the rule deploys already followed.
+- `odysseus app shell|console` pass the environment to docker with `--env-file`
+  instead of `-e KEY=VALUE`. The values were in the command string these
+  commands run over ssh, so `ps` on the deploy target showed them to every user
+  on the box; now only the file's path is. The file is `0600`, is held open for
+  the whole session and is removed when the session ends, however it ends. If
+  the `odysseus` process is killed outright (`SIGKILL`) no cleanup can run and
+  the file is left behind — unreadable by other users, but not cleaned up
+  either. `app exec` reaches the same place through `run_once`, which writes
+  an env file of its own — see odysseus-core's changelog.
+- `odysseus dependency exec|shell` are unchanged: they `docker exec` into an
+  already-running dependency, which carries the environment it was booted with.
 - `odysseus app exec|shell|console` now take `--role` (default `web`) and look
   the container up by the label that role actually carries. They asked for the
   bare service name, which only the web role wears: on a jobs host they

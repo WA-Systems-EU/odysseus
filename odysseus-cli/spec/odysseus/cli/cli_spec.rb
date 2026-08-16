@@ -179,6 +179,96 @@ RSpec.describe Odysseus::CLI::CLI do
     end
   end
 
+  # `app exec` builds an environment and hands it to run_once, which writes the
+  # env file. run_once is core's code, but "the secret reaches the container and
+  # not the process list" is a claim about the strings that arrive at the host —
+  # so this group drives the real Docker::Client over a doubled connection and
+  # reads what was actually sent, rather than trusting a doubled run_once.
+  describe 'what app exec sends to the host' do
+    let(:ssh) { instance_double(Odysseus::Deployer::SSH, close: nil) }
+    let(:awkward) { fixture_path('awkward-env.yml') }
+    let(:secret_url) { "postgres://app:it's a pass@db.internal/app" }
+    let(:executed) { [] }
+    let(:uploaded) { [] }
+
+    before do
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      allow(ssh).to receive(:upload_string) { |content, path, mode:| uploaded << [content, path, mode] }
+      allow(ssh).to receive(:execute) do |command|
+        executed << command
+        case command
+        when /\Adocker ps/ then '{"ID":"abc123abc123","Image":"myapp-production:latest"}'
+        when /\Aecho \$/ then "#{secret_url}\n"
+        else ''
+        end
+      end
+    end
+
+    it 'writes the secret into a 0600 env file under /var/lib/odysseus/env' do
+      output_of { cli.app_exec('web1.example.com', config: awkward, command: 'rails db:migrate') }
+
+      content, path, mode = uploaded.last
+      expect(content).to include("DATABASE_URL=#{secret_url}")
+      expect(path).to start_with('/var/lib/odysseus/env/')
+      expect(mode).to eq(0o600)
+    end
+
+    it 'names no environment value in any command it sends' do
+      output_of { cli.app_exec('web1.example.com', config: awkward, command: 'rails db:migrate') }
+
+      run = executed.find { |command| command.start_with?('docker run') }
+      expect(run).to match(%r{--env-file /var/lib/odysseus/env/one-off@\h+\.env})
+      [secret_url, 'My App <hi@x.com>', "it's fine"].each do |value|
+        expect(executed.join("\n")).not_to include(value)
+      end
+    end
+
+    # A relative secrets_file is relative to deploy.yml, not to wherever the
+    # command was typed — the rule Loader already applies for deploys. The
+    # config here is in a directory the suite never chdirs to, so a loader
+    # built with the working directory finds no secrets file and the command
+    # fails outright rather than quietly injecting less.
+    it 'resolves a relative secrets_file against the directory holding deploy.yml' do
+      dir = Dir.mktmpdir
+      key = Odysseus::Secrets::EncryptedFile.generate_key
+      File.write(File.join(dir, 'deploy.yml'), <<~YAML)
+        service: myapp
+        image: myapp-production
+        secrets_file: secrets.yml.enc
+        servers:
+          web:
+            hosts:
+              - web1.example.com
+        env:
+          secret:
+            - DATABASE_URL
+        ssh:
+          user: deploy
+          keys:
+            - ~/.ssh/id_ed25519
+      YAML
+
+      begin
+        with_master_key(key) do
+          encrypted = Odysseus::Secrets::EncryptedFile.new(File.join(dir, 'secrets.yml.enc'))
+          encrypted.write({ 'DATABASE_URL' => secret_url })
+
+          # Wrapped rather than called bare: a loader built with the working
+          # directory raises ConfigError, which app_exec turns into `exit 1`,
+          # and RSpec does not rescue SystemExit. Without this the mutant would
+          # take the whole run down instead of failing one example.
+          expect do
+            output_of { cli.app_exec('web1.example.com', config: File.join(dir, 'deploy.yml'), command: 'true') }
+          end.not_to raise_error
+        end
+
+        expect(uploaded.last.first).to include("DATABASE_URL=#{secret_url}")
+      ensure
+        FileUtils.remove_entry(dir)
+      end
+    end
+  end
+
   # Every container carries odysseus.service=<label>, and Docker::Labels
   # decides that label: the bare service name for the web role,
   # "<service>-<role>" for every other. docker ps filters on an exact match, so
@@ -201,6 +291,9 @@ RSpec.describe Odysseus::CLI::CLI do
     before do
       allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
       allow(Odysseus::Docker::Client).to receive(:new).and_return(docker)
+      # Neither fixture here declares any env, so with_env_file writes nothing
+      # and yields nil. This group is about which label is looked up.
+      allow(docker).to receive(:with_env_file) { |_env, &block| block.call(nil) }
       allow(cli).to receive(:system).and_return(true)
     end
 
@@ -391,15 +484,41 @@ RSpec.describe Odysseus::CLI::CLI do
     let(:docker) { instance_double(Odysseus::Docker::Client) }
     let(:awkward) { fixture_path('awkward-env.yml') }
     let(:commands) { [] }
+    # awkward-env.yml names DATABASE_URL under env.secret and configures no
+    # secrets file, so it resolves from the host's own environment. A space and
+    # an apostrophe, so that a value which reached a command line would break it
+    # as well as show up in `ps`.
+    let(:secret_url) { "postgres://app:it's a pass@db.internal/app" }
+    let(:env_file_path) { '/var/lib/odysseus/env/one-off@0123456789abcdef.env' }
+    let(:injected) { [] }
+    let(:removed) { [] }
+    let(:removed_at_session) { [] }
 
     before do
       allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
       allow(Odysseus::Docker::Client).to receive(:new).and_return(docker)
+      allow(ssh).to receive(:execute).with('echo $DATABASE_URL').and_return("#{secret_url}\n")
       allow(docker).to receive(:list).with(service: 'myapp')
                                      .and_return([{ 'ID' => 'abc123abc123', 'Image' => 'myapp-production:latest' }])
       allow(docker).to receive(:list).with(service: 'myapp-db')
                                      .and_return([{ 'ID' => 'db0123456789', 'Image' => 'postgres:16' }])
-      allow(cli).to receive(:system) { |command| commands << command and true }
+      # Stands in for Docker::Client#with_env_file, contract and all: it removes
+      # the file on the way out however the block left it. That is what lets an
+      # example ask both that the session ran while the file still existed and
+      # that it was gone once the session ended.
+      allow(docker).to receive(:with_env_file) do |env, &block|
+        injected << env
+        begin
+          block.call(env_file_path)
+        ensure
+          removed << env_file_path
+        end
+      end
+      allow(cli).to receive(:system) do |command|
+        commands << command
+        removed_at_session << removed.dup
+        true
+      end
     end
 
     # The words the LOCAL /bin/sh — the one `system` invokes — would see.
@@ -424,19 +543,79 @@ RSpec.describe Odysseus::CLI::CLI do
       )
     end
 
-    # The whole failure mode in one assertion: an env value with a space made
-    # docker read the wrong token as the image name, an odd number of
-    # apostrophes left the quoting unterminated (sh: unexpected EOF, nothing
-    # ran, and it reported success), and an even number rebalanced the quotes
-    # and ran the text between them as local shell.
-    it 'passes each env value to docker as exactly one argument, however it is spelt' do
+    # These values used to travel as `-e KEY=VALUE` in this very string, where
+    # `ps` on the deploy target shows them to every user on the box. They now go
+    # in the 0600 file with_env_file writes; the command carries its path only.
+    it 'points docker at an env file rather than naming the values' do
       output_of { cli.app_shell('web1.example.com', config: awkward) }
 
       expect(remote_words).to eq(
         ['docker', 'run', '-it', '--rm', '--network', 'odysseus',
-         '-e', 'SMTP_FROM=My App <hi@x.com>',
-         '-e', "MOTD=it's fine",
-         '-e', 'PLAIN=simple',
+         '--env-file', env_file_path,
+         'myapp-production:latest', '/bin/sh']
+      )
+    end
+
+    # Asserted over the environment that was actually built, not a list copied
+    # from the fixture, so adding a variable to the fixture cannot quietly stop
+    # this example from covering it.
+    it 'puts no environment value in the command it runs, at either shell layer' do
+      output_of { cli.app_shell('web1.example.com', config: awkward) }
+
+      expect(injected.last.values).not_to be_empty
+      injected.last.each_value { |value| expect(commands.last).not_to include(value) }
+    end
+
+    # The bug this branch fixes: these commands injected env.clear and nothing
+    # else, so `app shell` on a host got a container with no DATABASE_URL while
+    # the container deployed seconds earlier had one.
+    it 'gives the shell the secrets the deployed container has, not env.clear alone' do
+      output_of { cli.app_shell('web1.example.com', config: awkward) }
+
+      expect(injected.last).to eq(
+        'SMTP_FROM' => 'My App <hi@x.com>',
+        'MOTD' => "it's fine",
+        'PLAIN' => 'simple',
+        'DATABASE_URL' => secret_url
+      )
+    end
+
+    it 'console injects the same environment, and keeps it out of the command too' do
+      output_of { cli.app_console('web1.example.com', config: awkward, cmd: 'rails c') }
+
+      expect(injected.last).to include('DATABASE_URL' => secret_url)
+      expect(commands.last).not_to include(secret_url)
+    end
+
+    # The session has to run inside the block that holds the file open. Reading
+    # the path out of the block and running ssh afterwards would leave docker
+    # pointing at a file that had already been removed.
+    it 'holds the env file open for the session and removes it afterwards' do
+      output_of { cli.app_shell('web1.example.com', config: awkward) }
+
+      expect(removed_at_session.last).to be_empty
+      expect(removed).to eq([env_file_path])
+    end
+
+    it 'removes the env file when the session exits non-zero' do
+      allow(cli).to receive(:system) { |command| commands << command and false }
+
+      expect { output_of { cli.app_shell('web1.example.com', config: awkward) } }
+        .to raise_error(SystemExit)
+      expect(removed).to eq([env_file_path])
+    end
+
+    # with_env_file yields nil when there is nothing to write, so a config with
+    # no env at all must not grow an --env-file flag pointing nowhere.
+    it 'omits --env-file entirely when the config has no environment' do
+      allow(docker).to receive(:with_env_file) { |env, &block| injected << env and block.call(nil) }
+      allow(docker).to receive(:list).with(service: 'myapp-jobs')
+                                     .and_return([{ 'ID' => 'j0b123456789', 'Image' => 'myapp-production:latest' }])
+
+      output_of { cli.app_shell('worker1.example.com', config: fixture_path('worker-only.yml'), role: 'jobs') }
+
+      expect(remote_words).to eq(
+        ['docker', 'run', '-it', '--rm', '--network', 'odysseus',
          'myapp-production:latest', '/bin/sh']
       )
     end
