@@ -106,6 +106,19 @@ RSpec.describe Odysseus::Docker::Client do
         expect(commands.last).to include("rm -f #{env_file}")
       end
 
+      # scp creates the remote file and then streams into it, so an upload that
+      # dies partway has already left a partial file of secrets on the host.
+      # The path is settled before the write for exactly this reason: an ensure
+      # that learned it from the write's return value has nothing to remove,
+      # and the file stays under a name nobody is going to go looking for.
+      it 'deletes the env file when the upload dies partway through it' do
+        allow(mock_ssh).to receive(:upload_string)
+          .and_raise(Odysseus::SSHCommandError, 'connection lost mid-transfer')
+
+        expect { run_container }.to raise_error(Odysseus::SSHCommandError)
+        expect(commands.last).to eq("rm -f #{env_file}")
+      end
+
       it 'rejects values docker cannot represent in an env file' do
         expect { client.run(name: 'test', image: 'myapp:latest', options: { env: { 'KEY' => "line1\nline2" } }) }
           .to raise_error(Odysseus::DeployError, /KEY.*newline/)
@@ -646,6 +659,18 @@ RSpec.describe Odysseus::Docker::Client do
 
     it 'returns what the block returned' do
       expect(client.with_env_file('A' => 'b') { 'exit 0' }).to eq('exit 0')
+    end
+
+    # scp creates the remote file and then streams into it: an upload that dies
+    # partway has already put part of a file of secrets on the host.
+    it 'removes the file when the upload dies partway through it' do
+      allow(mock_ssh).to receive(:upload_string)
+        .and_raise(Odysseus::SSHCommandError, 'connection lost mid-transfer')
+
+      expect { client.with_env_file('A' => 'b') { |_path| nil } }
+        .to raise_error(Odysseus::SSHCommandError)
+
+      expect(commands.last).to match(%r{\Arm -f /var/lib/odysseus/env/one-off@\h{16}\.env\z})
     end
 
     # These are the errors this ensure actually meets. The CLI holds the

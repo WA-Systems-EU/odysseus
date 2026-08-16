@@ -29,6 +29,12 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   Any failure of the removal is now swallowed rather than raised — including on
   the second attempt, after which the file is left behind, `0600` in a `0700`
   directory.
+- An upload that fails partway no longer orphans a partial env file. The path
+  was learned from the return value of the write, so a write that raised left
+  the caller with `nil` and its cleanup with nothing to remove — while scp had
+  already created the remote file and begun streaming secrets into it. The path
+  is settled before the write now, so the file removed is the file written,
+  whether or not the write finished.
 
 ### Added
 - `Odysseus::Core::Environment`, the environment a container starts with —

@@ -30,7 +30,8 @@ module Odysseus
       # @param options [Hash] container options
       # @return [String] container ID
       def run(name:, image:, options: {})
-        env_file = write_env_file(name, options[:env])
+        env_file = env_file_path(name, options[:env])
+        write_env_file(env_file, options[:env])
 
         cmd = build_run_command(name: name, image: image, options: options, env_file: env_file)
         output = @ssh.execute(cmd)
@@ -276,7 +277,8 @@ module Odysseus
       # @yieldparam path [String, nil] path to the env file on the host
       # @return [Object] whatever the block returned
       def with_env_file(env)
-        path = write_env_file(one_off_env_name, env)
+        path = env_file_path(one_off_env_name, env)
+        write_env_file(path, env)
         yield path
       ensure
         remove_env_file(path)
@@ -365,15 +367,31 @@ module Odysseus
 
       private
 
-      # Write the container's environment to a private file on the host.
+      # Where a container's env file goes, or nil when there is nothing to
+      # write. Settled before the write rather than returned by it: scp creates
+      # the remote file and then streams into it, so an upload that dies partway
+      # has already left part of a file of secrets on the host, and a caller
+      # that learned the path from the write's return value has nothing to
+      # remove — the file stays under a name nobody is going to look for.
+      #
       # @return [String, nil] path to the env file, nil when there is nothing to write
-      def write_env_file(name, env)
+      def env_file_path(name, env)
         return nil if env.nil? || env.empty?
 
-        path = "#{ENV_FILE_DIR}/#{name}.env"
+        "#{ENV_FILE_DIR}/#{name}.env"
+      end
+
+      # Write the container's environment to a private file on the host.
+      #
+      # The directory is made 0700 before anything is written into it. The file
+      # itself is uploaded 0600, so this is a second guard rather than the only
+      # one — but it is the guard that has to hold for a file left behind by a
+      # session that died, and `mkdir -p` on its own leaves the directory 0755.
+      def write_env_file(path, env)
+        return unless path
+
         @ssh.execute("mkdir -p #{ENV_FILE_DIR} && chmod 700 #{ENV_FILE_DIR}")
         @ssh.upload_string(format_env_file(env), path, mode: 0o600)
-        path
       end
 
       # The name a one-off run's env file is written under.
