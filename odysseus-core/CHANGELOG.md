@@ -7,6 +7,23 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Fixed
+- A one-off container — what `app exec`, `app shell` and `app console` run —
+  no longer has its environment inlined into the docker command as `-e
+  KEY=VALUE`. Every value now travels in the same 0600 env file a deployed
+  container's does, so a customer's database password is no longer visible in
+  `ps` on the deploy target, and a value containing a space or a shell
+  metacharacter arrives intact instead of splitting or being interpreted. The
+  file is named so it cannot collide with a running container's, and is
+  removed even when the command fails.
+
+### Added
+- `Odysseus::Core::Environment`, the environment a container starts with —
+  `env.clear` merged with each `env.secret` resolved from the encrypted
+  secrets file or the host's own environment. WebDeploy and JobDeploy each had
+  their own copy; one-off commands had neither, which is why `rails
+  db:migrate` on a one-off container started without a `DATABASE_URL`.
+
 ## [0.6.0] - 2026-08-15
 
 A minor bump: `plugins:` is a new key, and `odysseus validate` can now fail

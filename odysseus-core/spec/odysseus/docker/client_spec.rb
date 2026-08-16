@@ -435,17 +435,122 @@ RSpec.describe Odysseus::Docker::Client do
       expect(result).to eq("Migrated!\n")
     end
 
-    it 'includes environment variables' do
+    context 'with environment variables' do
+      let(:env) do
+        {
+          'RAILS_ENV' => 'production',
+          'DATABASE_URL' => 'postgres://user:pa ss@db/app'
+        }
+      end
+      let(:commands) { [] }
+      let(:uploads) { [] }
+
+      before do
+        allow(mock_ssh).to receive(:execute) { |cmd|
+          commands << cmd
+          ''
+        }
+        allow(mock_ssh).to receive(:upload_string) { |content, path, mode:|
+          uploads << { content: content, path: path, mode: mode }
+        }
+      end
+
+      def migrate
+        client.run_once(image: 'myapp:latest', command: 'rake db:migrate', options: { env: env })
+      end
+
+      def env_path
+        uploads.first[:path]
+      end
+
+      it 'sends them to the container' do
+        migrate
+
+        expect(uploads.first[:content]).to include('RAILS_ENV=production')
+        expect(uploads.first[:content]).to include('DATABASE_URL=postgres://user:pa ss@db/app')
+        expect(commands.find { |c| c.include?('docker run') }).to include("--env-file #{env_path}")
+      end
+
+      # `ps` on the host must not show a customer's database password, and a
+      # value containing a space must not split into two arguments.
+      it 'keeps every value off the command line' do
+        migrate
+
+        run_cmd = commands.find { |c| c.include?('docker run') }
+        expect(run_cmd).not_to include('DATABASE_URL')
+        expect(run_cmd).not_to include('pa ss')
+        expect(run_cmd).not_to include('-e ')
+      end
+
+      it 'writes the file readable only by its owner' do
+        migrate
+
+        expect(uploads.first[:mode]).to eq(0o600)
+      end
+
+      # A one-off has no container name to be named after. The name must not be
+      # one a deployed container could have — overwriting a running container's
+      # env file would be a live incident — and must differ per run.
+      it 'names the file so it cannot collide with a container or another one-off' do
+        migrate
+        migrate
+
+        paths = uploads.map { |u| u[:path] }
+        expect(paths.first).to match(%r{\A/var/lib/odysseus/env/one-off@[0-9a-f]{16}\.env\z})
+        expect(paths.first).not_to eq(paths.last)
+      end
+
+      it 'removes the env file once the command has finished' do
+        migrate
+
+        expect(commands.last).to eq("rm -f #{env_path}")
+      end
+
+      it 'removes the env file when the command fails, and reports the failure' do
+        allow(mock_ssh).to receive(:execute) { |cmd|
+          commands << cmd
+          raise Odysseus::SSHCommandError, 'exit status 1' if cmd.include?('docker run')
+
+          ''
+        }
+
+        expect { migrate }.to raise_error(Odysseus::SSHCommandError, /exit status 1/)
+        expect(commands.last).to eq("rm -f #{env_path}")
+      end
+
+      it 'rejects values docker cannot represent in an env file' do
+        expect { client.run_once(image: 'myapp:latest', command: 'true', options: { env: { 'KEY' => "a\nb" } }) }
+          .to raise_error(Odysseus::DeployError, /KEY.*newline/)
+      end
+
+      it 'writes no env file when there is nothing to write' do
+        expect(mock_ssh).not_to receive(:upload_string)
+
+        client.run_once(image: 'myapp:latest', command: 'rake db:migrate')
+
+        expect(commands.find { |c| c.include?('docker run') }).not_to include('--env-file')
+      end
+    end
+
+    # The command is a shell command line by design — `rake db:migrate` has to
+    # reach docker as two words — but the image is one argument.
+    it 'passes the image as a single argument, and the command as words' do
       expect(mock_ssh).to receive(:execute) do |cmd|
-        expect(cmd).to include('-e RAILS_ENV=production')
+        expect(Shellwords.split(cmd).last(3)).to eq(['myapp:latest', 'rake', 'db:migrate'])
         ''
       end
 
-      client.run_once(
-        image: 'myapp:latest',
-        command: 'rails console',
-        options: { env: { 'RAILS_ENV' => 'production' } }
-      )
+      client.run_once(image: 'myapp:latest', command: 'rake db:migrate')
+    end
+
+    # The image reference comes straight from `--image` on the command line.
+    it 'keeps a metacharacter in the image reference from starting a second command' do
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(Shellwords.split(cmd)).to include('myapp:v1; rm -rf /')
+        ''
+      end
+
+      client.run_once(image: 'myapp:v1; rm -rf /', command: 'true')
     end
 
     it 'includes network option' do
