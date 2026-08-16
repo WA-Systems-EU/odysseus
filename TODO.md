@@ -137,7 +137,15 @@ we'd feel their absence.
       in batches. Related: parallel host deploys.
 - [ ] **`audit`.** No record of who deployed what, when.
 - [ ] **Server bootstrap (`setup`).** Target hosts must already have Docker;
-      nothing installs or verifies it.
+      nothing installs or verifies it. **Scoped 2026-08-16: apt only to start**
+      — Ubuntu and Debian. Other package managers wait until someone actually
+      needs one; guessing at dnf/apk/zypper now means writing three installers
+      we cannot test. A host that is not apt-based should be told so plainly
+      rather than half-attempted. Decide separately whether `setup` installs
+      Docker or only verifies it and refuses: verifying is a fraction of the
+      work and removes most of the surprise, and installing means owning
+      version choice, repository keys and a failure mode that leaves a host
+      half-configured.
 - [ ] **App lifecycle commands.** No `redeploy`, `app start`/`stop`, `details`,
       or `proxy reboot`.
 - [ ] **`retain_containers` equivalent.** Cleanup keeps a hardcoded 2 old
