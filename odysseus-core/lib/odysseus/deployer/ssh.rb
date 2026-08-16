@@ -22,6 +22,11 @@ module Odysseus
         @session = nil
       end
 
+      # The user this connection authenticates as. Read by HostPaths, which
+      # puts host state under /var/lib for root and under $HOME for anyone
+      # else.
+      attr_reader :user
+
       # Execute remote command
       #
       # Standard error is kept out of the returned value so callers can parse
