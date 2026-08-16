@@ -276,6 +276,23 @@ Smaller findings worth fixing but not blocking anything.
       `deploy_versioning_spec.rb` covers the method since the extraction, and
       is the only thing that catches that mutation — but the fixtures should be
       de-uniformed so they stop looking like coverage they do not provide.
+- [ ] **`env.secret` with no `secrets_file:` fails silently.**
+      `Secrets::Loader#configured?` is just `!config[:secrets_file].nil?`, so a
+      config that names secrets but no file skips the encrypted file entirely
+      and falls back to `ssh.execute("echo $KEY")` on the target. A host that
+      does not export the variable returns empty, and an empty value is
+      *omitted* rather than injected blank — so the container starts without it
+      and nothing anywhere says why. Hit for real on 2026-08-16 in
+      `insights-2/deploy.yml`, which had `env.secret`, a `secrets.yml.enc` in
+      the same directory and a master key, and still injected nothing.
+      Two fixes, both cheap: warn when `env.secret` is non-empty and
+      `secrets_file` is unset (louder still when an encrypted file is sitting
+      next to the deploy.yml), and have `odysseus secrets edit` say so when it
+      writes a file the config does not reference — it defaults to
+      `secrets.yml.enc` in the working directory and never reads `deploy.yml`,
+      so it will happily maintain a file nothing loads. Related to the
+      unknown-key gap below: both are cases of the config being wrong in a way
+      that produces silence instead of an error.
 - [ ] A `deploy.yml` that is empty, or whose top level is not a Hash, crashes
       with a raw `NoMethodError`/`TypeError` that the CLI's `rescue
       Odysseus::Error` does not catch, so the user gets a backtrace instead of a
