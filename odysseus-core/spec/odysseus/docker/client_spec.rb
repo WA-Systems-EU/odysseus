@@ -804,6 +804,90 @@ RSpec.describe Odysseus::Docker::Client do
         'mkdir -p /home/deploy\ user/.odysseus/env && chmod 700 /home/deploy\ user/.odysseus/env'
       )
     end
+
+    # write_env_file's own escaping was the only site ever covered. #run
+    # builds a second, independent interpolation of the same path into the
+    # `docker run` command it executes (build_run_command), and an unescaped
+    # one is word-split by the remote shell: `--env-file /home/deploy` and a
+    # stray `user/.odysseus/...` argument, which docker rejects.
+    it 'escapes a home directory containing a space in the docker run command' do
+      commands = []
+      ssh = instance_double(Odysseus::Deployer::SSH, user: 'deploy')
+      allow(ssh).to receive(:execute) do |cmd|
+        commands << cmd
+        next "/home/deploy user\n" if cmd == 'echo $HOME'
+        next "#{container_id}\n" if cmd.start_with?('docker run')
+
+        ''
+      end
+      allow(ssh).to receive(:upload_string)
+
+      described_class.new(ssh).run(name: 'test', image: 'myapp:latest', options: { env: { 'A' => '1' } })
+
+      run_cmd = commands.find { |cmd| cmd.start_with?('docker run -d') }
+      expect(run_cmd).to include('--env-file /home/deploy\ user/.odysseus/env/test.env')
+    end
+
+    # run_once builds this same flag independently of #run's build_run_command
+    # — a third site with the same raw interpolation.
+    it 'escapes a home directory containing a space in the docker run command for a one-off run' do
+      commands = []
+      ssh = instance_double(Odysseus::Deployer::SSH, user: 'deploy')
+      allow(ssh).to receive(:execute) do |cmd|
+        commands << cmd
+        cmd == 'echo $HOME' ? "/home/deploy user\n" : ''
+      end
+      allow(ssh).to receive(:upload_string)
+
+      described_class.new(ssh).run_once(image: 'myapp:latest', command: 'true', options: { env: { 'A' => '1' } })
+
+      run_cmd = commands.find { |cmd| cmd.start_with?('docker run --rm') }
+      expect(run_cmd).to match(%r{--env-file /home/deploy\\ user/\.odysseus/env/one-off@\h{16}\.env})
+    end
+
+    # remove_env_file interpolates the same path a fourth time, on its first
+    # attempt to remove the file.
+    it 'escapes a home directory containing a space when removing the env file' do
+      commands = []
+      ssh = instance_double(Odysseus::Deployer::SSH, user: 'deploy')
+      allow(ssh).to receive(:execute) do |cmd|
+        commands << cmd
+        cmd == 'echo $HOME' ? "/home/deploy user\n" : ''
+      end
+      allow(ssh).to receive(:upload_string)
+
+      described_class.new(ssh).with_env_file({ 'A' => '1' }) { |_path| nil }
+
+      rm_cmd = commands.find { |cmd| cmd.start_with?('rm -f') }
+      expect(rm_cmd).to match(%r{\Arm -f /home/deploy\\ user/\.odysseus/env/one-off@\h{16}\.env\z})
+    end
+
+    # remove_env_file_on_a_new_connection interpolates the path a fifth time,
+    # on the fallback attempt made over a fresh connection.
+    it 'escapes a home directory containing a space when removing the env file over a fresh connection' do
+      commands = []
+      attempts = 0
+      ssh = instance_double(Odysseus::Deployer::SSH, user: 'deploy')
+      allow(ssh).to receive(:close)
+      allow(ssh).to receive(:execute) do |cmd|
+        commands << cmd
+        next "/home/deploy user\n" if cmd == 'echo $HOME'
+
+        if cmd.start_with?('rm -f')
+          attempts += 1
+          raise IOError, 'closed stream' if attempts == 1
+        end
+
+        ''
+      end
+      allow(ssh).to receive(:upload_string)
+
+      described_class.new(ssh).with_env_file({ 'A' => '1' }) { |_path| nil }
+
+      rm_cmds = commands.select { |cmd| cmd.start_with?('rm -f') }
+      expect(rm_cmds.length).to eq(2)
+      expect(rm_cmds.last).to match(%r{\Arm -f /home/deploy\\ user/\.odysseus/env/one-off@\h{16}\.env\z})
+    end
   end
 
   describe '#prune' do

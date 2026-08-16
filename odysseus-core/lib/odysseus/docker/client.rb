@@ -237,7 +237,7 @@ module Odysseus
           parts = ['docker run --rm']
 
           # Environment variables (see #write_env_file — never inlined here)
-          parts << "--env-file #{env_file}" if env_file
+          parts << "--env-file #{Shellwords.escape(env_file)}" if env_file
 
           # Volume mounts
           options[:volumes]&.each { |v| parts << "-v #{v}" }
@@ -446,14 +446,14 @@ module Odysseus
       def remove_env_file(path)
         return unless path
 
-        @ssh.execute("rm -f #{path}")
+        @ssh.execute("rm -f #{Shellwords.escape(path)}")
       rescue StandardError
         remove_env_file_on_a_new_connection(path)
       end
 
       def remove_env_file_on_a_new_connection(path)
         @ssh.close
-        @ssh.execute("rm -f #{path}")
+        @ssh.execute("rm -f #{Shellwords.escape(path)}")
       rescue StandardError
         nil
       end
@@ -478,7 +478,7 @@ module Odysseus
         options[:ports]&.each { |p| parts << "-p #{p}" }
 
         # Environment variables (see #write_env_file — never inlined here)
-        parts << "--env-file #{env_file}" if env_file
+        parts << "--env-file #{Shellwords.escape(env_file)}" if env_file
 
         # Memory limits
         parts << "--memory #{options[:memory]}" if options[:memory]
