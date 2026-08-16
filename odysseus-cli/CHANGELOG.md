@@ -46,6 +46,12 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   `odysseus.service` label it searched for and the `--role` option, and lists
   the roles in the config. It does not search other roles: running your command
   against a role you did not name would be worse than being told what to type.
+- `odysseus logs` gives that same message. A mistyped `--role` — `odysseus logs
+  w1 --role jbos` — got `No containers found for myapp-jbos on w1 (stopped ones
+  included)`, naming a label the reader never typed and no way to find the one
+  they wanted. Both commands now share the message rather than keeping two that
+  can drift. `odysseus dependency logs` gets the label it searched for too, but
+  not the `--role` advice: a dependency is chosen with `--name`.
 - `odysseus logs` and `odysseus dependency logs` read stopped containers as
   well as running ones. They asked `docker ps` without `-a`, so the container
   that had just exited — the one you want the logs of — was invisible, and they

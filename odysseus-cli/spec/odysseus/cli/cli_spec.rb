@@ -182,7 +182,7 @@ RSpec.describe Odysseus::CLI::CLI do
 
       expect { output_of { cli.app_exec('web1.example.com', config: config_file, command: 'true') } }
         .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
-      expect(stdout_buffer.string).to match(/no running container/i)
+      expect(stderr_buffer.string).to match(/no running container/i)
     end
   end
 
@@ -355,9 +355,9 @@ RSpec.describe Odysseus::CLI::CLI do
       expect { output_of { cli.app_exec('worker1.example.com', config: config_file, command: 'true', role: 'jobs') } }
         .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
 
-      expect(stdout_buffer.string).to include('jobs')
-      expect(stdout_buffer.string).to include('myapp-jobs')
-      expect(stdout_buffer.string).to include('--role')
+      expect(stderr_buffer.string).to include('jobs')
+      expect(stderr_buffer.string).to include('myapp-jobs')
+      expect(stderr_buffer.string).to include('--role')
     end
 
     # Execing against a role other than the one you named is worse than being
@@ -455,13 +455,30 @@ RSpec.describe Odysseus::CLI::CLI do
       expect(stderr_buffer.string).to include('myapp')
     end
 
+    # A mistyped --role is the ordinary reason this finds nothing, and the
+    # message named only a service label the reader never typed:
+    # `No containers found for myapp-jbos on w1 (stopped ones included)`. The
+    # equivalent failure in `running_image` had said all of this for a release
+    # already — two messages for one job, and only one of them any use.
+    it 'names the role, the label it searched, the option and the roles that exist' do
+      allow(docker).to receive(:list).with(service: 'myapp-jbos', all: true).and_return([])
+
+      expect { output_of { cli.logs('web1.example.com', config: config_file, role: 'jbos') } }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+
+      expect(stderr_buffer.string).to include("role 'jbos'")
+      expect(stderr_buffer.string).to include('odysseus.service=myapp-jbos')
+      expect(stderr_buffer.string).to include('--role')
+      expect(stderr_buffer.string).to include('web, jobs')
+    end
+
     it 'keeps the not-found message out of the log stream too' do
       allow(docker).to receive(:list).with(service: 'myapp', all: true).and_return([])
 
       expect { output_of { cli.logs('web1.example.com', config: config_file) } }
         .to raise_error(SystemExit)
 
-      expect(stdout_buffer.string).not_to match(/no containers found/i)
+      expect(stdout_buffer.string).not_to match(/no running or stopped container/i)
     end
 
     it 'reads the role named by --role' do
@@ -506,6 +523,18 @@ RSpec.describe Odysseus::CLI::CLI do
       expect { output_of { cli.dependency_logs('db.example.com', config: config_file, name: 'db') } }
         .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
       expect(stderr_buffer.string).to include('myapp-db')
+    end
+
+    # A dependency is named with --name, not --role: pointing at --role here
+    # would send the reader to an option this command does not have.
+    it 'names the label it searched without advising --role' do
+      allow(docker).to receive(:list).with(service: 'myapp-db', all: true).and_return([])
+
+      expect { output_of { cli.dependency_logs('db.example.com', config: config_file, name: 'db') } }
+        .to raise_error(SystemExit)
+
+      expect(stderr_buffer.string).to include('odysseus.service=myapp-db')
+      expect(stderr_buffer.string).not_to include('--role')
     end
   end
 

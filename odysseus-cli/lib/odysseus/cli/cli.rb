@@ -421,7 +421,7 @@ module Odysseus
 
         begin
           docker = Odysseus::Docker::Client.new(ssh)
-          container_id = log_container_id!(docker, service_name, server)
+          container_id = log_container_id!(docker, service_name, server, config, role: role)
 
           if follow
             @ui.step 'Following logs (Ctrl+C to stop)...'
@@ -457,7 +457,7 @@ module Odysseus
 
         begin
           docker = Odysseus::Docker::Client.new(ssh)
-          container_id = log_container_id!(docker, service_name, server)
+          container_id = log_container_id!(docker, service_name, server, config)
 
           if follow
             @ui.step 'Following logs (Ctrl+C to stop)...'
@@ -784,14 +784,9 @@ module Odysseus
           docker = Odysseus::Docker::Client.new(ssh)
           container = docker.list(service: service_name).first
 
-          unless container
-            # No search of other roles: running a command against a role other
-            # than the one asked for is worse than being told what to type.
-            @ui.error "No running container for role '#{role}' on #{server} " \
-                      "(nothing labelled odysseus.service=#{service_name})"
-            @ui.step "Name the role with --role. Roles in this config: #{config[:servers].keys.join(', ')}"
-            exit 1
-          end
+          # No search of other roles: running a command against a role other
+          # than the one asked for is worse than being told what to type.
+          no_container!(server, config, service_name, role: role, state: 'running') unless container
 
           container['Image'] || "#{config[:image]}:#{Odysseus::Docker::Labels.version_of(container)}"
         ensure
@@ -811,17 +806,16 @@ module Odysseus
       # exits non-zero. And when the only match is stopped, say so: otherwise
       # the log just ends and the reader has no way to know why.
       #
-      # Both of those go to stderr. This command's stdout is a log stream —
-      # `odysseus logs web1 > app.log`, or a pipe into something that parses
-      # what it gets — so a line about the logs must not arrive inside them,
-      # while still reaching the terminal of whoever ran the command.
-      def log_container_id!(docker, service_name, server)
+      # That notice goes to stderr. This command's stdout is a log stream —
+      # `odysseus logs web1 > app.log`, or a pipe into something that parses it
+      # — so a line about the logs must not arrive inside them, while still
+      # reaching the terminal of whoever ran the command.
+      #
+      # @param role [Symbol, nil] the role the label came from, or nil for a
+      #   dependency, which is named with --name rather than --role
+      def log_container_id!(docker, service_name, server, config, role: nil)
         containers = docker.list(service: service_name, all: true)
-
-        if containers.empty?
-          @ui.error "No containers found for #{service_name} on #{server} (stopped ones included)", io: $stderr
-          exit 1
-        end
+        no_container!(server, config, service_name, role: role, state: 'running or stopped') if containers.empty?
 
         container = containers.find { |c| c['State'] == 'running' } || containers.first
         unless container['State'] == 'running'
@@ -830,6 +824,27 @@ module Odysseus
         end
 
         container['ID']
+      end
+
+      # What a container lookup that found nothing says, for every command that
+      # finds one by its odysseus.service label. A mistyped --role is the
+      # ordinary reason nothing matches, so the message names the role, the
+      # exact label searched, the option that changes it and the roles this
+      # config declares. `logs` used to say only `No containers found for
+      # myapp-jbos on w1 (stopped ones included)`, naming a label the reader
+      # never typed: one job, two messages, and only one of them any use.
+      #
+      # A dependency passes no role. It is chosen with --name, and advising
+      # --role would send the reader to an option that command does not have.
+      def no_container!(server, config, service_name, role: nil, state: 'running')
+        subject = role ? "role '#{role}'" : service_name
+        @ui.error "No #{state} container for #{subject} on #{server} " \
+                  "(nothing labelled odysseus.service=#{service_name})", io: $stderr
+        if role
+          @ui.step "Name the role with --role. Roles in this config: #{config[:servers].keys.join(', ')}",
+                   io: $stderr
+        end
+        exit 1
       end
 
       # The environment a one-off container starts with, built by the same class

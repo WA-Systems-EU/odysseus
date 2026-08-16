@@ -193,7 +193,8 @@ usually the one whose logs you want; when the only match is stopped, the
 command says so before printing them. That notice, and the message when no
 container is found at all, go to stderr, so `odysseus logs web1 > app.log`
 captures the logs and nothing else. Finding no container at all — running or
-stopped — exits non-zero.
+stopped — exits non-zero, and the message names the role, the label it
+searched for and the roles this config has.
 
 ### cleanup
 
