@@ -661,6 +661,18 @@ RSpec.describe Odysseus::Docker::Client do
       expect(client.with_env_file('A' => 'b') { 'exit 0' }).to eq('exit 0')
     end
 
+    # The file is 0600 in its own right, so the directory's mode is a second
+    # guard — but it is the guard that has to hold for a file left behind by a
+    # session that died, which is the case the README leans on when it says
+    # another user on the box still cannot read it. `mkdir -p` alone leaves the
+    # directory 0755, and the chmod that fixes that had nothing asserting it.
+    it 'makes the env directory private before any secret goes into it' do
+      client.with_env_file('A' => 'b') { |_path| nil }
+
+      expect(events.first).to eq([:execute, 'mkdir -p /var/lib/odysseus/env && chmod 700 /var/lib/odysseus/env'])
+      expect(events[1].first).to eq(:upload)
+    end
+
     # scp creates the remote file and then streams into it: an upload that dies
     # partway has already put part of a file of secrets on the host.
     it 'removes the file when the upload dies partway through it' do
