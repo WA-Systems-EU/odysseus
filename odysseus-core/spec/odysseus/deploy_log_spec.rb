@@ -4,7 +4,7 @@ require 'spec_helper'
 require 'shellwords'
 
 RSpec.describe Odysseus::DeployLog do
-  let(:mock_ssh) { instance_double(Odysseus::Deployer::SSH) }
+  let(:mock_ssh) { instance_double(Odysseus::Deployer::SSH, user: 'root') }
   let(:log) { described_class.new(ssh: mock_ssh, service: 'myapp') }
   let(:path) { '/var/lib/odysseus/myapp/deploys.log' }
 
@@ -174,6 +174,92 @@ RSpec.describe Odysseus::DeployLog do
       )
 
       expect(log.entries.map(&:version)).to eq(['abc'])
+    end
+  end
+
+  describe 'where the log lives' do
+    it 'is the system location for root' do
+      ssh = instance_double(Odysseus::Deployer::SSH, user: 'root')
+      expect(described_class.new(ssh: ssh, service: 'myapp').path)
+        .to eq('/var/lib/odysseus/myapp/deploys.log')
+    end
+
+    it 'is under the home directory for a deploy user' do
+      ssh = instance_double(Odysseus::Deployer::SSH, user: 'odysseus')
+      allow(ssh).to receive(:execute).with('echo $HOME').and_return("/home/odysseus\n")
+
+      expect(described_class.new(ssh: ssh, service: 'myapp').path)
+        .to eq('/home/odysseus/.odysseus/myapp/deploys.log')
+    end
+
+    it 'knows the location a root install used, whoever is connected' do
+      ssh = instance_double(Odysseus::Deployer::SSH, user: 'odysseus')
+      allow(ssh).to receive(:execute).with('echo $HOME').and_return("/home/odysseus\n")
+
+      expect(described_class.new(ssh: ssh, service: 'myapp').legacy_path)
+        .to eq('/var/lib/odysseus/myapp/deploys.log')
+    end
+  end
+
+  describe 'reading a host that used to deploy as root' do
+    let(:ssh) { instance_double(Odysseus::Deployer::SSH, user: 'odysseus') }
+    let(:log) { described_class.new(ssh: ssh, service: 'myapp') }
+    let(:record) { '2026-08-16T10:00:00Z abc123 web - thomas@imfiny.com deployed' }
+
+    before { allow(ssh).to receive(:execute).with('echo $HOME').and_return("/home/odysseus\n") }
+
+    it 'still reads the location a root install wrote, so history survives the move' do
+      command = nil
+      allow(ssh).to receive(:execute) do |cmd|
+        if cmd == 'echo $HOME'
+          "/home/odysseus\n"
+        else
+          (command = cmd
+           "#{record}\n")
+        end
+      end
+
+      log.entries
+
+      # The fallback itself happens in the shell (`cat a || cat b`), not in
+      # Ruby, so a doubled connection cannot exercise it. What IS testable —
+      # and what actually fails if the fallback is dropped — is that the legacy
+      # path appears in the command at all. Asserting on the parsed entries
+      # instead would pass whether or not the fallback were there, because the
+      # double answers every cat identically.
+      expect(command).to include('/var/lib/odysseus/myapp/deploys.log')
+    end
+
+    it 'reads the new location in preference to the old' do
+      command = nil
+      allow(ssh).to receive(:execute) do |cmd|
+        if cmd == 'echo $HOME'
+          "/home/odysseus\n"
+        else
+          (command = cmd
+           "#{record}\n")
+        end
+      end
+
+      log.entries
+
+      # The new path must be attempted before the legacy one, or a migrated
+      # host would keep reading its frozen history forever.
+      expect(command.index('/home/odysseus/.odysseus/myapp/deploys.log'))
+        .to be < command.index('/var/lib/odysseus/myapp/deploys.log')
+    end
+
+    it 'appends only to the new location' do
+      written = nil
+      allow(ssh).to receive(:execute) do |cmd|
+        written = cmd if cmd.start_with?('printf')
+        cmd == 'echo $HOME' ? "/home/odysseus\n" : ''
+      end
+
+      log.append(version: 'abc123', role: :web, ref: nil, deployer: 'thomas@imfiny.com')
+
+      expect(written).to include('/home/odysseus/.odysseus/myapp/deploys.log')
+      expect(written).not_to include('/var/lib/odysseus')
     end
   end
 end

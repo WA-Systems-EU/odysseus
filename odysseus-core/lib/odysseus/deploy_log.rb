@@ -9,7 +9,6 @@ module Odysseus
   # which image timestamps cannot, and it survives container removal and image
   # pruning. It is also the host-side audit trail.
   class DeployLog
-    PATH_ROOT = '/var/lib/odysseus'.freeze
     FILENAME = 'deploys.log'.freeze
     TIME_FORMAT = '%Y-%m-%dT%H:%M:%SZ'.freeze
 
@@ -24,7 +23,14 @@ module Odysseus
 
     # @return [String] absolute path of this service's log on the host
     def path
-      File.join(PATH_ROOT, @service, FILENAME)
+      File.join(host_paths.service_dir(@service), FILENAME)
+    end
+
+    # Where a root install wrote this log. A host that has since moved to a
+    # deploy user still has its history here, and nothing ever deletes it.
+    # @return [String]
+    def legacy_path
+      File.join(host_paths.legacy_base, @service, FILENAME)
     end
 
     # Record one deploy of one role.
@@ -49,12 +55,22 @@ module Odysseus
 
     # @return [Array<Entry>] parsed entries, oldest first; empty when absent
     def entries
-      raw = @ssh.execute("cat #{Shellwords.escape(path)} 2>/dev/null || true")
+      # Prefer the current location, then the one a root install used. No
+      # merging: a host deploying as two different users is not a supported
+      # shape, and merging two histories would invent an ordering.
+      raw = @ssh.execute(
+        "cat #{Shellwords.escape(path)} 2>/dev/null || " \
+        "cat #{Shellwords.escape(legacy_path)} 2>/dev/null || true"
+      )
 
       raw.to_s.lines.filter_map { |line| parse_line(line) }
     end
 
     private
+
+    def host_paths
+      @host_paths ||= Odysseus::HostPaths.new(@ssh)
+    end
 
     # The log's shape -- one line per record, fields separated by single
     # spaces -- is load-bearing: phase 3's rollback ordering reads this file
