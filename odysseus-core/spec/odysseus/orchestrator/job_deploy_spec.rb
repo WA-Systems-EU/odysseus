@@ -71,6 +71,17 @@ RSpec.describe Odysseus::Orchestrator::JobDeploy do
         orchestrator.deploy(image_tag: 'v1', role: :jobs)
       end
 
+      # Built by Core::Environment, shared with WebDeploy and the CLI's one-off
+      # containers.
+      it 'injects the configured environment into the container' do
+        expect(mock_docker).to receive(:run) do |args|
+          expect(args[:options][:env]).to eq('RAILS_ENV' => 'production')
+          new_container_id
+        end
+
+        orchestrator.deploy(image_tag: 'v1', role: :jobs)
+      end
+
       it 'waits for container to be healthy' do
         expect(mock_docker).to receive(:wait_healthy).with(new_container_id, timeout: 120).and_return(true)
         orchestrator.deploy(image_tag: 'v1', role: :jobs)
