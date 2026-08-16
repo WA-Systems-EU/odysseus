@@ -7,6 +7,13 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-16
+
+A minor bump for two reasons: there is new public API, and a one-off container's
+environment changes shape. Anything that ran `app exec` and relied on reading
+`-e` flags out of the host's process list — or on a secret being *absent* from
+one-off runs — sees different behaviour.
+
 ### Fixed
 - A one-off container — what `app exec`, `app shell` and `app console` run —
   no longer has its environment inlined into the docker command as `-e

@@ -7,6 +7,21 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-16
+
+Read the exit-code changes below before upgrading anything that scripts these
+commands. `logs` now exits non-zero when it finds no container, where it used to
+report the problem and exit 0, and `app shell`/`console` exit with the remote
+command's status instead of always 0. A cron or CI job that treated either as
+"succeeded" will start noticing failures — which is the point, but it is a
+change in what those jobs see.
+
+### Changed
+- Requires odysseus-core `~> 0.7.0`. The dependency was `~> 0.6.0`, which
+  excludes 0.7.0 outright, so this is not a tightening: without it the two gems
+  cannot resolve together. These commands also call `Core::Environment` and
+  `Docker::Client#with_env_file`, neither of which exists in 0.6.0.
+
 ### Fixed
 - `odysseus app exec|shell|console` now inject `env.secret` as well as
   `env.clear`. They injected the clear values alone, so the README's own
