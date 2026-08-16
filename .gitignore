@@ -30,9 +30,6 @@ test-ghost/
 # Infrastructure
 tofu/
 
-# Tool versions (local preference)
-.tool-versions
-
 # RSpec example status tracking
 **/spec/examples.txt
 
