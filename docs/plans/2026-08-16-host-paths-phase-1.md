@@ -427,10 +427,21 @@ Add to `odysseus-core/spec/odysseus/deploy_log_spec.rb`:
 
     before { allow(ssh).to receive(:execute).with('echo $HOME').and_return("/home/odysseus\n") }
 
-    it 'falls back to the old location when the new one is empty' do
-      allow(ssh).to receive(:execute).with(a_string_matching(/cat /)).and_return("#{record}\n")
+    it 'still reads the location a root install wrote, so history survives the move' do
+      command = nil
+      allow(ssh).to receive(:execute) do |cmd|
+        cmd == 'echo $HOME' ? "/home/odysseus\n" : (command = cmd; "#{record}\n")
+      end
 
-      expect(log.entries.map(&:version)).to eq(['abc123'])
+      log.entries
+
+      # The fallback itself happens in the shell (`cat a || cat b`), not in
+      # Ruby, so a doubled connection cannot exercise it. What IS testable —
+      # and what actually fails if the fallback is dropped — is that the legacy
+      # path appears in the command at all. Asserting on the parsed entries
+      # instead would pass whether or not the fallback were there, because the
+      # double answers every cat identically.
+      expect(command).to include('/var/lib/odysseus/myapp/deploys.log')
     end
 
     it 'reads the new location in preference to the old' do
@@ -526,7 +537,7 @@ Expected: no matches.
 | --- | --- |
 | `path` built from `legacy_base` | `is under the home directory for a deploy user` |
 | swap the two `cat`s in `entries` | `reads the new location in preference to the old` |
-| drop the legacy `cat` entirely | `falls back to the old location when the new one is empty` |
+| drop the legacy `cat` entirely | `still reads the location a root install wrote, so history survives the move` |
 | `append` writing to `legacy_path` | `appends only to the new location` |
 
 - [ ] **Step 7: Full suite and RuboCop, both gems**
