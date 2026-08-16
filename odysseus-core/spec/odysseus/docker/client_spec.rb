@@ -782,6 +782,28 @@ RSpec.describe Odysseus::Docker::Client do
       expect(commands).to include(a_string_matching(%r{used /home/odysseus/\.odysseus/env/}))
       expect(commands).not_to include(a_string_matching(%r{/var/lib/odysseus}))
     end
+
+    # The directory is no longer the fixed literal ENV_FILE_DIR used to be —
+    # it is built from whatever the host reports as $HOME — so it can no
+    # longer be interpolated unescaped. A home containing a space is the
+    # simplest value that breaks the command if either Shellwords.escape call
+    # in write_env_file is dropped.
+    it 'escapes a home directory containing a space' do
+      commands = []
+      ssh = instance_double(Odysseus::Deployer::SSH, user: 'deploy')
+      allow(ssh).to receive(:execute) do |cmd|
+        commands << cmd
+        cmd == 'echo $HOME' ? "/home/deploy user\n" : ''
+      end
+      allow(ssh).to receive(:upload_string)
+
+      described_class.new(ssh).with_env_file({ 'A' => '1' }) { |path| commands << "used #{path}" }
+
+      mkdir_cmd = commands.find { |cmd| cmd.start_with?('mkdir') }
+      expect(mkdir_cmd).to eq(
+        'mkdir -p /home/deploy\ user/.odysseus/env && chmod 700 /home/deploy\ user/.odysseus/env'
+      )
+    end
   end
 
   describe '#prune' do
