@@ -16,6 +16,19 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   metacharacter arrives intact instead of splitting or being interpreted. The
   file is named so it cannot collide with a running container's, and is
   removed even when the command fails.
+- The env file is removed over a fresh connection when the connection it was
+  written over has died in the meantime. Cleanup rescued `Odysseus::SSHError`
+  alone, and a connection that drops mid-session raises `IOError`,
+  `Net::SSH::Disconnect`, `Errno::EPIPE` or `Errno::ECONNRESET` — none of them
+  an `SSHError`. The cleanup's own failure therefore escaped the ensure and
+  replaced whatever the block was raising, so a file of secrets was left on the
+  host *and* an interactive session's exit status arrived as a backtrace. The
+  interactive paths are where this is likeliest: they hold the connection open,
+  idle and unpumped, for as long as the user's session lasts, which is what an
+  idle NAT timeout, sshd's `ClientAlive` limit or a Tailscale relay change need.
+  Any failure of the removal is now swallowed rather than raised — including on
+  the second attempt, after which the file is left behind, `0600` in a `0700`
+  directory.
 
 ### Added
 - `Odysseus::Core::Environment`, the environment a container starts with —

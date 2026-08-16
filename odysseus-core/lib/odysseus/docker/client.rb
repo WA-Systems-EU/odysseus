@@ -404,13 +404,35 @@ module Odysseus
         "#{lines.join("\n")}\n"
       end
 
+      # Remove the env file, reconnecting once if the connection it was written
+      # over has died in the meantime.
+      #
+      # This runs from an ensure, and on the interactive paths the connection
+      # has been held open — idle, and with nothing pumping it — for as long as
+      # the user's session lasted. An idle NAT or firewall timeout, sshd's
+      # ClientAlive limit or a Tailscale relay change all leave it dead by the
+      # time the session ends, and a dead connection raises IOError,
+      # Net::SSH::Disconnect, Errno::EPIPE or Errno::ECONNRESET — none of them
+      # an Odysseus::SSHError, which is all this used to rescue. The cleanup's
+      # own failure then escaped the ensure and replaced whatever the block was
+      # already raising, so `app shell`'s exit status arrived as a backtrace.
+      #
+      # Closing the session is what makes the second attempt a new one: SSH
+      # connects lazily and only when it has no live session. If that fails too
+      # the file is left behind — 0600 in a 0700 directory — and nothing is
+      # raised: the caller came for the block's outcome, not this one's.
       def remove_env_file(path)
         return unless path
 
         @ssh.execute("rm -f #{path}")
-      rescue Odysseus::SSHError
-        # Best effort: the file is only readable by its owner and is rewritten
-        # on the next deploy. Never mask the deploy's own failure.
+      rescue StandardError
+        remove_env_file_on_a_new_connection(path)
+      end
+
+      def remove_env_file_on_a_new_connection(path)
+        @ssh.close
+        @ssh.execute("rm -f #{path}")
+      rescue StandardError
         nil
       end
 

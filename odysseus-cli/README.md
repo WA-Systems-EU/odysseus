@@ -543,12 +543,17 @@ containing a newline is rejected, since a Docker env file cannot represent one.
 `app exec`, `app shell` and `app console` get the same environment the same way.
 An interactive session holds its env file for as long as the session lasts and
 removes it on the way out, whether the session ended cleanly, exited non-zero or
-was interrupted. The exception is the `odysseus` process being killed outright —
-`SIGKILL`, or the machine going down — where no cleanup can run and the file is
-left on the host. It is mode `0600` in `/var/lib/odysseus/env`, which is mode
-`0700`, so another user on the box still cannot read it; but nothing comes back
-to remove it, since the next run writes its own file rather than tidying old
-ones.
+was interrupted. A session that sits idle long enough for its ssh connection to
+be dropped — an idle NAT timeout, an `sshd` `ClientAlive` limit, a Tailscale
+relay change — is included: the file is removed over a fresh connection.
+
+Two cases still leave the file on the host. The `odysseus` process being killed
+outright — `SIGKILL`, or the machine going down — where no cleanup can run at
+all; and a host that is unreachable when the session ends, where there is
+nowhere to send the removal. The file is mode `0600` in `/var/lib/odysseus/env`,
+which is mode `0700`, so another user on the box still cannot read it; but
+nothing comes back to remove it, since the next run writes its own file rather
+than tidying old ones.
 
 ### secrets_file
 

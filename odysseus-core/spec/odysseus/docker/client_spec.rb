@@ -586,15 +586,22 @@ RSpec.describe Odysseus::Docker::Client do
   describe '#with_env_file' do
     let(:commands) { [] }
     let(:uploads) { [] }
+    # Every call in the order it was made, so an example can say that the
+    # directory was made private *before* the secrets went into it rather than
+    # only that both happened.
+    let(:events) { [] }
 
     before do
       allow(mock_ssh).to receive(:execute) { |cmd|
         commands << cmd
+        events << [:execute, cmd]
         ''
       }
       allow(mock_ssh).to receive(:upload_string) { |content, path, mode:|
         uploads << { content: content, path: path, mode: mode }
+        events << [:upload, path]
       }
+      allow(mock_ssh).to receive(:close) { events << [:close, nil] }
     end
 
     it 'yields the path of a private file holding the environment' do
@@ -639,6 +646,71 @@ RSpec.describe Odysseus::Docker::Client do
 
     it 'returns what the block returned' do
       expect(client.with_env_file('A' => 'b') { 'exit 0' }).to eq('exit 0')
+    end
+
+    # These are the errors this ensure actually meets. The CLI holds the
+    # connection open, idle and unpumped, for as long as an interactive session
+    # lasts, so an idle NAT timeout, sshd's ClientAlive limit or a Tailscale
+    # relay change can leave it dead by the time the session ends — and a dead
+    # connection raises IOError, Net::SSH::Disconnect, Errno::EPIPE or
+    # Errno::ECONNRESET, none of which is an Odysseus::SSHError. Rescuing only
+    # Odysseus::SSHError meant the cleanup's own failure escaped the ensure and
+    # replaced whatever the block was raising.
+    context 'when the connection dies before the file can be removed' do
+      def dead_after_write(error)
+        attempts = 0
+        allow(mock_ssh).to receive(:execute) do |cmd|
+          commands << cmd
+          events << [:execute, cmd]
+          if cmd.start_with?('rm -f')
+            attempts += 1
+            raise error if attempts == 1
+          end
+          ''
+        end
+      end
+
+      it 'removes the file over a fresh connection' do
+        dead_after_write(IOError.new('closed stream'))
+
+        path = nil
+        client.with_env_file('A' => 'b') { |p| path = p }
+
+        expect(events.last(3)).to eq([[:execute, "rm -f #{path}"], [:close, nil], [:execute, "rm -f #{path}"]])
+      end
+
+      it 'does not mask the failure the block was already raising' do
+        dead_after_write(Errno::ECONNRESET.new)
+
+        expect do
+          client.with_env_file('A' => 'b') { raise Odysseus::DeployError, 'interactive run failed' }
+        end.to raise_error(Odysseus::DeployError, 'interactive run failed')
+      end
+
+      # `app shell` reports the status ssh gave it by raising SystemExit through
+      # here. SystemExit is not a StandardError, which is what keeps the rescue
+      # in remove_env_file from eating it — asserted rather than assumed, since
+      # a swallowed status is the difference between `exit 7` and success.
+      it 'lets the session exit status through' do
+        dead_after_write(IOError.new('closed stream'))
+
+        expect { client.with_env_file('A' => 'b') { exit 7 } }
+          .to raise_error(SystemExit) { |error| expect(error.status).to eq(7) }
+      end
+
+      # Reconnecting is one attempt, not a retry loop: a host that is gone stays
+      # gone, and the caller came for the block's outcome, not this one's.
+      it 'gives up quietly when the fresh connection cannot remove it either' do
+        allow(mock_ssh).to receive(:execute) do |cmd|
+          commands << cmd
+          raise Net::SSH::Disconnect if cmd.start_with?('rm -f')
+
+          ''
+        end
+
+        expect { client.with_env_file('A' => 'b') { |_path| nil } }.not_to raise_error
+        expect(commands.count { |c| c.start_with?('rm -f') }).to eq(2)
+      end
     end
   end
 

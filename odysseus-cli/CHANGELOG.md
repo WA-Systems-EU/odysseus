@@ -23,11 +23,16 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   instead of `-e KEY=VALUE`. The values were in the command string these
   commands run over ssh, so `ps` on the deploy target showed them to every user
   on the box; now only the file's path is. The file is `0600`, is held open for
-  the whole session and is removed when the session ends, however it ends. If
-  the `odysseus` process is killed outright (`SIGKILL`) no cleanup can run and
-  the file is left behind — unreadable by other users, but not cleaned up
-  either. `app exec` reaches the same place through `run_once`, which writes
-  an env file of its own — see odysseus-core's changelog.
+  the whole session and is removed when the session ends, however it ends —
+  including when the ssh connection it was written over has died while the
+  session sat idle, which is removed over a fresh connection. Two cases still
+  leave it on the host: the `odysseus` process being killed outright
+  (`SIGKILL`, or the machine going down), where no cleanup can run at all, and
+  a host that is unreachable when the session ends, where the removal has
+  nowhere to go. The file is `0600` in `/var/lib/odysseus/env`, which is `0700`,
+  so no other user on the box can read it, but nothing comes back for it.
+  `app exec` reaches the same place through `run_once`, which writes an env
+  file of its own — see odysseus-core's changelog.
 - `odysseus dependency exec|shell` are unchanged: they `docker exec` into an
   already-running dependency, which carries the environment it was booted with.
 - `odysseus app exec|shell|console` now take `--role` (default `web`) and look
