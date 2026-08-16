@@ -7,6 +7,31 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Added
+- `Odysseus::HostPaths`, which decides where odysseus keeps state on a host
+  from the connecting SSH user: `root` still gets `/var/lib/odysseus`, exactly
+  as before and with no extra SSH round trip; any other user gets
+  `$HOME/.odysseus`, resolved by asking the host once per connection.
+
+### Changed
+- Env files (`Docker::Client`) and the deploy log (`DeployLog`) now follow
+  `HostPaths` instead of a fixed `/var/lib/odysseus` constant. Before this,
+  a non-root deploy could not work at all: `write_env_file` chmods its
+  directory before writing into it, and a non-owner cannot chmod a directory
+  root created, so the deploy died at the first container start. This is the
+  change that makes a non-root deploy possible, on a host you have already
+  configured for it.
+- Caddy's certificate directory does not move. It stays at
+  `/var/lib/odysseus/caddy` for every user, because it holds issued Let's
+  Encrypt certificates, is written by the Caddy container as root, and
+  moving it would mean copying live certificates or re-issuing against
+  Let's Encrypt's rate limits.
+- `rollback --list` keeps its history across the move: a host that deployed
+  as root and later switches to a deploy user still has its old log read as
+  a fallback when the new location is empty. Reads fall back to the old
+  location; appends only ever go to the new one.
+- Nothing changes for a root install.
+
 ## [0.7.0] - 2026-08-16
 
 A minor bump for two reasons: there is new public API, and a one-off container's

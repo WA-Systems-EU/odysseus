@@ -524,9 +524,10 @@ env:
 - `clear` - Plaintext values stored in deploy.yml
 - `secret` - Keys to load from encrypted secrets file or server environment
 
-Both are handed to the container through an env file written to
-`/var/lib/odysseus/env` with `0600` permissions and removed once the container
-has been created, so secrets never appear in the host's process list. A value
+Both are handed to the container through an env file written under the state
+directory described in [ssh](#ssh) — `/var/lib/odysseus/env` for the default
+root connection — with `0600` permissions, and removed once the container has
+been created, so secrets never appear in the host's process list. A value
 containing a newline is rejected, since a Docker env file cannot represent one.
 
 `app exec`, `app shell` and `app console` get the same environment the same way.
@@ -539,10 +540,10 @@ relay change — is included: the file is removed over a fresh connection.
 Two cases still leave the file on the host. The `odysseus` process being killed
 outright — `SIGKILL`, or the machine going down — where no cleanup can run at
 all; and a host that is unreachable when the session ends, where there is
-nowhere to send the removal. The file is mode `0600` in `/var/lib/odysseus/env`,
-which is mode `0700`, so another user on the box still cannot read it; but
-nothing comes back to remove it, since the next run writes its own file rather
-than tidying old ones.
+nowhere to send the removal. The file is mode `0600` inside that same env
+directory (`0700` for a root connection), so another user on the box still
+cannot read it; but nothing comes back to remove it, since the next run writes
+its own file rather than tidying old ones.
 
 ### secrets_file
 
@@ -573,7 +574,7 @@ dependencies:
     hosts:
       - db.example.com
     volumes:
-      - /var/lib/odysseus/myapp/postgres:/var/lib/postgresql/data
+      - /srv/myapp/postgres:/var/lib/postgresql/data
     env:
       clear:
         POSTGRES_USER: myapp
@@ -596,6 +597,19 @@ ssh:
   keys:
     - ~/.ssh/id_ed25519
 ```
+
+`user` defaults to `root` and also decides where odysseus keeps state on the
+host. A root connection writes to `/var/lib/odysseus`, exactly as always. Any
+other user writes under its own `$HOME/.odysseus` instead, because it cannot
+create or `chmod` a directory root owns. Caddy's certificate directory is the
+one exception: it stays at `/var/lib/odysseus/caddy` regardless of `user`,
+since it holds live Let's Encrypt certificates written by the Caddy container
+as root.
+
+A non-root `user` must already exist on the target host — with membership in
+the `docker` group and a writable home directory — and its key must be one of
+`keys` above. Odysseus does not create this user, install Docker, or set up
+the host for you; all of that is on you today.
 
 ### builder
 
