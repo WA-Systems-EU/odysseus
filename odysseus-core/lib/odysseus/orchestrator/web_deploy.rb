@@ -164,31 +164,12 @@ module Odysseus
         nil
       end
 
+      # Shared with JobDeploy and with the one-off containers the CLI runs, so
+      # every path injects the same environment. Kept private here: it is how
+      # this orchestrator fills in its own container's env, not a service to
+      # call on it from outside.
       def build_environment
-        env = {}
-
-        # Clear env vars (hardcoded values)
-        @config[:env][:clear]&.each do |key, value|
-          env[key.to_s] = value.to_s
-        end
-
-        # Secret env vars - first try encrypted file, then server environment
-        @config[:env][:secret]&.each do |key|
-          # Try encrypted secrets file first
-          if @secrets_loader&.configured?
-            value = @secrets_loader.get(key)
-            if value
-              env[key.to_s] = value.to_s
-              next
-            end
-          end
-
-          # Fall back to server's environment
-          value = @ssh.execute("echo $#{key}").strip
-          env[key.to_s] = value unless value.empty?
-        end
-
-        env
+        Odysseus::Core::Environment.new(config: @config, secrets_loader: @secrets_loader, ssh: @ssh).build
       end
 
       # Build the container-level health check Docker polls.

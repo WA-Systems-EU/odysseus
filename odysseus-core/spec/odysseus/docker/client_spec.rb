@@ -106,6 +106,19 @@ RSpec.describe Odysseus::Docker::Client do
         expect(commands.last).to include("rm -f #{env_file}")
       end
 
+      # scp creates the remote file and then streams into it, so an upload that
+      # dies partway has already left a partial file of secrets on the host.
+      # The path is settled before the write for exactly this reason: an ensure
+      # that learned it from the write's return value has nothing to remove,
+      # and the file stays under a name nobody is going to go looking for.
+      it 'deletes the env file when the upload dies partway through it' do
+        allow(mock_ssh).to receive(:upload_string)
+          .and_raise(Odysseus::SSHCommandError, 'connection lost mid-transfer')
+
+        expect { run_container }.to raise_error(Odysseus::SSHCommandError)
+        expect(commands.last).to eq("rm -f #{env_file}")
+      end
+
       it 'rejects values docker cannot represent in an env file' do
         expect { client.run(name: 'test', image: 'myapp:latest', options: { env: { 'KEY' => "line1\nline2" } }) }
           .to raise_error(Odysseus::DeployError, /KEY.*newline/)
@@ -435,17 +448,122 @@ RSpec.describe Odysseus::Docker::Client do
       expect(result).to eq("Migrated!\n")
     end
 
-    it 'includes environment variables' do
+    context 'with environment variables' do
+      let(:env) do
+        {
+          'RAILS_ENV' => 'production',
+          'DATABASE_URL' => 'postgres://user:pa ss@db/app'
+        }
+      end
+      let(:commands) { [] }
+      let(:uploads) { [] }
+
+      before do
+        allow(mock_ssh).to receive(:execute) { |cmd|
+          commands << cmd
+          ''
+        }
+        allow(mock_ssh).to receive(:upload_string) { |content, path, mode:|
+          uploads << { content: content, path: path, mode: mode }
+        }
+      end
+
+      def migrate
+        client.run_once(image: 'myapp:latest', command: 'rake db:migrate', options: { env: env })
+      end
+
+      def env_path
+        uploads.first[:path]
+      end
+
+      it 'sends them to the container' do
+        migrate
+
+        expect(uploads.first[:content]).to include('RAILS_ENV=production')
+        expect(uploads.first[:content]).to include('DATABASE_URL=postgres://user:pa ss@db/app')
+        expect(commands.find { |c| c.include?('docker run') }).to include("--env-file #{env_path}")
+      end
+
+      # `ps` on the host must not show a customer's database password, and a
+      # value containing a space must not split into two arguments.
+      it 'keeps every value off the command line' do
+        migrate
+
+        run_cmd = commands.find { |c| c.include?('docker run') }
+        expect(run_cmd).not_to include('DATABASE_URL')
+        expect(run_cmd).not_to include('pa ss')
+        expect(run_cmd).not_to include('-e ')
+      end
+
+      it 'writes the file readable only by its owner' do
+        migrate
+
+        expect(uploads.first[:mode]).to eq(0o600)
+      end
+
+      # A one-off has no container name to be named after. The name must not be
+      # one a deployed container could have — overwriting a running container's
+      # env file would be a live incident — and must differ per run.
+      it 'names the file so it cannot collide with a container or another one-off' do
+        migrate
+        migrate
+
+        paths = uploads.map { |u| u[:path] }
+        expect(paths.first).to match(%r{\A/var/lib/odysseus/env/one-off@[0-9a-f]{16}\.env\z})
+        expect(paths.first).not_to eq(paths.last)
+      end
+
+      it 'removes the env file once the command has finished' do
+        migrate
+
+        expect(commands.last).to eq("rm -f #{env_path}")
+      end
+
+      it 'removes the env file when the command fails, and reports the failure' do
+        allow(mock_ssh).to receive(:execute) { |cmd|
+          commands << cmd
+          raise Odysseus::SSHCommandError, 'exit status 1' if cmd.include?('docker run')
+
+          ''
+        }
+
+        expect { migrate }.to raise_error(Odysseus::SSHCommandError, /exit status 1/)
+        expect(commands.last).to eq("rm -f #{env_path}")
+      end
+
+      it 'rejects values docker cannot represent in an env file' do
+        expect { client.run_once(image: 'myapp:latest', command: 'true', options: { env: { 'KEY' => "a\nb" } }) }
+          .to raise_error(Odysseus::DeployError, /KEY.*newline/)
+      end
+
+      it 'writes no env file when there is nothing to write' do
+        expect(mock_ssh).not_to receive(:upload_string)
+
+        client.run_once(image: 'myapp:latest', command: 'rake db:migrate')
+
+        expect(commands.find { |c| c.include?('docker run') }).not_to include('--env-file')
+      end
+    end
+
+    # The command is a shell command line by design — `rake db:migrate` has to
+    # reach docker as two words — but the image is one argument.
+    it 'passes the image as a single argument, and the command as words' do
       expect(mock_ssh).to receive(:execute) do |cmd|
-        expect(cmd).to include('-e RAILS_ENV=production')
+        expect(Shellwords.split(cmd).last(3)).to eq(['myapp:latest', 'rake', 'db:migrate'])
         ''
       end
 
-      client.run_once(
-        image: 'myapp:latest',
-        command: 'rails console',
-        options: { env: { 'RAILS_ENV' => 'production' } }
-      )
+      client.run_once(image: 'myapp:latest', command: 'rake db:migrate')
+    end
+
+    # The image reference comes straight from `--image` on the command line.
+    it 'keeps a metacharacter in the image reference from starting a second command' do
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(Shellwords.split(cmd)).to include('myapp:v1; rm -rf /')
+        ''
+      end
+
+      client.run_once(image: 'myapp:v1; rm -rf /', command: 'true')
     end
 
     it 'includes network option' do
@@ -472,6 +590,164 @@ RSpec.describe Odysseus::Docker::Client do
         command: 'bash',
         options: { volumes: ['/data:/app/data'] }
       )
+    end
+  end
+
+  # For runs Odysseus does not execute itself: `app shell` and `app console`
+  # need an interactive TTY, so the CLI builds its own `ssh -t ... docker run`.
+  # The environment still has to reach the host as a file.
+  describe '#with_env_file' do
+    let(:commands) { [] }
+    let(:uploads) { [] }
+    # Every call in the order it was made, so an example can say that the
+    # directory was made private *before* the secrets went into it rather than
+    # only that both happened.
+    let(:events) { [] }
+
+    before do
+      allow(mock_ssh).to receive(:execute) { |cmd|
+        commands << cmd
+        events << [:execute, cmd]
+        ''
+      }
+      allow(mock_ssh).to receive(:upload_string) { |content, path, mode:|
+        uploads << { content: content, path: path, mode: mode }
+        events << [:upload, path]
+      }
+      allow(mock_ssh).to receive(:close) { events << [:close, nil] }
+    end
+
+    it 'yields the path of a private file holding the environment' do
+      yielded = nil
+      client.with_env_file('DATABASE_URL' => 'postgres://user:pa ss@db/app') { |path| yielded = path }
+
+      expect(yielded).to eq(uploads.first[:path])
+      expect(uploads.first[:content]).to include('DATABASE_URL=postgres://user:pa ss@db/app')
+      expect(uploads.first[:mode]).to eq(0o600)
+    end
+
+    it 'removes the file once the block returns' do
+      path = nil
+      client.with_env_file('A' => 'b') { |p| path = p }
+
+      expect(commands.last).to eq("rm -f #{path}")
+    end
+
+    it 'removes the file when the block raises, without masking the error' do
+      path = nil
+
+      expect do
+        client.with_env_file('A' => 'b') do |p|
+          path = p
+          raise Odysseus::DeployError, 'interactive run failed'
+        end
+      end.to raise_error(Odysseus::DeployError, 'interactive run failed')
+
+      expect(commands.last).to eq("rm -f #{path}")
+    end
+
+    # One code path for the caller, whether or not the app declares any env.
+    it 'yields nil and writes nothing when there is no environment' do
+      expect(mock_ssh).not_to receive(:upload_string)
+
+      yielded = :untouched
+      client.with_env_file({}) { |path| yielded = path }
+
+      expect(yielded).to be_nil
+      expect(commands).to be_empty
+    end
+
+    it 'returns what the block returned' do
+      expect(client.with_env_file('A' => 'b') { 'exit 0' }).to eq('exit 0')
+    end
+
+    # The file is 0600 in its own right, so the directory's mode is a second
+    # guard — but it is the guard that has to hold for a file left behind by a
+    # session that died, which is the case the README leans on when it says
+    # another user on the box still cannot read it. `mkdir -p` alone leaves the
+    # directory 0755, and the chmod that fixes that had nothing asserting it.
+    it 'makes the env directory private before any secret goes into it' do
+      client.with_env_file('A' => 'b') { |_path| nil }
+
+      expect(events.first).to eq([:execute, 'mkdir -p /var/lib/odysseus/env && chmod 700 /var/lib/odysseus/env'])
+      expect(events[1].first).to eq(:upload)
+    end
+
+    # scp creates the remote file and then streams into it: an upload that dies
+    # partway has already put part of a file of secrets on the host.
+    it 'removes the file when the upload dies partway through it' do
+      allow(mock_ssh).to receive(:upload_string)
+        .and_raise(Odysseus::SSHCommandError, 'connection lost mid-transfer')
+
+      expect { client.with_env_file('A' => 'b') { |_path| nil } }
+        .to raise_error(Odysseus::SSHCommandError)
+
+      expect(commands.last).to match(%r{\Arm -f /var/lib/odysseus/env/one-off@\h{16}\.env\z})
+    end
+
+    # These are the errors this ensure actually meets. The CLI holds the
+    # connection open, idle and unpumped, for as long as an interactive session
+    # lasts, so an idle NAT timeout, sshd's ClientAlive limit or a Tailscale
+    # relay change can leave it dead by the time the session ends — and a dead
+    # connection raises IOError, Net::SSH::Disconnect, Errno::EPIPE or
+    # Errno::ECONNRESET, none of which is an Odysseus::SSHError. Rescuing only
+    # Odysseus::SSHError meant the cleanup's own failure escaped the ensure and
+    # replaced whatever the block was raising.
+    context 'when the connection dies before the file can be removed' do
+      def dead_after_write(error)
+        attempts = 0
+        allow(mock_ssh).to receive(:execute) do |cmd|
+          commands << cmd
+          events << [:execute, cmd]
+          if cmd.start_with?('rm -f')
+            attempts += 1
+            raise error if attempts == 1
+          end
+          ''
+        end
+      end
+
+      it 'removes the file over a fresh connection' do
+        dead_after_write(IOError.new('closed stream'))
+
+        path = nil
+        client.with_env_file('A' => 'b') { |p| path = p }
+
+        expect(events.last(3)).to eq([[:execute, "rm -f #{path}"], [:close, nil], [:execute, "rm -f #{path}"]])
+      end
+
+      it 'does not mask the failure the block was already raising' do
+        dead_after_write(Errno::ECONNRESET.new)
+
+        expect do
+          client.with_env_file('A' => 'b') { raise Odysseus::DeployError, 'interactive run failed' }
+        end.to raise_error(Odysseus::DeployError, 'interactive run failed')
+      end
+
+      # `app shell` reports the status ssh gave it by raising SystemExit through
+      # here. SystemExit is not a StandardError, which is what keeps the rescue
+      # in remove_env_file from eating it — asserted rather than assumed, since
+      # a swallowed status is the difference between `exit 7` and success.
+      it 'lets the session exit status through' do
+        dead_after_write(IOError.new('closed stream'))
+
+        expect { client.with_env_file('A' => 'b') { exit 7 } }
+          .to raise_error(SystemExit) { |error| expect(error.status).to eq(7) }
+      end
+
+      # Reconnecting is one attempt, not a retry loop: a host that is gone stays
+      # gone, and the caller came for the block's outcome, not this one's.
+      it 'gives up quietly when the fresh connection cannot remove it either' do
+        allow(mock_ssh).to receive(:execute) do |cmd|
+          commands << cmd
+          raise Net::SSH::Disconnect if cmd.start_with?('rm -f')
+
+          ''
+        end
+
+        expect { client.with_env_file('A' => 'b') { |_path| nil } }.not_to raise_error
+        expect(commands.count { |c| c.start_with?('rm -f') }).to eq(2)
+      end
     end
   end
 

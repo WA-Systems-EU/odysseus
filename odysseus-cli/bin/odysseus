@@ -33,11 +33,13 @@ def main
     'containers' => { method: :containers, needs_server: true },
     'logs' => { method: :logs, needs_server: true },
     'cleanup' => { method: :cleanup, needs_server: true },
-    'validate' => { method: :validate, needs_server: false },
-    'dependency' => { method: :dependency_dispatch, needs_server: false },
-    'app' => { method: :app_dispatch, needs_server: false },
-    'secrets' => { method: :secrets_dispatch, needs_server: false }
+    'validate' => { method: :validate, needs_server: false }
   }
+  # `dependency`, `app` and `secrets` are not in the table: they have
+  # subcommands of their own and are handled by the guards below, which return
+  # before the table is read. The table used to list them anyway, naming
+  # methods — dependency_dispatch, app_dispatch, secrets_dispatch — that the
+  # CLI has never had. Unreachable, so harmless, until someone moved a guard.
 
   command = ARGV[0]
   command_args = ARGV[1..] || []
@@ -76,7 +78,7 @@ def main
     opts.on('--push', 'Push image to registry after build') { |v| options[:push] = v }
     opts.on('--context PATH', 'Build context path') { |v| options[:context] = v }
     opts.on('--build', 'Build image before pussh') { |v| options[:build] = v }
-    opts.on('--role ROLE', 'Role for logs command') { |v| options[:role] = v }
+    opts.on('--role ROLE', 'Server role: web, jobs, worker, ... (default: web)') { |v| options[:role] = v }
     opts.on('--service NAME', 'Service name') { |v| options[:service] = v }
     opts.on('--dry-run', 'Don\'t actually deploy') { |v| options[:'dry-run'] = v }
     opts.on('--list', 'List rollback candidates per host without changing anything') { |v| options[:list] = v }
@@ -202,6 +204,7 @@ def handle_app_command(cli, args)
     puts ''
     puts 'Options:'
     puts '  --config FILE         Path to deploy.yml (default: deploy.yml)'
+    puts '  --role ROLE           Role whose image to run: web, jobs, ... (default: web)'
     puts '  --command CMD         Command to execute (exec only)'
     puts '  --cmd CMD             Console command (console only, default: /bin/sh)'
     exit 1
@@ -211,6 +214,7 @@ def handle_app_command(cli, args)
 
   OptionParser.new do |opts|
     opts.on('--config FILE', 'Path to deploy.yml') { |v| options[:config] = v }
+    opts.on('--role ROLE', 'Server role: web, jobs, worker, ... (default: web)') { |v| options[:role] = v }
     opts.on('--command CMD', 'Command to execute') { |v| options[:command] = v }
     opts.on('--cmd CMD', 'Console command') { |v| options[:cmd] = v }
   end.parse!(subcommand_args)
@@ -314,8 +318,14 @@ def print_help
   puts 'Pussh options:'
   puts '  --build                   Build image before pushing via SSH'
   puts ''
+  puts 'App options:'
+  puts '  --role ROLE               Role whose running image to run: web, jobs, etc (default: web)'
+  puts '                            A service with no web role needs this on every host'
+  puts '  --command CMD             Command to run (app exec)'
+  puts '  --cmd CMD                 Console command (app console, default: /bin/sh)'
+  puts ''
   puts 'Logs options:'
-  puts '  --role ROLE               Role for logs: web, jobs, worker, etc (default: web)'
+  puts '  --role ROLE               Role to read logs from: web, jobs, worker, etc (default: web)'
   puts '  -f, --follow              Follow log output'
   puts '  -n, --lines N             Number of lines to show (default: 100)'
   puts "  --since TIME              Show logs since timestamp (e.g., '10m', '2h')"

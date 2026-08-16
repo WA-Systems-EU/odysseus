@@ -1,7 +1,7 @@
 PATH
   remote: ../odysseus-core
   specs:
-    odysseus-core (0.6.0)
+    odysseus-core (0.7.0)
       base64
       logger
       net-scp (~> 4.0)
@@ -11,8 +11,8 @@ PATH
 PATH
   remote: .
   specs:
-    odysseus-cli (0.6.0)
-      odysseus-core (~> 0.6.0)
+    odysseus-cli (0.7.0)
+      odysseus-core (~> 0.7.0)
 
 GEM
   remote: https://rubygems.org/
@@ -103,8 +103,8 @@ CHECKSUMS
   method_source (1.1.0) sha256=181301c9c45b731b4769bc81e8860e72f9161ad7d66dd99103c9ab84f560f5c5
   net-scp (4.1.0) sha256=a99b0b92a1e5d360b0de4ffbf2dc0c91531502d3d4f56c28b0139a7c093d1a5d
   net-ssh (7.3.0) sha256=172076c4b30ce56fb25a03961b0c4da14e1246426401b0f89cba1a3b54bf3ef0
-  odysseus-cli (0.6.0)
-  odysseus-core (0.6.0)
+  odysseus-cli (0.7.0)
+  odysseus-core (0.7.0)
   parallel (2.1.0) sha256=b35258865c2e31134c5ecb708beaaf6772adf9d5efae28e93e99260877b09356
   parser (3.3.12.0) sha256=21a6d7f755d5a24dfbdc6e6b772e4e879a52e7631a88bc5a3a134606052c9828
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85

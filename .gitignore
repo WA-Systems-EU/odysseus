@@ -15,6 +15,7 @@ deploy-*.yml
 # ...except authored test fixtures, which are not real deploy configs and
 # must be tracked so the specs that load them work in a fresh checkout.
 !odysseus-core/spec/fixtures/deploy-*.yml
+!odysseus-cli/spec/fixtures/deploy.yml
 
 # Secrets
 *.enc

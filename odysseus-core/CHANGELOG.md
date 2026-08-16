@@ -7,6 +7,53 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-16
+
+A minor bump for two reasons: there is new public API, and a one-off container's
+environment changes shape. Anything that ran `app exec` and relied on reading
+`-e` flags out of the host's process list — or on a secret being *absent* from
+one-off runs — sees different behaviour.
+
+### Fixed
+- A one-off container — what `app exec`, `app shell` and `app console` run —
+  no longer has its environment inlined into the docker command as `-e
+  KEY=VALUE`. Every value now travels in the same 0600 env file a deployed
+  container's does, so a customer's database password is no longer visible in
+  `ps` on the deploy target, and a value containing a space or a shell
+  metacharacter arrives intact instead of splitting or being interpreted. The
+  file is named so it cannot collide with a running container's, and is
+  removed even when the command fails.
+- The env file is removed over a fresh connection when the connection it was
+  written over has died in the meantime. Cleanup rescued `Odysseus::SSHError`
+  alone, and a connection that drops mid-session raises `IOError`,
+  `Net::SSH::Disconnect`, `Errno::EPIPE` or `Errno::ECONNRESET` — none of them
+  an `SSHError`. The cleanup's own failure therefore escaped the ensure and
+  replaced whatever the block was raising, so a file of secrets was left on the
+  host *and* an interactive session's exit status arrived as a backtrace. The
+  interactive paths are where this is likeliest: they hold the connection open,
+  idle and unpumped, for as long as the user's session lasts, which is what an
+  idle NAT timeout, sshd's `ClientAlive` limit or a Tailscale relay change need.
+  Any failure of the removal is now swallowed rather than raised — including on
+  the second attempt, after which the file is left behind, `0600` in a `0700`
+  directory.
+- An upload that fails partway no longer orphans a partial env file. The path
+  was learned from the return value of the write, so a write that raised left
+  the caller with `nil` and its cleanup with nothing to remove — while scp had
+  already created the remote file and begun streaming secrets into it. The path
+  is settled before the write now, so the file removed is the file written,
+  whether or not the write finished.
+
+### Added
+- `Odysseus::Core::Environment`, the environment a container starts with —
+  `env.clear` merged with each `env.secret` resolved from the encrypted
+  secrets file or the host's own environment. WebDeploy and JobDeploy each had
+  their own copy; one-off commands had neither, which is why `rails
+  db:migrate` on a one-off container started without a `DATABASE_URL`.
+- `Docker::Client#with_env_file`, which writes an env file, yields its path
+  and removes it afterwards even on failure. `app shell` and `app console`
+  need an interactive TTY and so run docker themselves; this is how their
+  environment reaches the host as a file rather than as `-e` flags.
+
 ## [0.6.0] - 2026-08-15
 
 A minor bump: `plugins:` is a new key, and `odysseus validate` can now fail

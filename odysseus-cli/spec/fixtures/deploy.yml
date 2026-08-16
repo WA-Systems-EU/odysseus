@@ -1,0 +1,29 @@
+# spec/fixtures/deploy.yml — minimal valid config for CLI specs
+service: myapp
+image: myapp-production
+
+servers:
+  web:
+    hosts:
+      - web1.example.com
+  jobs:
+    hosts:
+      - worker1.example.com
+    cmd: bundle exec good_job
+
+proxy:
+  hosts:
+    - app.example.com
+  app_port: 3000
+  ssl: false
+
+accessories:
+  db:
+    image: postgres:16
+    hosts:
+      - db.example.com
+
+ssh:
+  user: root
+  keys:
+    - ~/.ssh/id_ed25519

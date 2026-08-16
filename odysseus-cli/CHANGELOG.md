@@ -7,6 +7,119 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-16
+
+Read the exit-code changes below before upgrading anything that scripts these
+commands. `logs` now exits non-zero when it finds no container, where it used to
+report the problem and exit 0, and `app shell`/`console` exit with the remote
+command's status instead of always 0. A cron or CI job that treated either as
+"succeeded" will start noticing failures — which is the point, but it is a
+change in what those jobs see.
+
+### Changed
+- Requires odysseus-core `~> 0.7.0`. The dependency was `~> 0.6.0`, which
+  excludes 0.7.0 outright, so this is not a tightening: without it the two gems
+  cannot resolve together. These commands also call `Core::Environment` and
+  `Docker::Client#with_env_file`, neither of which exists in 0.6.0.
+- `bin/odysseus`'s dispatch table no longer lists `dependency`, `app` and
+  `secrets`. Their entries named methods the CLI has never had
+  (`dependency_dispatch`, `app_dispatch`, `secrets_dispatch`); the subcommand
+  guards intercept those verbs first, so nothing changes today, but the entries
+  would have turned any reordering of a guard into a `NoMethodError` backtrace.
+  The suite now runs every verb the help lists.
+
+### Fixed
+- `odysseus app exec|shell|console` now inject `env.secret` as well as
+  `env.clear`. They injected the clear values alone, so the README's own
+  example — `odysseus app exec web1 --command "rails db:migrate"` — started a
+  container with no `DATABASE_URL` while the container deployed seconds earlier
+  had one. Both orchestrators had always injected both; these three never did.
+  The environment is now built by the same `Core::Environment` the deploy paths
+  use, so a secret resolves from the encrypted file when one is configured and
+  from the host's own environment otherwise, exactly as a deploy resolves it.
+- A relative `secrets_file` is resolved against the directory holding the
+  `deploy.yml` these commands were pointed at, not the working directory, which
+  is the rule deploys already followed.
+- `odysseus app shell|console` pass the environment to docker with `--env-file`
+  instead of `-e KEY=VALUE`. The values were in the command string these
+  commands run over ssh, so `ps` on the deploy target showed them to every user
+  on the box; now only the file's path is. The file is `0600`, is held open for
+  the whole session and is removed when the session ends, however it ends —
+  including when the ssh connection it was written over has died while the
+  session sat idle, which is removed over a fresh connection. Two cases still
+  leave it on the host: the `odysseus` process being killed outright
+  (`SIGKILL`, or the machine going down), where no cleanup can run at all, and
+  a host that is unreachable when the session ends, where the removal has
+  nowhere to go. The file is `0600` in `/var/lib/odysseus/env`, which is `0700`,
+  so no other user on the box can read it, but nothing comes back for it.
+  `app exec` reaches the same place through `run_once`, which writes an env
+  file of its own — see odysseus-core's changelog.
+- `odysseus dependency exec|shell` are unchanged: they `docker exec` into an
+  already-running dependency, which carries the environment it was booted with.
+- `odysseus app exec|shell|console` now take `--role` (default `web`) and look
+  the container up by the label that role actually carries. They asked for the
+  bare service name, which only the web role wears: on a jobs host they
+  reported `No running container for myapp` while `myapp-jobs` containers were
+  running, and for a service with no web role at all they could not work on any
+  host, with no workaround. The `app` parser had no `--role` either, so naming
+  one raised an `OptionParser::InvalidOption` backtrace.
+- The not-found message from those commands now names the role, the
+  `odysseus.service` label it searched for and the `--role` option, and lists
+  the roles in the config. It does not search other roles: running your command
+  against a role you did not name would be worse than being told what to type.
+- `odysseus logs` gives that same message. A mistyped `--role` — `odysseus logs
+  w1 --role jbos` — got `No containers found for myapp-jbos on w1 (stopped ones
+  included)`, naming a label the reader never typed and no way to find the one
+  they wanted. Both commands now share the message rather than keeping two that
+  can drift. `odysseus dependency logs` gets the label it searched for too, but
+  not the `--role` advice: a dependency is chosen with `--name`.
+- `odysseus logs` and `odysseus dependency logs` read stopped containers as
+  well as running ones. They asked `docker ps` without `-a`, so the container
+  that had just exited — the one you want the logs of — was invisible, and they
+  reported `No running containers found` and exited **0** while `docker logs`
+  on that container would have worked. Deploys keep the previous two
+  containers, so this was routine rather than an edge case.
+- Those two commands now exit non-zero when there is no container at all: a
+  request for logs that produced none is a failed request, not a success. When
+  the only match is stopped they say so, and name the container, rather than
+  streaming a dead container's logs and leaving you to wonder why it ends.
+- Both of those messages go to **stderr**. `odysseus logs web1 > app.log` is
+  the command most likely to be redirected or piped into something that parses
+  what it gets, and a line about the logs does not belong inside them. The
+  notice still reaches the terminal of whoever ran the command. Every other
+  command writes where it always did.
+- `odysseus app shell|console` and `odysseus dependency shell` now exit
+  non-zero when the session fails. They discarded `system`'s return value, so a
+  refused ssh, a missing image or a failed `docker run` all reported success.
+- The same three quote what they put in the command they run. Values were
+  interpolated raw into a string that passes through two shells, so ordinary
+  `env.clear` values broke them: a value containing a space made docker read
+  the wrong token as the image name, and an apostrophe (`SMTP_FROM: "Bob's
+  App"`) unbalanced the quoting — an odd number left `sh: unexpected EOF` and
+  nothing running (reported as success, per the bug above), an even number
+  rebalanced the quotes and ran the text between them through the *local*
+  shell. An SSH key path containing a space failed the same way.
+- `odysseus app console --cmd` is split into words the way a shell would, so
+  `--cmd "rails c"` still reaches docker as two arguments, and a `--cmd` whose
+  own quoting cannot be read is reported instead of being passed on.
+- `odysseus app shell|console` print a header before handing the terminal over.
+  They printed nothing at all: `odysseus app shell dedalus-prod` answered with
+  `/app $` and no way to tell which host you had reached, which role, or which
+  build you were looking at. `app exec` has had a header from the start. The
+  new one names the server, the role, the image that is serving and the command
+  the container runs, in the same shape as `app exec`'s.
+- It also says the thing a prompt inside a container invites you to assume the
+  other way round: this is a **new container** started from the serving image,
+  not an attach to the container taking traffic. Nothing done in it reaches the
+  running app and all of it goes when the session ends. `odysseus dependency
+  shell` is deliberately not given the same line — it `docker exec`s into the
+  running dependency, where the opposite is true.
+- That header goes to **stderr**. `odysseus app console web1 --cmd "rails
+  runner 'puts Thing.count'" > count` is a reasonable way to read a value out
+  of a deployment, and a header inside that file would be a bug: stdout carries
+  what the session itself produced and nothing else. `app exec`'s header is
+  unchanged, on stdout, where the output of its `run_once` already is.
+
 ## [0.6.0] - 2026-08-15
 
 ### Changed

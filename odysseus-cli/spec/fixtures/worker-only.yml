@@ -1,0 +1,18 @@
+# spec/fixtures/worker-only.yml — a service with no web role at all.
+#
+# Valid, deployable (JobDeploy handles every non-web role) and the case where
+# nothing on any host carries the bare `myapp` label, so a command that looks
+# one up by service name alone can never find anything.
+service: myapp
+image: myapp-production
+
+servers:
+  jobs:
+    hosts:
+      - worker1.example.com
+    cmd: bundle exec good_job
+
+ssh:
+  user: deploy
+  keys:
+    - ~/.ssh/id_ed25519

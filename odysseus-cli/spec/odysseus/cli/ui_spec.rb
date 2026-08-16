@@ -76,6 +76,66 @@ RSpec.describe Odysseus::CLI::UI do
     end
   end
 
+  # Everything this UI writes goes to stdout, and the one place that cannot is
+  # `logs`: its own diagnostics would land in the stream a `> app.log` is
+  # capturing. `io` is how those three lines opt out — a default rather than a
+  # second set of methods, so every other caller is unchanged.
+  describe 'the stream a message is written to' do
+    let(:ui) { described_class.new(debug: true) }
+    let(:elsewhere) { StringIO.new }
+
+    def to_stdout
+      output = StringIO.new
+      original = $stdout
+      $stdout = output
+      begin
+        yield
+      ensure
+        $stdout = original
+      end
+      output.string
+    end
+
+    %i[error warn step].each do |method|
+      it "##{method} writes to stdout by default" do
+        expect(to_stdout { ui.public_send(method, 'a message') }).to include('a message')
+        expect(elsewhere.string).to be_empty
+      end
+
+      it "##{method} writes to the io it was given instead" do
+        expect(to_stdout { ui.public_send(method, 'a message', io: elsewhere) }).to be_empty
+        expect(elsewhere.string).to include('a message')
+      end
+    end
+
+    # The header the interactive sessions print opts out the same way: the
+    # terminal they hand over writes its own output to stdout, and a line about
+    # which container that is does not belong in it.
+    it '#header writes to stdout by default and to the io it was given instead' do
+      expect(to_stdout { ui.header('A Title') }).to include('A Title')
+      expect(elsewhere.string).to be_empty
+
+      expect(to_stdout { ui.header('A Title', io: elsewhere) }).to be_empty
+      expect(elsewhere.string).to include('A Title')
+    end
+
+    it '#info writes to stdout by default and to the io it was given instead' do
+      expect(to_stdout { ui.info('Label', 'value') }).to include('Label: value')
+      expect(elsewhere.string).to be_empty
+
+      expect(to_stdout { ui.info('Label', 'value', io: elsewhere) }).to be_empty
+      expect(elsewhere.string).to include('Label: value')
+    end
+
+    it '#blank writes to stdout by default and to the io it was given instead' do
+      expect(to_stdout { ui.blank }).to eq("\n")
+      expect(elsewhere.string).to be_empty
+
+      expect(to_stdout { ui.blank(io: elsewhere) }).to be_empty
+      expect(elsewhere.string).to eq("\n")
+    end
+  end
+
   describe 'step numbering' do
     let(:ui) { described_class.new(debug: true) }
 

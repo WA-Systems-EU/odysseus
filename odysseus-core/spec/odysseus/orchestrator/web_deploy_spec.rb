@@ -93,6 +93,32 @@ RSpec.describe Odysseus::Orchestrator::WebDeploy do
       orchestrator.deploy(image_tag: 'v1.0')
     end
 
+    # Core::Environment builds this, and the one-off containers behind
+    # `app exec` build theirs the same way, so a break here breaks both.
+    it 'injects the clear and secret environment into the container' do
+      allow(mock_ssh).to receive(:execute).with('echo $SECRET_KEY').and_return("s3cret\n")
+
+      expect(mock_docker).to receive(:run) do |args|
+        expect(args[:options][:env]).to eq('RAILS_ENV' => 'production', 'SECRET_KEY' => 's3cret')
+        'new-container-123'
+      end
+
+      orchestrator.deploy(image_tag: 'v1.0')
+    end
+
+    it 'reads a secret from the encrypted file when one is configured' do
+      loader = instance_double(Odysseus::Secrets::Loader, configured?: true)
+      allow(loader).to receive(:get).with('SECRET_KEY').and_return('from-the-file')
+      orchestrator = described_class.new(ssh: mock_ssh, config: config, logger: silent_logger, secrets_loader: loader)
+
+      expect(mock_docker).to receive(:run) do |args|
+        expect(args[:options][:env]['SECRET_KEY']).to eq('from-the-file')
+        'new-container-123'
+      end
+
+      orchestrator.deploy(image_tag: 'v1.0')
+    end
+
     it 'waits for container to become healthy' do
       expect(mock_docker).to receive(:wait_healthy)
         .with('new-container-123', timeout: 60)

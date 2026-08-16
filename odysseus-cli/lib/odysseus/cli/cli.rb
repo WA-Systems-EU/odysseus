@@ -5,11 +5,13 @@ require 'yaml'
 require 'tempfile'
 require_relative 'ui'
 require_relative 'rollback_commands'
+require_relative 'interactive_commands'
 
 module Odysseus
   module CLI
     class CLI
       include RollbackCommands
+      include InteractiveCommands
 
       def initialize(debug: false)
         @ui = UI.new(debug: debug)
@@ -409,7 +411,7 @@ module Odysseus
         since = options[:since]
 
         config = load_config(config_file)
-        service_name = role == :web ? config[:service] : "#{config[:service]}-#{role}"
+        service_name = Odysseus::Docker::Labels.service_for(service: config[:service], role: role)
 
         @ui.header "Logs: #{service_name}"
         @ui.info 'Server', server
@@ -419,14 +421,7 @@ module Odysseus
 
         begin
           docker = Odysseus::Docker::Client.new(ssh)
-          containers = docker.list(service: service_name)
-
-          if containers.empty?
-            @ui.warn "No running containers found for #{service_name}"
-            return
-          end
-
-          container_id = containers.first['ID']
+          container_id = log_container_id!(docker, service_name, server, config, role: role)
 
           if follow
             @ui.step 'Following logs (Ctrl+C to stop)...'
@@ -462,14 +457,7 @@ module Odysseus
 
         begin
           docker = Odysseus::Docker::Client.new(ssh)
-          containers = docker.list(service: service_name)
-
-          if containers.empty?
-            @ui.warn "No running containers found for #{service_name}"
-            return
-          end
-
-          container_id = containers.first['ID']
+          container_id = log_container_id!(docker, service_name, server, config)
 
           if follow
             @ui.step 'Following logs (Ctrl+C to stop)...'
@@ -489,6 +477,7 @@ module Odysseus
       # App exec
       def app_exec(server, options = {})
         config_file = options[:config] || 'deploy.yml'
+        role = (options[:role] || 'web').to_sym
         command = options[:command]
 
         unless command
@@ -497,10 +486,11 @@ module Odysseus
         end
 
         config = load_config(config_file)
-        image = running_image(server, config)
+        image = running_image(server, config, role)
 
         @ui.header 'App Exec'
         @ui.info 'Server', server
+        @ui.info 'Role', role
         @ui.info 'Command', command
         @ui.blank
 
@@ -508,74 +498,12 @@ module Odysseus
 
         begin
           docker = Odysseus::Docker::Client.new(ssh)
-          env = {}
-          config[:env][:clear]&.each { |k, v| env[k.to_s] = v.to_s }
+          env = build_environment(config, config_file, ssh)
 
           puts docker.run_once(image: image, command: command, options: { env: env, network: 'odysseus' })
         ensure
           ssh.close
         end
-      rescue Odysseus::Error => e
-        @ui.error e.message
-        exit 1
-      end
-
-      # App shell
-      def app_shell(server, options = {})
-        config_file = options[:config] || 'deploy.yml'
-        config = load_config(config_file)
-        image = running_image(server, config)
-
-        ssh_keys = config[:ssh][:keys].map { |k| "-i #{File.expand_path(k)}" }.join(' ')
-        env_flags = config[:env][:clear]&.map { |k, v| "-e #{k}=#{v}" }&.join(' ') || ''
-
-        system("ssh #{ssh_keys} -t #{config[:ssh][:user]}@#{server} 'docker run -it --rm --network odysseus #{env_flags} #{image} /bin/sh'")
-      rescue Odysseus::Error => e
-        @ui.error e.message
-        exit 1
-      end
-
-      # App console
-      def app_console(server, options = {})
-        config_file = options[:config] || 'deploy.yml'
-        console_cmd = options[:cmd] || '/bin/sh'
-        config = load_config(config_file)
-        image = running_image(server, config)
-
-        ssh_keys = config[:ssh][:keys].map { |k| "-i #{File.expand_path(k)}" }.join(' ')
-        env_flags = config[:env][:clear]&.map { |k, v| "-e #{k}=#{v}" }&.join(' ') || ''
-
-        system("ssh #{ssh_keys} -t #{config[:ssh][:user]}@#{server} 'docker run -it --rm --network odysseus #{env_flags} #{image} #{console_cmd}'")
-      rescue Odysseus::Error => e
-        @ui.error e.message
-        exit 1
-      end
-
-      # Dependency shell
-      def dependency_shell(server, options = {})
-        config_file = options[:config] || 'deploy.yml'
-        name = require_name!(options)
-
-        config = load_config(config_file)
-        service_name = "#{config[:service]}-#{name}"
-
-        ssh = connect_to_server(server, config)
-        begin
-          docker = Odysseus::Docker::Client.new(ssh)
-          containers = docker.list(service: service_name)
-
-          if containers.empty?
-            @ui.error "No running containers found for #{service_name}"
-            exit 1
-          end
-
-          container_id = containers.first['ID']
-        ensure
-          ssh.close
-        end
-
-        ssh_keys = config[:ssh][:keys].map { |k| "-i #{File.expand_path(k)}" }.join(' ')
-        system("ssh #{ssh_keys} -t #{config[:ssh][:user]}@#{server} 'docker exec -it #{container_id} /bin/sh'")
       rescue Odysseus::Error => e
         @ui.error e.message
         exit 1
@@ -843,22 +771,93 @@ module Odysseus
       # tagged `latest`, so reconstruction would name a tag that was never
       # pushed. Falling back to reconstruction only covers the case where
       # Image is somehow absent from docker's own output.
-      def running_image(server, config)
+      #
+      # The lookup goes through Labels.service_for because only the web role is
+      # labelled with the bare service name. Asking for that name on a jobs host
+      # matches nothing, and on a service with no web role it matches nothing
+      # anywhere — which is what these commands did before they took a role.
+      def running_image(server, config, role)
+        service_name = Odysseus::Docker::Labels.service_for(service: config[:service], role: role)
         ssh = connect_to_server(server, config)
 
         begin
           docker = Odysseus::Docker::Client.new(ssh)
-          container = docker.list(service: config[:service]).first
+          container = docker.list(service: service_name).first
 
-          unless container
-            @ui.error "No running container for #{config[:service]} on #{server}"
-            exit 1
-          end
+          # No search of other roles: running a command against a role other
+          # than the one asked for is worse than being told what to type.
+          no_container!(server, config, service_name, role: role, state: 'running') unless container
 
           container['Image'] || "#{config[:image]}:#{Odysseus::Docker::Labels.version_of(container)}"
         ensure
           ssh.close
         end
+      end
+
+      # The container to read logs from, chosen from everything carrying the
+      # service label — stopped containers included. `docker ps` without -a
+      # hides the container that has just exited, which is precisely the one
+      # whose logs you came for, and cleanup keeps the previous two deploys
+      # around on purpose, so a stopped container is the normal state of a host
+      # rather than an edge case. `status` and `cleanup` already read with
+      # all: true.
+      #
+      # Finding nothing is a failed request for logs, not a success, so it
+      # exits non-zero. And when the only match is stopped, say so: otherwise
+      # the log just ends and the reader has no way to know why.
+      #
+      # That notice goes to stderr. This command's stdout is a log stream —
+      # `odysseus logs web1 > app.log`, or a pipe into something that parses it
+      # — so a line about the logs must not arrive inside them, while still
+      # reaching the terminal of whoever ran the command.
+      #
+      # @param role [Symbol, nil] the role the label came from, or nil for a
+      #   dependency, which is named with --name rather than --role
+      def log_container_id!(docker, service_name, server, config, role: nil)
+        containers = docker.list(service: service_name, all: true)
+        no_container!(server, config, service_name, role: role, state: 'running or stopped') if containers.empty?
+
+        container = containers.find { |c| c['State'] == 'running' } || containers.first
+        unless container['State'] == 'running'
+          @ui.warn "No running container for #{service_name}: showing logs from " \
+                   "#{container['State']} container #{container['ID'][0..11]}", io: $stderr
+        end
+
+        container['ID']
+      end
+
+      # What a container lookup that found nothing says, for every command that
+      # finds one by its odysseus.service label. A mistyped --role is the
+      # ordinary reason nothing matches, so the message names the role, the
+      # exact label searched, the option that changes it and the roles this
+      # config declares. `logs` used to say only `No containers found for
+      # myapp-jbos on w1 (stopped ones included)`, naming a label the reader
+      # never typed: one job, two messages, and only one of them any use.
+      #
+      # A dependency passes no role. It is chosen with --name, and advising
+      # --role would send the reader to an option that command does not have.
+      def no_container!(server, config, service_name, role: nil, state: 'running')
+        subject = role ? "role '#{role}'" : service_name
+        @ui.error "No #{state} container for #{subject} on #{server} " \
+                  "(nothing labelled odysseus.service=#{service_name})", io: $stderr
+        if role
+          @ui.step "Name the role with --role. Roles in this config: #{config[:servers].keys.join(', ')}",
+                   io: $stderr
+        end
+        exit 1
+      end
+
+      # The environment a one-off container starts with, built by the same class
+      # the deploy paths use. These commands used to inject env.clear alone, so
+      # `app exec … --command "rails db:migrate"` ran against a container with
+      # no DATABASE_URL while the container deployed seconds earlier had one.
+      #
+      # The secrets loader resolves a relative secrets_file against the
+      # directory holding deploy.yml rather than the working directory, which is
+      # what Executor does and what `--config ../other/deploy.yml` needs.
+      def build_environment(config, config_file, ssh)
+        loader = Odysseus::Secrets::Loader.new(config, config_dir: File.dirname(config_file))
+        Odysseus::Core::Environment.new(config: config, secrets_loader: loader, ssh: ssh).build
       end
 
       def connect_to_server(server, config)

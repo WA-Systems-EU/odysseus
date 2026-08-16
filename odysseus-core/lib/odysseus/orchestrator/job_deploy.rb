@@ -130,31 +130,9 @@ module Odysseus
         )
       end
 
+      # Same environment a web container gets — see Core::Environment.
       def build_environment
-        env = {}
-
-        # Clear env vars (hardcoded values)
-        @config[:env][:clear]&.each do |key, value|
-          env[key.to_s] = value.to_s
-        end
-
-        # Secret env vars (from encrypted file or server environment)
-        @config[:env][:secret]&.each do |key|
-          # Try encrypted secrets file first
-          if @secrets_loader&.configured?
-            value = @secrets_loader.get(key)
-            if value
-              env[key.to_s] = value.to_s
-              next
-            end
-          end
-
-          # Fall back to server's environment
-          value = @ssh.execute("echo $#{key}").strip
-          env[key.to_s] = value unless value.empty?
-        end
-
-        env
+        Odysseus::Core::Environment.new(config: @config, secrets_loader: @secrets_loader, ssh: @ssh).build
       end
 
       def build_healthcheck(hc_config)

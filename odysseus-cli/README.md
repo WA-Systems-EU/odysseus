@@ -188,6 +188,14 @@ Options:
 - `-n, --lines N` - Number of lines to show (default: 100)
 - `--since TIME` - Show logs since timestamp (e.g., '10m', '2h')
 
+Stopped containers are included, since the container that has just exited is
+usually the one whose logs you want; when the only match is stopped, the
+command says so before printing them. That notice, and the message when no
+container is found at all, go to stderr, so `odysseus logs web1 > app.log`
+captures the logs and nothing else. Finding no container at all — running or
+stopped — exits non-zero, and the message names the role, the label it
+searched for and the roles this config has.
+
 ### cleanup
 
 Clean up old containers and optionally prune images.
@@ -274,6 +282,47 @@ odysseus app shell <server>
 odysseus app exec <server> --command "rails db:migrate"
 odysseus app console <server> [--cmd "rails c"]
 ```
+
+Options:
+- `--role ROLE` - Role whose running image to use: web, jobs, etc (default: web)
+
+Each of these runs a new container from the image the named role is currently
+running on that host. Containers are labelled per role, so `--role` is required
+to reach anything but web — including on a service that has no web role at all,
+where the default matches nothing on any host:
+
+```bash
+odysseus app exec worker1.example.com --role jobs --command "rails runner …"
+```
+
+The container is given the same environment a deploy gives it — `env.clear` and
+`env.secret` both — so `odysseus app exec web1 --command "rails db:migrate"`
+talks to the same database as the app running beside it. The values travel in an
+env file rather than on the command line; see [env](#env) for what that means
+and for the one case where the file is left behind.
+
+`shell` and `console` print a header before handing the terminal over — the
+server, the role, the image that is serving and the command being run — because
+the prompt you land on tells you none of it:
+
+```
+  App Shell
+  Server: dedalus-prod
+  Role: web
+  Image: dedalus-production:v1.4.2
+  Command: /bin/sh
+  › New container from that image: the running app is untouched, and this one is discarded on exit.
+```
+
+That last line is the point. These commands `docker run` the serving image; they
+do not attach to the container taking traffic. Nothing you do inside reaches the
+running app, and the container is removed when you leave. `dependency shell` is
+the other way round — it `docker exec`s into the running dependency, so what you
+do there is live.
+
+The header goes to **stderr**, so a session whose output you are capturing —
+`odysseus app console web1 --cmd "rails runner 'puts Thing.count'" > count` —
+gets the session's own output on stdout and nothing else.
 
 ### secrets
 
@@ -516,6 +565,21 @@ Both are handed to the container through an env file written to
 `/var/lib/odysseus/env` with `0600` permissions and removed once the container
 has been created, so secrets never appear in the host's process list. A value
 containing a newline is rejected, since a Docker env file cannot represent one.
+
+`app exec`, `app shell` and `app console` get the same environment the same way.
+An interactive session holds its env file for as long as the session lasts and
+removes it on the way out, whether the session ended cleanly, exited non-zero or
+was interrupted. A session that sits idle long enough for its ssh connection to
+be dropped — an idle NAT timeout, an `sshd` `ClientAlive` limit, a Tailscale
+relay change — is included: the file is removed over a fresh connection.
+
+Two cases still leave the file on the host. The `odysseus` process being killed
+outright — `SIGKILL`, or the machine going down — where no cleanup can run at
+all; and a host that is unreachable when the session ends, where there is
+nowhere to send the removal. The file is mode `0600` in `/var/lib/odysseus/env`,
+which is mode `0700`, so another user on the box still cannot read it; but
+nothing comes back to remove it, since the next run writes its own file rather
+than tidying old ones.
 
 ### secrets_file
 

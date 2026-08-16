@@ -1,6 +1,7 @@
 # lib/odysseus/docker/client.rb
 
 require 'json'
+require 'securerandom'
 require 'shellwords'
 
 module Odysseus
@@ -29,7 +30,8 @@ module Odysseus
       # @param options [Hash] container options
       # @return [String] container ID
       def run(name:, image:, options: {})
-        env_file = write_env_file(name, options[:env])
+        env_file = env_file_path(name, options[:env])
+        write_env_file(env_file, options[:env])
 
         cmd = build_run_command(name: name, image: image, options: options, env_file: env_file)
         output = @ssh.execute(cmd)
@@ -223,32 +225,63 @@ module Odysseus
       end
 
       # Run a one-off command in a new container (doesn't persist)
+      #
+      # The environment travels in a 0600 env file, exactly as a deployed
+      # container's does: `rails db:migrate` needs the app's DATABASE_URL, and
+      # putting it on the command line would show it in the host's process list
+      # and break any value containing a space.
+      #
       # @param image [String] image to use
-      # @param command [String] command to execute
+      # @param command [String] command to execute, as a shell command line
       # @param options [Hash] container options (env, volumes, network, etc.)
       # @return [String] command output
       def run_once(image:, command:, options: {})
-        parts = ['docker run --rm']
+        with_env_file(options[:env]) do |env_file|
+          parts = ['docker run --rm']
 
-        # Environment variables
-        options[:env]&.each do |key, value|
-          parts << "-e #{key}=#{value}"
+          # Environment variables (see #write_env_file — never inlined here)
+          parts << "--env-file #{env_file}" if env_file
+
+          # Volume mounts
+          options[:volumes]&.each { |v| parts << "-v #{v}" }
+
+          # Network
+          parts << "--network #{options[:network]}" if options[:network]
+
+          # Interactive/TTY
+          parts << '-i' if options[:interactive]
+          parts << '-t' if options[:tty]
+
+          parts << Shellwords.escape(image)
+          # Not escaped: the command is a command line, and `rake db:migrate`
+          # has to reach docker as two arguments. build_run_command treats
+          # options[:cmd] the same way.
+          parts << command
+
+          @ssh.execute(parts.join(' '))
         end
+      end
 
-        # Volume mounts
-        options[:volumes]&.each { |v| parts << "-v #{v}" }
-
-        # Network
-        parts << "--network #{options[:network]}" if options[:network]
-
-        # Interactive/TTY
-        parts << '-i' if options[:interactive]
-        parts << '-t' if options[:tty]
-
-        parts << image
-        parts << command
-
-        @ssh.execute(parts.join(' '))
+      # Hold an env file open on the host for the duration of a block.
+      #
+      # For runs Odysseus does not execute itself: `app shell` and `app console`
+      # need an interactive TTY, so the CLI builds its own `ssh -t ... docker
+      # run` and passes the yielded path as --env-file. The file goes away
+      # afterwards whether the block returned or raised, and remove_env_file
+      # never masks the block's own failure.
+      #
+      # Yields nil, having written nothing, when there is no environment, so
+      # the caller has one code path either way.
+      #
+      # @param env [Hash, nil] environment variables
+      # @yieldparam path [String, nil] path to the env file on the host
+      # @return [Object] whatever the block returned
+      def with_env_file(env)
+        path = env_file_path(one_off_env_name, env)
+        write_env_file(path, env)
+        yield path
+      ensure
+        remove_env_file(path)
       end
 
       # Cleanup old stopped containers, keeping only the last N
@@ -334,15 +367,43 @@ module Odysseus
 
       private
 
-      # Write the container's environment to a private file on the host.
+      # Where a container's env file goes, or nil when there is nothing to
+      # write. Settled before the write rather than returned by it: scp creates
+      # the remote file and then streams into it, so an upload that dies partway
+      # has already left part of a file of secrets on the host, and a caller
+      # that learned the path from the write's return value has nothing to
+      # remove — the file stays under a name nobody is going to look for.
+      #
       # @return [String, nil] path to the env file, nil when there is nothing to write
-      def write_env_file(name, env)
+      def env_file_path(name, env)
         return nil if env.nil? || env.empty?
 
-        path = "#{ENV_FILE_DIR}/#{name}.env"
+        "#{ENV_FILE_DIR}/#{name}.env"
+      end
+
+      # Write the container's environment to a private file on the host.
+      #
+      # The directory is made 0700 before anything is written into it. The file
+      # itself is uploaded 0600, so this is a second guard rather than the only
+      # one — but it is the guard that has to hold for a file left behind by a
+      # session that died, and `mkdir -p` on its own leaves the directory 0755.
+      def write_env_file(path, env)
+        return unless path
+
         @ssh.execute("mkdir -p #{ENV_FILE_DIR} && chmod 700 #{ENV_FILE_DIR}")
         @ssh.upload_string(format_env_file(env), path, mode: 0o600)
-        path
+      end
+
+      # The name a one-off run's env file is written under.
+      #
+      # write_env_file names the file after the container, and a one-off has no
+      # container name. '@' is not a character Docker allows in one
+      # ([a-zA-Z0-9][a-zA-Z0-9_.-]*), so no deployed container's env file can
+      # ever live at this path — overwriting a running container's env file, or
+      # deleting it on the way out, would be a live incident. The random suffix
+      # keeps two one-off runs on the same host from sharing a file.
+      def one_off_env_name
+        "one-off@#{SecureRandom.hex(8)}"
       end
 
       # docker --env-file takes one KEY=VALUE per line and cannot represent a
@@ -361,13 +422,35 @@ module Odysseus
         "#{lines.join("\n")}\n"
       end
 
+      # Remove the env file, reconnecting once if the connection it was written
+      # over has died in the meantime.
+      #
+      # This runs from an ensure, and on the interactive paths the connection
+      # has been held open — idle, and with nothing pumping it — for as long as
+      # the user's session lasted. An idle NAT or firewall timeout, sshd's
+      # ClientAlive limit or a Tailscale relay change all leave it dead by the
+      # time the session ends, and a dead connection raises IOError,
+      # Net::SSH::Disconnect, Errno::EPIPE or Errno::ECONNRESET — none of them
+      # an Odysseus::SSHError, which is all this used to rescue. The cleanup's
+      # own failure then escaped the ensure and replaced whatever the block was
+      # already raising, so `app shell`'s exit status arrived as a backtrace.
+      #
+      # Closing the session is what makes the second attempt a new one: SSH
+      # connects lazily and only when it has no live session. If that fails too
+      # the file is left behind — 0600 in a 0700 directory — and nothing is
+      # raised: the caller came for the block's outcome, not this one's.
       def remove_env_file(path)
         return unless path
 
         @ssh.execute("rm -f #{path}")
-      rescue Odysseus::SSHError
-        # Best effort: the file is only readable by its owner and is rewritten
-        # on the next deploy. Never mask the deploy's own failure.
+      rescue StandardError
+        remove_env_file_on_a_new_connection(path)
+      end
+
+      def remove_env_file_on_a_new_connection(path)
+        @ssh.close
+        @ssh.execute("rm -f #{path}")
+      rescue StandardError
         nil
       end
 

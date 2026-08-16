@@ -129,6 +129,26 @@ RSpec.describe 'bin/odysseus' do
       expect(stdout).to include('Command required')
       expect(status.exitstatus).to eq(1)
     end
+
+    # The app parser had no --role at all, so naming one raised
+    # OptionParser::InvalidOption and printed a backtrace. Stopping at the
+    # missing --command proves the flag was accepted and the run got past
+    # argument handling.
+    it 'accepts --role' do
+      stdout, stderr, status = run_cli(
+        'app', 'exec', 'worker1.example.com', '--role', 'jobs', '--config', fixture_path('deploy.yml')
+      )
+
+      expect(stderr).not_to match(/invalid option/i)
+      expect(stdout).to include('Command required')
+      expect(status.exitstatus).to eq(1)
+    end
+
+    it 'documents --role in its usage' do
+      stdout, _stderr, _status = run_cli('app')
+
+      expect(stdout).to include('--role')
+    end
   end
 
   describe 'secrets' do
@@ -185,6 +205,26 @@ RSpec.describe 'bin/odysseus' do
 
       expect(stdout).to include('Config file not found')
       expect(status.exitstatus).to eq(1)
+    end
+  end
+
+  # The dispatch table named three methods that do not exist on the CLI object
+  # — dependency_dispatch, app_dispatch, secrets_dispatch — reachable only if
+  # the guards above it ever stopped intercepting those verbs first. That is
+  # the shape of the `dependency status`/get_status defect, which shipped
+  # broken from before 0.2.0 until 0.4.3 because nothing ran the verb. So run
+  # every verb the help offers: falling through to the global usage banner
+  # means it dispatched nowhere, and NoMethodError on stderr means it
+  # dispatched to something that is not there.
+  describe 'every command the help lists' do
+    %w[deploy rollback build pussh status containers logs cleanup validate
+       dependency app secrets version].each do |command|
+      it "#{command} dispatches" do
+        stdout, stderr, = run_cli(command)
+
+        expect(stdout).not_to include('Usage: odysseus <command> [options]')
+        expect(stderr).not_to match(/undefined method|NoMethodError/)
+      end
     end
   end
 
