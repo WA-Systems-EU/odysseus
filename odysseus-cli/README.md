@@ -188,6 +188,11 @@ Options:
 - `-n, --lines N` - Number of lines to show (default: 100)
 - `--since TIME` - Show logs since timestamp (e.g., '10m', '2h')
 
+Stopped containers are included, since the container that has just exited is
+usually the one whose logs you want; when the only match is stopped, the
+command says so before printing them. Finding no container at all — running or
+stopped — exits non-zero.
+
 ### cleanup
 
 Clean up old containers and optionally prune images.
@@ -273,6 +278,18 @@ Run commands in app containers.
 odysseus app shell <server>
 odysseus app exec <server> --command "rails db:migrate"
 odysseus app console <server> [--cmd "rails c"]
+```
+
+Options:
+- `--role ROLE` - Role whose running image to use: web, jobs, etc (default: web)
+
+Each of these runs a new container from the image the named role is currently
+running on that host. Containers are labelled per role, so `--role` is required
+to reach anything but web — including on a service that has no web role at all,
+where the default matches nothing on any host:
+
+```bash
+odysseus app exec worker1.example.com --role jobs --command "rails runner …"
 ```
 
 ### secrets
