@@ -14,8 +14,19 @@ Done, on trunk:
 - [x] **AWS ASG remnants.** Removed from both READMEs. The parsing hook and the
       `HostProviders` `aws:` branch are deliberately kept: they are the contract
       `odysseus-sail-aws-asg` consumes, and that gem has passing specs against
-      them. The docs come back when plugin loading lands (P1) and a user can
-      actually reach the feature.
+      them. The docs came back in 0.6.0 when plugin loading landed — and went
+      out again in 0.7.1. **`odysseus-sail-aws-asg` is on ice as of
+      2026-08-16.** It exists (one commit, 14 passing specs) but has never been
+      published or run against a real ASG, so documenting it as available was
+      the same promise-without-a-feature the docs rule forbids. The ~20 lines
+      of core support stay — `odysseus.rb`'s `aws_asg` inflection,
+      `parse_aws_config`, and the `aws:` branch in `HostProviders.build` —
+      because they cost nothing and removing them would strand the gem.
+      Being shelved makes one design point visible: `HostProviders.build`
+      hardcodes `:aws_asg` by name, so host providers are not a general
+      mechanism the way `Sails` is — they are `static` plus one named special
+      case, and a second provider would mean changing core rather than
+      registering. Worth fixing only if a second one ever appears.
 - [x] **Charm mode docs.** Removed. Charm/gum was real in 0.2.0 and replaced by
       `CLI::UI` in 0.3.0; only the README still believed in it.
 - [x] **`ratatui_ruby`.** Dropped from the gemspec.
