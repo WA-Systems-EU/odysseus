@@ -116,9 +116,14 @@ rolling is broken under pussh, which is the default distribution: there is no re
 to pull from. Neither `WebDeploy` nor `JobDeploy` pulls at all; they rely on `docker
 run`'s implicit pull. Make the pull conditional on registry configuration.
 
-**Fix the gemspec constraint.** `odysseus-core ~> 0.2` excludes 0.5.0 outright; the
-suite passes only through the local `path:` override in the Gemfile. It becomes
-`~> 0.5`.
+**Fix the gemspec constraint.** `odysseus-core ~> 0.2` becomes `~> 0.5`.
+(**Corrected 2026-08-16:** this paragraph claimed `~> 0.2` "excludes 0.5.0
+outright" and that the suite passed "only through the local `path:` override".
+Both wrong — `~> 0.2` is `>= 0.2, < 1.0` and admits 0.5.0 fine. The real reason
+to tighten it is the mixin: the sail now includes `Odysseus::Core::DeployVersioning`,
+so a constraint that admits a core without it resolves and then fails with a
+`NameError` at load. On release the constraint became `~> 0.6` for exactly that
+reason — 0.5.0 has no such mixin.)
 
 Container naming stays slot-based (`<service>-web-1`). Stable slot identity is the
 point of a rolling deploy, and `status` reports the version from the label rather than
@@ -194,9 +199,11 @@ The sail cannot be released until core is, because its gemspec will require `~> 
   wrong. Once bundled, its suite passes 14 examples. The original observation came from
   running `bundle exec rspec` in a checkout that had never been `bundle install`ed, and
   reported a broken gem where the truth was an unbundled directory.
-  What *is* true and does matter: its gemspec requires `odysseus-core ~> 0.3`, which
-  excludes 0.5.0 — the same constraint problem the rolling sail had. Recorded in
-  `TODO.md`.
+  **A second correction, 2026-08-16.** The paragraph above then claimed its
+  `odysseus-core ~> 0.3` constraint "excludes 0.5.0". That was also wrong:
+  `~> 0.3` means `>= 0.3, < 1.0`. So the correction of the first false claim
+  about this gem contained a second one. Nothing is wrong with its constraint;
+  what it still lacks is any exercise through `plugins:`. Recorded in `TODO.md`.
 - **One plugin does not prove an architecture.** If a second strategy never
   materialises, folding rolling into core and retiring the gem stays the better end
   state. This design keeps the gem because it is close to usable and may be tried

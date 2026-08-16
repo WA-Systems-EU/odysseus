@@ -90,10 +90,13 @@ we'd feel their absence.
       deliberately out of scope here (own repo, own suite), so nothing in
       this change exercises it even though the loading mechanism covers it
       the same way `odysseus-sail-rolling` is covered. Its suite does pass
-      (14 examples) once the repo is bundled. What it needs before anyone
-      can use it: its gemspec requires `odysseus-core ~> 0.3`, which
-      excludes 0.5.0 — the same constraint problem the rolling sail had,
-      and it would fail to resolve as a published gem today.
+      (14 examples) once the repo is bundled. **Correction, 2026-08-16:** an
+      earlier version of this entry said its `odysseus-core ~> 0.3` constraint
+      "excludes 0.5.0" and that the gem could not resolve. That was wrong.
+      `~> 0.3` has two components, so it means `>= 0.3, < 1.0` and admits
+      0.5.0 and 0.6.0 alike. The gem resolves today. What it genuinely still
+      needs is to be *exercised* through `plugins:` — its host-provider path
+      has never run against a real core release.
       **The rolling sail itself has not been run against a real host**;
       see `odysseus-sail-rolling`'s `docs/rolling-deploy.md` and this repo's
       READMEs for what that means.

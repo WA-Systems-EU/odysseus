@@ -563,7 +563,7 @@ Changing the Caddy calls would break proxy routing on every rolling deploy. Site
           end
 ```
 
-**(d) Gemspec constraint.** `odysseus-core` `~> 0.2` → `~> 0.5`. `~> 0.2` excludes 0.5.0 outright; the suite passes today only through the Gemfile's local `path:` override, which would not save a published gem.
+**(d) Gemspec constraint.** `odysseus-core` `~> 0.2` → `~> 0.5`. (**Corrected 2026-08-16:** the stated reason — that `~> 0.2` "excludes 0.5.0 outright" — was wrong; `~> 0.2` is `>= 0.2, < 1.0`. The real reason is the `DeployVersioning` mixin, which a permissive constraint would let resolve against a core that lacks it, failing with a `NameError` at load. Released as `~> 0.6`.)
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -765,7 +765,7 @@ cd ../odysseus-sail-rolling && git add docs && \
 
 ## Out of scope
 
-- **`odysseus-sail-aws-asg`.** It will load through the same mechanism, but nothing in this plan exercises it. (An earlier draft claimed its suite could not run locally; that was wrong — it passes 14 examples once bundled. Its real problem is a gemspec requiring `odysseus-core ~> 0.3`, which excludes 0.5.0.)
+- **`odysseus-sail-aws-asg`.** It will load through the same mechanism, but nothing in this plan exercises it. (An earlier draft claimed its suite could not run locally; that was wrong — it passes 14 examples once bundled. **Corrected again 2026-08-16:** that correction then claimed its `~> 0.3` constraint "excludes 0.5.0", which is also wrong — `~> 0.3` is `>= 0.3, < 1.0`. The gem resolves; it has simply never been exercised through `plugins:`.)
 - **Auto-discovery of installed `odysseus-sail-*` gems**, and folding rolling into core — both considered and rejected in the spec.
 - **Adding RuboCop or a Rakefile to the sail repo.**
 - **Releasing the sail gem.** It cannot be published until core 0.5.1 is, because its gemspec will require `~> 0.5`.
