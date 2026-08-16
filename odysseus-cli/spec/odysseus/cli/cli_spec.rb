@@ -671,6 +671,19 @@ RSpec.describe Odysseus::CLI::CLI do
         expect { output_of { cli.dependency_shell('db.example.com', config: awkward, name: 'db') } }
           .to raise_error(SystemExit) { |error| expect(error.status).not_to eq(0) }
       end
+
+      # ssh exits with the remote command's own status, and passing that on is
+      # what makes `odysseus app console web1 -- ... && deploy` and a CI step
+      # mean anything. Every example above asks only for "not 0", which a flat
+      # `exit 1` satisfies as readily as reading $? does — so nothing here
+      # distinguished the two until this one. The session really runs
+      # `sh -c 'exit 7'`, because $? is what the code under test reads.
+      it 'app shell exits with the status the session gave it, not a flat 1' do
+        allow(cli).to receive(:system) { |command| commands << command and system('exit 7') }
+
+        expect { output_of { cli.app_shell('web1.example.com', config: awkward) } }
+          .to raise_error(SystemExit) { |error| expect(error.status).to eq(7) }
+      end
     end
 
     it 'does not exit non-zero when the session ends normally' do
