@@ -421,14 +421,7 @@ module Odysseus
 
         begin
           docker = Odysseus::Docker::Client.new(ssh)
-          containers = docker.list(service: service_name)
-
-          if containers.empty?
-            @ui.warn "No running containers found for #{service_name}"
-            return
-          end
-
-          container_id = containers.first['ID']
+          container_id = log_container_id!(docker, service_name, server)
 
           if follow
             @ui.step 'Following logs (Ctrl+C to stop)...'
@@ -464,14 +457,7 @@ module Odysseus
 
         begin
           docker = Odysseus::Docker::Client.new(ssh)
-          containers = docker.list(service: service_name)
-
-          if containers.empty?
-            @ui.warn "No running containers found for #{service_name}"
-            return
-          end
-
-          container_id = containers.first['ID']
+          container_id = log_container_id!(docker, service_name, server)
 
           if follow
             @ui.step 'Following logs (Ctrl+C to stop)...'
@@ -812,6 +798,34 @@ module Odysseus
         ensure
           ssh.close
         end
+      end
+
+      # The container to read logs from, chosen from everything carrying the
+      # service label — stopped containers included. `docker ps` without -a
+      # hides the container that has just exited, which is precisely the one
+      # whose logs you came for, and cleanup keeps the previous two deploys
+      # around on purpose, so a stopped container is the normal state of a host
+      # rather than an edge case. `status` and `cleanup` already read with
+      # all: true.
+      #
+      # Finding nothing is a failed request for logs, not a success, so it
+      # exits non-zero. And when the only match is stopped, say so: otherwise
+      # the log just ends and the reader has no way to know why.
+      def log_container_id!(docker, service_name, server)
+        containers = docker.list(service: service_name, all: true)
+
+        if containers.empty?
+          @ui.error "No containers found for #{service_name} on #{server} (stopped ones included)"
+          exit 1
+        end
+
+        container = containers.find { |c| c['State'] == 'running' } || containers.first
+        unless container['State'] == 'running'
+          @ui.warn "No running container for #{service_name}: showing logs from " \
+                   "#{container['State']} container #{container['ID'][0..11]}"
+        end
+
+        container['ID']
       end
 
       def connect_to_server(server, config)

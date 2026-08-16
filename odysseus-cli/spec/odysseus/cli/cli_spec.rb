@@ -271,6 +271,117 @@ RSpec.describe Odysseus::CLI::CLI do
     end
   end
 
+  # `logs` had no examples at all before this group, which is how it shipped
+  # reading only running containers for four releases: it asked docker ps
+  # without -a, so the container you most want the logs of — the one that just
+  # exited — was invisible, and the command said so and exited 0.
+  describe '#logs' do
+    let(:ssh) { instance_double(Odysseus::Deployer::SSH, close: nil) }
+    let(:docker) { instance_double(Odysseus::Docker::Client) }
+    let(:running) { { 'ID' => 'aaaaaaaaaaaa', 'State' => 'running' } }
+    let(:exited) { { 'ID' => 'bbbbbbbbbbbb', 'State' => 'exited' } }
+
+    before do
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      allow(Odysseus::Docker::Client).to receive(:new).and_return(docker)
+    end
+
+    it 'asks docker for stopped containers as well as running ones' do
+      expect(docker).to receive(:list).with(service: 'myapp', all: true).and_return([running])
+      allow(docker).to receive(:logs).and_return('hello')
+
+      output_of { cli.logs('web1.example.com', config: config_file) }
+    end
+
+    it 'reads the logs of a container that has exited' do
+      allow(docker).to receive(:list).with(service: 'myapp', all: true).and_return([exited])
+      expect(docker).to receive(:logs).with('bbbbbbbbbbbb', tail: 100, since: nil).and_return('segfault')
+
+      expect(output_of { cli.logs('web1.example.com', config: config_file) }).to include('segfault')
+    end
+
+    # cleanup_old_containers keeps the previous two deploys on purpose, so a
+    # stopped container alongside a running one is the normal state of a host,
+    # not an edge case. The running one is the one being asked about.
+    it 'prefers the running container when stopped ones are also present' do
+      allow(docker).to receive(:list).with(service: 'myapp', all: true).and_return([exited, running])
+      expect(docker).to receive(:logs).with('aaaaaaaaaaaa', tail: 100, since: nil).and_return('hello')
+
+      output_of { cli.logs('web1.example.com', config: config_file) }
+    end
+
+    it 'says the container is stopped rather than ending its logs without explanation' do
+      allow(docker).to receive(:list).with(service: 'myapp', all: true).and_return([exited])
+      allow(docker).to receive(:logs).and_return('segfault')
+
+      out = output_of { cli.logs('web1.example.com', config: config_file) }
+
+      expect(out).to match(/stopped|exited/i)
+      expect(out).to include('bbbbbbbbbbbb')
+    end
+
+    it 'does not claim a stopped container when the logs come from a running one' do
+      allow(docker).to receive(:list).with(service: 'myapp', all: true).and_return([running])
+      allow(docker).to receive(:logs).and_return('hello')
+
+      expect(output_of { cli.logs('web1.example.com', config: config_file) }).not_to match(/stopped|exited/i)
+    end
+
+    # A request for logs that produced none is a failed request. Exiting 0 told
+    # every caller — a script, a CI step, a person in a hurry — that it worked.
+    it 'exits non-zero when there is no container at all, running or stopped' do
+      allow(docker).to receive(:list).with(service: 'myapp', all: true).and_return([])
+
+      expect { output_of { cli.logs('web1.example.com', config: config_file) } }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      expect(stdout_buffer.string).to include('myapp')
+    end
+
+    it 'reads the role named by --role' do
+      allow(docker).to receive(:list).with(service: 'myapp-jobs', all: true).and_return([running])
+      allow(docker).to receive(:logs).and_return('working')
+
+      expect(output_of { cli.logs('worker1.example.com', config: config_file, role: 'jobs') })
+        .to include('working')
+    end
+
+    it 'follows and passes --lines and --since through' do
+      allow(docker).to receive(:list).with(service: 'myapp', all: true).and_return([running])
+      expect(docker).to receive(:logs).with('aaaaaaaaaaaa', follow: true, tail: 50, since: '10m')
+
+      output_of { cli.logs('web1.example.com', config: config_file, follow: true, lines: 50, since: '10m') }
+    end
+  end
+
+  describe '#dependency_logs' do
+    let(:ssh) { instance_double(Odysseus::Deployer::SSH, close: nil) }
+    let(:docker) { instance_double(Odysseus::Docker::Client) }
+    let(:exited) { { 'ID' => 'cccccccccccc', 'State' => 'exited' } }
+
+    before do
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      allow(Odysseus::Docker::Client).to receive(:new).and_return(docker)
+    end
+
+    it 'reads the logs of a dependency that has exited' do
+      allow(docker).to receive(:list).with(service: 'myapp-db', all: true).and_return([exited])
+      expect(docker).to receive(:logs).with('cccccccccccc', tail: 100, since: nil).and_return('FATAL: out of memory')
+
+      out = output_of { cli.dependency_logs('db.example.com', config: config_file, name: 'db') }
+
+      expect(out).to include('FATAL: out of memory')
+      expect(out).to match(/stopped|exited/i)
+    end
+
+    it 'exits non-zero when the dependency has no container at all' do
+      allow(docker).to receive(:list).with(service: 'myapp-db', all: true).and_return([])
+
+      expect { output_of { cli.dependency_logs('db.example.com', config: config_file, name: 'db') } }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      expect(stdout_buffer.string).to include('myapp-db')
+    end
+  end
+
   describe '#validate' do
     it 'summarises a valid config' do
       out = output_of { cli.validate(config: config_file) }

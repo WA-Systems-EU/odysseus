@@ -19,6 +19,16 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   `odysseus.service` label it searched for and the `--role` option, and lists
   the roles in the config. It does not search other roles: running your command
   against a role you did not name would be worse than being told what to type.
+- `odysseus logs` and `odysseus dependency logs` read stopped containers as
+  well as running ones. They asked `docker ps` without `-a`, so the container
+  that had just exited — the one you want the logs of — was invisible, and they
+  reported `No running containers found` and exited **0** while `docker logs`
+  on that container would have worked. Deploys keep the previous two
+  containers, so this was routine rather than an edge case.
+- Those two commands now exit non-zero when there is no container at all: a
+  request for logs that produced none is a failed request, not a success. When
+  the only match is stopped they say so, and name the container, rather than
+  streaming a dead container's logs and leaving you to wonder why it ends.
 
 ## [0.6.0] - 2026-08-15
 
