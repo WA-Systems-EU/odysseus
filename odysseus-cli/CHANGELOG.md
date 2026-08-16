@@ -29,6 +29,20 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   request for logs that produced none is a failed request, not a success. When
   the only match is stopped they say so, and name the container, rather than
   streaming a dead container's logs and leaving you to wonder why it ends.
+- `odysseus app shell|console` and `odysseus dependency shell` now exit
+  non-zero when the session fails. They discarded `system`'s return value, so a
+  refused ssh, a missing image or a failed `docker run` all reported success.
+- The same three quote what they put in the command they run. Values were
+  interpolated raw into a string that passes through two shells, so ordinary
+  `env.clear` values broke them: a value containing a space made docker read
+  the wrong token as the image name, and an apostrophe (`SMTP_FROM: "Bob's
+  App"`) unbalanced the quoting — an odd number left `sh: unexpected EOF` and
+  nothing running (reported as success, per the bug above), an even number
+  rebalanced the quotes and ran the text between them through the *local*
+  shell. An SSH key path containing a space failed the same way.
+- `odysseus app console --cmd` is split into words the way a shell would, so
+  `--cmd "rails c"` still reaches docker as two arguments, and a `--cmd` whose
+  own quoting cannot be read is reported instead of being passed on.
 
 ## [0.6.0] - 2026-08-15
 

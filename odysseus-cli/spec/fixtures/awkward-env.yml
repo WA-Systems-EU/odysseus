@@ -1,0 +1,32 @@
+# spec/fixtures/awkward-env.yml — ordinary values that a shell reads as syntax.
+#
+# Nothing here is exotic: a display name with spaces and angle brackets, an
+# English possessive, and an SSH key path with a space in it. Each one lands in
+# a different part of the command string the app/dependency shells build, and
+# each broke it before those strings were escaped. PLAIN is included so a spec
+# cannot pass by mangling every value equally.
+service: myapp
+image: myapp-production
+
+servers:
+  web:
+    hosts:
+      - web1.example.com
+
+proxy:
+  hosts:
+    - app.example.com
+  app_port: 3000
+  ssl: false
+
+env:
+  clear:
+    SMTP_FROM: My App <hi@x.com>
+    MOTD: it's fine
+    PLAIN: simple
+
+ssh:
+  user: deploy
+  keys:
+    - ~/.ssh/id_ed25519
+    - ~/.ssh/deploy key

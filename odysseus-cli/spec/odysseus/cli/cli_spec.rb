@@ -382,6 +382,123 @@ RSpec.describe Odysseus::CLI::CLI do
     end
   end
 
+  # app shell/console and dependency shell hand a terminal over, so they build
+  # an ssh command line and run it locally. Nothing had ever driven them, so
+  # nothing had ever looked at the string they build — and it passed through
+  # two shells with no escaping at either.
+  describe 'the commands that shell out over ssh' do
+    let(:ssh) { instance_double(Odysseus::Deployer::SSH, close: nil) }
+    let(:docker) { instance_double(Odysseus::Docker::Client) }
+    let(:awkward) { fixture_path('awkward-env.yml') }
+    let(:commands) { [] }
+
+    before do
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      allow(Odysseus::Docker::Client).to receive(:new).and_return(docker)
+      allow(docker).to receive(:list).with(service: 'myapp')
+                                     .and_return([{ 'ID' => 'abc123abc123', 'Image' => 'myapp-production:latest' }])
+      allow(docker).to receive(:list).with(service: 'myapp-db')
+                                     .and_return([{ 'ID' => 'db0123456789', 'Image' => 'postgres:16' }])
+      allow(cli).to receive(:system) { |command| commands << command and true }
+    end
+
+    # The words the LOCAL /bin/sh — the one `system` invokes — would see.
+    def local_words
+      Shellwords.split(commands.last)
+    end
+
+    # The words the REMOTE login shell would see: ssh passes it the last word
+    # of the local command line, and splits that into words itself.
+    def remote_words
+      Shellwords.split(local_words.last)
+    end
+
+    it 'builds an ssh command line the local shell reads as ssh, its keys and one remote command' do
+      output_of { cli.app_shell('web1.example.com', config: awkward) }
+
+      expect(local_words[0..-2]).to eq(
+        ['ssh',
+         '-i', File.expand_path('~/.ssh/id_ed25519'),
+         '-i', File.expand_path('~/.ssh/deploy key'),
+         '-t', 'deploy@web1.example.com']
+      )
+    end
+
+    # The whole failure mode in one assertion: an env value with a space made
+    # docker read the wrong token as the image name, an odd number of
+    # apostrophes left the quoting unterminated (sh: unexpected EOF, nothing
+    # ran, and it reported success), and an even number rebalanced the quotes
+    # and ran the text between them as local shell.
+    it 'passes each env value to docker as exactly one argument, however it is spelt' do
+      output_of { cli.app_shell('web1.example.com', config: awkward) }
+
+      expect(remote_words).to eq(
+        ['docker', 'run', '-it', '--rm', '--network', 'odysseus',
+         '-e', 'SMTP_FROM=My App <hi@x.com>',
+         '-e', "MOTD=it's fine",
+         '-e', 'PLAIN=simple',
+         'myapp-production:latest', '/bin/sh']
+      )
+    end
+
+    it 'hands the remote command to the local shell as a single word' do
+      output_of { cli.app_shell('web1.example.com', config: awkward) }
+
+      expect(local_words.size).to eq(8)
+    end
+
+    it 'console runs the console command, splitting it the way a shell would' do
+      output_of { cli.app_console('web1.example.com', config: awkward, cmd: 'rails c') }
+
+      expect(remote_words.last(2)).to eq(%w[rails c])
+    end
+
+    # --cmd is a command line, not a filename: escaping it whole would ask
+    # docker to exec a program literally called "rails runner puts 1".
+    it 'console keeps a quoted argument inside the console command intact' do
+      output_of { cli.app_console('web1.example.com', config: awkward, cmd: "rails runner 'puts 1'") }
+
+      expect(remote_words.last(3)).to eq(['rails', 'runner', 'puts 1'])
+    end
+
+    it 'console reports a --cmd it cannot read rather than building a broken command' do
+      expect { output_of { cli.app_console('web1.example.com', config: awkward, cmd: "rails runner 'oops") } }
+        .to raise_error(SystemExit) { |error| expect(error.status).to eq(1) }
+      expect(commands).to be_empty
+    end
+
+    it 'dependency shell execs into the container it found' do
+      output_of { cli.dependency_shell('db.example.com', config: awkward, name: 'db') }
+
+      expect(remote_words).to eq(['docker', 'exec', '-it', 'db0123456789', '/bin/sh'])
+    end
+
+    # A failed ssh, a missing image, a docker error: system's return value was
+    # discarded, so all of them reported success.
+    describe 'when the ssh command fails' do
+      before { allow(cli).to receive(:system).and_return(false) }
+
+      it 'app shell exits non-zero' do
+        expect { output_of { cli.app_shell('web1.example.com', config: awkward) } }
+          .to raise_error(SystemExit) { |error| expect(error.status).not_to eq(0) }
+      end
+
+      it 'app console exits non-zero' do
+        expect { output_of { cli.app_console('web1.example.com', config: awkward) } }
+          .to raise_error(SystemExit) { |error| expect(error.status).not_to eq(0) }
+      end
+
+      it 'dependency shell exits non-zero' do
+        expect { output_of { cli.dependency_shell('db.example.com', config: awkward, name: 'db') } }
+          .to raise_error(SystemExit) { |error| expect(error.status).not_to eq(0) }
+      end
+    end
+
+    it 'does not exit non-zero when the session ends normally' do
+      expect { output_of { cli.app_shell('web1.example.com', config: awkward) } }.not_to raise_error
+    end
+  end
+
   describe '#validate' do
     it 'summarises a valid config' do
       out = output_of { cli.validate(config: config_file) }
