@@ -21,6 +21,12 @@ change in what those jobs see.
   excludes 0.7.0 outright, so this is not a tightening: without it the two gems
   cannot resolve together. These commands also call `Core::Environment` and
   `Docker::Client#with_env_file`, neither of which exists in 0.6.0.
+- `bin/odysseus`'s dispatch table no longer lists `dependency`, `app` and
+  `secrets`. Their entries named methods the CLI has never had
+  (`dependency_dispatch`, `app_dispatch`, `secrets_dispatch`); the subcommand
+  guards intercept those verbs first, so nothing changes today, but the entries
+  would have turned any reordering of a guard into a `NoMethodError` backtrace.
+  The suite now runs every verb the help lists.
 
 ### Fixed
 - `odysseus app exec|shell|console` now inject `env.secret` as well as
@@ -113,14 +119,6 @@ change in what those jobs see.
   of a deployment, and a header inside that file would be a bug: stdout carries
   what the session itself produced and nothing else. `app exec`'s header is
   unchanged, on stdout, where the output of its `run_once` already is.
-
-### Changed
-- `bin/odysseus`'s dispatch table no longer lists `dependency`, `app` and
-  `secrets`. Their entries named methods the CLI has never had
-  (`dependency_dispatch`, `app_dispatch`, `secrets_dispatch`); the subcommand
-  guards intercept those verbs first, so nothing changes today, but the entries
-  would have turned any reordering of a guard into a `NoMethodError` backtrace.
-  The suite now runs every verb the help lists.
 
 ## [0.6.0] - 2026-08-15
 
