@@ -175,6 +175,22 @@ RSpec.describe Odysseus::DeployLog do
 
       expect(log.entries.map(&:version)).to eq(['abc'])
     end
+
+    # For a root connection, path and legacy_path are the same file: `entries`
+    # must not read it twice. The command has to stay byte-identical to what
+    # it was before the deploy-user change, or "Nothing changes for a root
+    # install" in the changelog is not true.
+    it 'reads the log once for a root connection, where the two locations are the same' do
+      command = nil
+      allow(mock_ssh).to receive(:execute) do |cmd|
+        command = cmd
+        ''
+      end
+
+      log.entries
+
+      expect(command).to eq("cat #{Shellwords.escape(path)} 2>/dev/null || true")
+    end
   end
 
   describe 'where the log lives' do
@@ -247,6 +263,28 @@ RSpec.describe Odysseus::DeployLog do
       # host would keep reading its frozen history forever.
       expect(command.index('/home/odysseus/.odysseus/myapp/deploys.log'))
         .to be < command.index('/var/lib/odysseus/myapp/deploys.log')
+    end
+
+    # `&&` would preserve both existing assertions above — path presence and
+    # ordering — while changing what the command does: it would only read the
+    # legacy path when the new one succeeds, merging old history under new
+    # history for a migrated host instead of falling back to it.
+    it 'joins the new and legacy locations with || rather than &&' do
+      command = nil
+      allow(ssh).to receive(:execute) do |cmd|
+        if cmd == 'echo $HOME'
+          "/home/odysseus\n"
+        else
+          (command = cmd
+           "#{record}\n")
+        end
+      end
+
+      log.entries
+
+      expect(command).to include(
+        "cat #{Shellwords.escape(log.path)} 2>/dev/null || cat #{Shellwords.escape(log.legacy_path)} 2>/dev/null"
+      )
     end
 
     it 'appends only to the new location' do

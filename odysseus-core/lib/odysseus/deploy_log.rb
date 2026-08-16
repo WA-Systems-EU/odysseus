@@ -58,10 +58,16 @@ module Odysseus
       # Prefer the current location, then the one a root install used. No
       # merging: a host deploying as two different users is not a supported
       # shape, and merging two histories would invent an ordering.
-      raw = @ssh.execute(
-        "cat #{Shellwords.escape(path)} 2>/dev/null || " \
-        "cat #{Shellwords.escape(legacy_path)} 2>/dev/null || true"
-      )
+      #
+      # For a root connection path and legacy_path are the same file, so the
+      # legacy `cat` is only added when they differ — otherwise the command
+      # would read one file twice for no reason, and no longer match what a
+      # root install has always run.
+      command = "cat #{Shellwords.escape(path)} 2>/dev/null"
+      command += " || cat #{Shellwords.escape(legacy_path)} 2>/dev/null" if legacy_path != path
+      command += ' || true'
+
+      raw = @ssh.execute(command)
 
       raw.to_s.lines.filter_map { |line| parse_line(line) }
     end
