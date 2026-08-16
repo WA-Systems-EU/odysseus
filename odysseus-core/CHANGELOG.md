@@ -23,6 +23,10 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   secrets file or the host's own environment. WebDeploy and JobDeploy each had
   their own copy; one-off commands had neither, which is why `rails
   db:migrate` on a one-off container started without a `DATABASE_URL`.
+- `Docker::Client#with_env_file`, which writes an env file, yields its path
+  and removes it afterwards even on failure. `app shell` and `app console`
+  need an interactive TTY and so run docker themselves; this is how their
+  environment reaches the host as a file rather than as `-e` flags.
 
 ## [0.6.0] - 2026-08-15
 

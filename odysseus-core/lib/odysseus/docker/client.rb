@@ -261,6 +261,27 @@ module Odysseus
         end
       end
 
+      # Hold an env file open on the host for the duration of a block.
+      #
+      # For runs Odysseus does not execute itself: `app shell` and `app console`
+      # need an interactive TTY, so the CLI builds its own `ssh -t ... docker
+      # run` and passes the yielded path as --env-file. The file goes away
+      # afterwards whether the block returned or raised, and remove_env_file
+      # never masks the block's own failure.
+      #
+      # Yields nil, having written nothing, when there is no environment, so
+      # the caller has one code path either way.
+      #
+      # @param env [Hash, nil] environment variables
+      # @yieldparam path [String, nil] path to the env file on the host
+      # @return [Object] whatever the block returned
+      def with_env_file(env)
+        path = write_env_file(one_off_env_name, env)
+        yield path
+      ensure
+        remove_env_file(path)
+      end
+
       # Cleanup old stopped containers, keeping only the last N
       # @param service [String] service name
       # @param keep [Integer] number of stopped containers to keep
@@ -353,16 +374,6 @@ module Odysseus
         @ssh.execute("mkdir -p #{ENV_FILE_DIR} && chmod 700 #{ENV_FILE_DIR}")
         @ssh.upload_string(format_env_file(env), path, mode: 0o600)
         path
-      end
-
-      # Hold an env file open on the host for the duration of a block, removing
-      # it afterwards whether the block returned or raised. Yields nil, having
-      # written nothing, when there is no environment.
-      def with_env_file(env)
-        path = write_env_file(one_off_env_name, env)
-        yield path
-      ensure
-        remove_env_file(path)
       end
 
       # The name a one-off run's env file is written under.

@@ -580,6 +580,68 @@ RSpec.describe Odysseus::Docker::Client do
     end
   end
 
+  # For runs Odysseus does not execute itself: `app shell` and `app console`
+  # need an interactive TTY, so the CLI builds its own `ssh -t ... docker run`.
+  # The environment still has to reach the host as a file.
+  describe '#with_env_file' do
+    let(:commands) { [] }
+    let(:uploads) { [] }
+
+    before do
+      allow(mock_ssh).to receive(:execute) { |cmd|
+        commands << cmd
+        ''
+      }
+      allow(mock_ssh).to receive(:upload_string) { |content, path, mode:|
+        uploads << { content: content, path: path, mode: mode }
+      }
+    end
+
+    it 'yields the path of a private file holding the environment' do
+      yielded = nil
+      client.with_env_file('DATABASE_URL' => 'postgres://user:pa ss@db/app') { |path| yielded = path }
+
+      expect(yielded).to eq(uploads.first[:path])
+      expect(uploads.first[:content]).to include('DATABASE_URL=postgres://user:pa ss@db/app')
+      expect(uploads.first[:mode]).to eq(0o600)
+    end
+
+    it 'removes the file once the block returns' do
+      path = nil
+      client.with_env_file('A' => 'b') { |p| path = p }
+
+      expect(commands.last).to eq("rm -f #{path}")
+    end
+
+    it 'removes the file when the block raises, without masking the error' do
+      path = nil
+
+      expect do
+        client.with_env_file('A' => 'b') do |p|
+          path = p
+          raise Odysseus::DeployError, 'interactive run failed'
+        end
+      end.to raise_error(Odysseus::DeployError, 'interactive run failed')
+
+      expect(commands.last).to eq("rm -f #{path}")
+    end
+
+    # One code path for the caller, whether or not the app declares any env.
+    it 'yields nil and writes nothing when there is no environment' do
+      expect(mock_ssh).not_to receive(:upload_string)
+
+      yielded = :untouched
+      client.with_env_file({}) { |path| yielded = path }
+
+      expect(yielded).to be_nil
+      expect(commands).to be_empty
+    end
+
+    it 'returns what the block returned' do
+      expect(client.with_env_file('A' => 'b') { 'exit 0' }).to eq('exit 0')
+    end
+  end
+
   describe '#prune' do
     it 'prunes containers excluding odysseus-managed' do
       expect(mock_ssh).to receive(:execute)
