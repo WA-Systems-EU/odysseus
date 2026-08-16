@@ -33,11 +33,13 @@ def main
     'containers' => { method: :containers, needs_server: true },
     'logs' => { method: :logs, needs_server: true },
     'cleanup' => { method: :cleanup, needs_server: true },
-    'validate' => { method: :validate, needs_server: false },
-    'dependency' => { method: :dependency_dispatch, needs_server: false },
-    'app' => { method: :app_dispatch, needs_server: false },
-    'secrets' => { method: :secrets_dispatch, needs_server: false }
+    'validate' => { method: :validate, needs_server: false }
   }
+  # `dependency`, `app` and `secrets` are not in the table: they have
+  # subcommands of their own and are handled by the guards below, which return
+  # before the table is read. The table used to list them anyway, naming
+  # methods — dependency_dispatch, app_dispatch, secrets_dispatch — that the
+  # CLI has never had. Unreachable, so harmless, until someone moved a guard.
 
   command = ARGV[0]
   command_args = ARGV[1..] || []

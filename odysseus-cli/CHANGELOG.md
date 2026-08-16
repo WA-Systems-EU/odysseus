@@ -44,6 +44,14 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   `--cmd "rails c"` still reaches docker as two arguments, and a `--cmd` whose
   own quoting cannot be read is reported instead of being passed on.
 
+### Changed
+- `bin/odysseus`'s dispatch table no longer lists `dependency`, `app` and
+  `secrets`. Their entries named methods the CLI has never had
+  (`dependency_dispatch`, `app_dispatch`, `secrets_dispatch`); the subcommand
+  guards intercept those verbs first, so nothing changes today, but the entries
+  would have turned any reordering of a guard into a `NoMethodError` backtrace.
+  The suite now runs every verb the help lists.
+
 ## [0.6.0] - 2026-08-15
 
 ### Changed

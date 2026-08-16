@@ -208,6 +208,26 @@ RSpec.describe 'bin/odysseus' do
     end
   end
 
+  # The dispatch table named three methods that do not exist on the CLI object
+  # — dependency_dispatch, app_dispatch, secrets_dispatch — reachable only if
+  # the guards above it ever stopped intercepting those verbs first. That is
+  # the shape of the `dependency status`/get_status defect, which shipped
+  # broken from before 0.2.0 until 0.4.3 because nothing ran the verb. So run
+  # every verb the help offers: falling through to the global usage banner
+  # means it dispatched nowhere, and NoMethodError on stderr means it
+  # dispatched to something that is not there.
+  describe 'every command the help lists' do
+    %w[deploy rollback build pussh status containers logs cleanup validate
+       dependency app secrets version].each do |command|
+      it "#{command} dispatches" do
+        stdout, stderr, = run_cli(command)
+
+        expect(stdout).not_to include('Usage: odysseus <command> [options]')
+        expect(stderr).not_to match(/undefined method|NoMethodError/)
+      end
+    end
+  end
+
   describe 'version' do
     it 'reports the version and exits zero' do
       stdout, _stderr, status = run_cli('version')
