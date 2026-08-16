@@ -28,8 +28,10 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   Let's Encrypt's rate limits.
 - `rollback --list` keeps its history across the move: a host that deployed
   as root and later switches to a deploy user still has its old log read as
-  a fallback when the new location is empty. Reads fall back to the old
-  location; appends only ever go to the new one.
+  a fallback when the new location is absent (or unreadable) rather than
+  empty — an empty file at the new location exits 0 and suppresses the
+  fallback. Reads fall back to the old location; appends only ever go to the
+  new one.
 - Nothing changes for a root install.
 
 ## [0.7.0] - 2026-08-16

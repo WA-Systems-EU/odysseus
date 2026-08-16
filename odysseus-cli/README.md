@@ -541,9 +541,9 @@ Two cases still leave the file on the host. The `odysseus` process being killed
 outright — `SIGKILL`, or the machine going down — where no cleanup can run at
 all; and a host that is unreachable when the session ends, where there is
 nowhere to send the removal. The file is mode `0600` inside that same env
-directory (`0700` for a root connection), so another user on the box still
-cannot read it; but nothing comes back to remove it, since the next run writes
-its own file rather than tidying old ones.
+directory, which is `0700` for every connection, so another user on the box
+still cannot read it; but nothing comes back to remove it, since the next run
+writes its own file rather than tidying old ones.
 
 ### secrets_file
 
