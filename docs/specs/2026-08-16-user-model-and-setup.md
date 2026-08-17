@@ -50,7 +50,9 @@ Everything the design rests on, checked against the tree at 0.7.0:
 
 The Caddy directory is the one that shapes the migration. It holds issued
 certificates, it is written by the Caddy container as root, and re-issuing
-against Let's Encrypt rate limits is a real cost for no benefit.
+against Let's Encrypt rate limits is a real cost for no benefit. This was the
+reasoning that first argued the directory must stay fixed; see the
+correction under Host state for why that conclusion did not survive.
 
 ## Design
 
@@ -156,10 +158,12 @@ because minimal images often have no `sudo` at all.
    someone else's re-run. Create `~/.ssh` as `700` and `authorized_keys` as
    `600`, owned by the new user: sshd silently ignores them otherwise, with no
    error worth finding.
-6. **Directories.** As root, `mkdir -p /var/lib/odysseus/caddy` — the deploy
-   path's own `mkdir -p` (`caddy/client.rb:40`) then no-ops, where it would
-   otherwise fail trying to create a directory inside a root-owned parent. As
-   the new user, create `~/.odysseus`.
+6. **Directories.** As the new user, create `~/.odysseus`. Caddy's data
+   directory is not a special case here: it derives from the connection user
+   like everything else in `HostPaths`, so it lands under `~/.odysseus/caddy`
+   for this user, a directory they already own. The deploy path's own
+   `mkdir -p` (`caddy/client.rb:41`) creates it the first time Caddy starts;
+   setup has nothing to pre-create as root.
 7. **Deploy-log migration**, per the section below.
 8. **Self-test over a fresh connection as `ssh.user`.** Log in, run
    `docker info`, write a file under `~/.odysseus`. Setup reports success only
@@ -176,8 +180,11 @@ existing user's shell, home or password; delete anything; touch the firewall,
 swap, `sshd_config`, or unattended-upgrades.
 
 `odysseus setup --verify` runs the same checks read-only, as `ssh.user`:
-distro, docker reachable, group membership, state directory writable, Caddy
-directory present, deploy-log location. It ships as its own mode rather than
+distro, docker reachable, group membership, state directory writable,
+deploy-log location. Caddy's directory is not on this list: since step 6 no
+longer pre-creates it, it does not exist until the first deploy starts
+Caddy, and checking for it right after setup would report a healthy host
+that has not deployed yet as broken. It ships as its own mode rather than
 being chosen instead of the installer.
 
 ## Host state
@@ -217,6 +224,16 @@ both `ssh.execute` and SCP (`ssh.rb:89-93`), and the two need not agree.
 Setup copies each service's existing log to the new location and chowns it,
 if and only if the old exists and the new does not. The original is never
 deleted, and nothing in the codebase ever deletes `/var/lib/odysseus`.
+
+Certificates are not part of this copy. A host migrating from root to a
+deploy user re-issues its certificates exactly **once**, the next time Caddy
+is recreated — whether because the container was removed by hand or because
+`ensure_running` finds it stopped and recreates it (see `caddy/client.rb`).
+The new user cannot read or move the root-owned certificate store at
+`/var/lib/odysseus/caddy`, so the recreated container starts against an
+empty `~/.odysseus/caddy` and Let's Encrypt is asked again. That is strictly
+better than the old fixed-path design, which failed the deploy outright
+instead of paying this one-time cost.
 
 As a fallback for a host whose user was created by hand, `DeployLog#entries`
 reads the new location, then the old: one shell fallback, no merging. Appends

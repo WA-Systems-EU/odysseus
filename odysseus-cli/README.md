@@ -601,10 +601,9 @@ ssh:
 `user` defaults to `root` and also decides where odysseus keeps state on the
 host. A root connection writes to `/var/lib/odysseus`, exactly as always. Any
 other user writes under its own `$HOME/.odysseus` instead, because it cannot
-create or `chmod` a directory root owns. Caddy's certificate directory is the
-one exception: it stays at `/var/lib/odysseus/caddy` regardless of `user`,
-since it holds live Let's Encrypt certificates written by the Caddy container
-as root.
+create or `chmod` a directory root owns. Caddy's certificate directory
+follows the same rule as everything else: `/var/lib/odysseus/caddy` for a
+root connection, `$HOME/.odysseus/caddy` for any other user.
 
 A non-root `user` must already exist on the target host — with membership in
 the `docker` group and a writable home directory — and its key must be one of
