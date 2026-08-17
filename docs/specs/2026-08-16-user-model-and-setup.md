@@ -121,6 +121,31 @@ opt-in, per service, by editing one line.
 Root remains fully supported. It is the documented legacy mode, not a
 deprecated one.
 
+## What `setup` is for, and what it is not
+
+**Preparing servers is not odysseus's job.** That belongs to OpenTofu,
+Terraform or equivalent, which does it declaratively and at scale, and the cost
+of standing up one host or ten that way is now small enough that most engineers
+can reach it. Odysseus deploys to hosts; it does not manage them.
+
+So `setup` has two halves with different lifespans, and they should be allowed
+to grow differently.
+
+`setup --verify` is the durable half. It answers "is this host actually usable
+by odysseus as the user my config names?", which is worth asking on every host
+however it was prepared — including one built by tofu, where it serves as the
+acceptance test for that configuration. It should learn more checks over time.
+
+The bootstrap half is a convenience for getting a single host going in order to
+try the tool. **Ubuntu-only is the message, not a limitation to fix**: it says
+plainly that this is for trial, and that anything beyond that should use a
+provisioning tool and its own good practices. It should be resisted from growing
+— every capability added to it is a step toward being a bad provisioning tool
+instead of a good deploy tool.
+
+Stated 2026-08-17, and it is why `setup` did not exist earlier: the omission was
+deliberate, not an oversight.
+
 ## What `setup` does
 
 Connect as `setup.connect_as`, then run the sequence below. Every step is

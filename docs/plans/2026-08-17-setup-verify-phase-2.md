@@ -714,6 +714,12 @@ Say in the message why bare `setup` refuses rather than doing something partial,
 Add a `### setup` section beside the other command sections. It must say:
 
 - `odysseus setup --verify` checks every host in the config, read-only, **as the user `ssh.user` names** — and that this is the point, because a host that is fine for root can be unusable for a deploy user.
+- **What it is for.** Preparing servers is not odysseus's job — that belongs to
+  OpenTofu, Terraform or equivalent, which does it declaratively and at scale.
+  `--verify` is the half that lasts: it answers whether a host is usable by
+  odysseus as the configured user, which is worth asking however the host was
+  prepared, and serves as the acceptance test for a tofu-built one. Say this
+  plainly and point at provisioning tools; do not position odysseus as one.
 - What each check reports: distro, docker reachable, docker group membership, state directory writable, deploy-log location.
 - That an unsupported distro is a **warning**, not a failure: deploys work anywhere Docker does, and only the (unbuilt) bootstrap is Ubuntu-specific.
 - That Caddy's directory is deliberately not checked, because it does not exist until the first deploy.
