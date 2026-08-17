@@ -6,20 +6,13 @@ module Odysseus
   # Root writes /var/lib/odysseus, which is where every install has always
   # written and where existing hosts still have their deploy history. Any other
   # user cannot create that directory, so their state goes under their own
-  # home. One class answers this so the deploy log, the env files and — later —
-  # the deploy lock cannot disagree about where they live.
-  #
-  # Caddy's directory is deliberately NOT here as a method: see CADDY_DIR.
+  # home. One class answers this so the deploy log, the env files, Caddy's
+  # data directory and — later — the deploy lock cannot disagree about where
+  # they live.
   class HostPaths
     SYSTEM_BASE = '/var/lib/odysseus'.freeze
     USER_DIRNAME = '.odysseus'.freeze
     ROOT = 'root'.freeze
-
-    # Caddy's /data mount: issued certificates, written by the container as
-    # root, shared by every service on the host. It does not follow the deploy
-    # user — moving it would mean copying live certificates or re-issuing
-    # against Let's Encrypt rate limits, for no benefit.
-    CADDY_DIR = "#{SYSTEM_BASE}/caddy".freeze
 
     # @param ssh [Odysseus::Deployer::SSH] connection whose user decides the base
     def initialize(ssh)
@@ -41,6 +34,27 @@ module Odysseus
     # @return [String] where env files are written for the length of a docker run
     def env_dir
       File.join(base, 'env')
+    end
+
+    # Caddy's /data mount: issued certificates, written by the container as
+    # root. For a root connection this resolves to exactly the path every
+    # install has always used, so existing certificates are found unmoved. A
+    # non-root connection gets a directory it can actually create — the
+    # earlier design left this fixed at the root path to protect those
+    # certificates, but that protection only ever applied to root: deriving it
+    # like every other path here protects root identically while letting a
+    # non-root deploy user create its own directory instead of failing at
+    # `mkdir`.
+    #
+    # Caddy is one container shared by every service on a host, so this only
+    # works cleanly with the one-deploy-user-per-host shape this class already
+    # assumes: two different deploy users on the same host would disagree
+    # about where Caddy's data lives, and whichever one first starts the
+    # container wins, since #ensure_running never recreates one already
+    # running.
+    # @return [String]
+    def caddy_dir
+      File.join(base, 'caddy')
     end
 
     # Where a root install wrote, whoever is connected now. Used to read the

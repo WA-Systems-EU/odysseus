@@ -31,6 +31,7 @@ RSpec.describe Odysseus::Caddy::Client do
         allow(mock_docker).to receive(:running?)
           .with('odysseus-caddy')
           .and_return(false, true) # First check false, then true after start
+        allow(mock_ssh).to receive(:user).and_return('root')
         allow(mock_ssh).to receive(:execute) # For network creation
         allow(mock_docker).to receive(:run)
         allow(client).to receive(:sleep) # Don't actually sleep
@@ -57,6 +58,74 @@ RSpec.describe Odysseus::Caddy::Client do
 
       it 'returns true after starting' do
         expect(client.ensure_running).to be true
+      end
+    end
+
+    # Caddy's data directory follows the connecting user, exactly like every
+    # other host path — see Odysseus::HostPaths#caddy_dir. The mkdir and the
+    # volume mount have to name the same directory: if they disagree, `docker
+    # run` mounts an empty directory over Caddy's real one and it starts with
+    # no certificates, silently.
+    describe "Caddy's data directory" do
+      before do
+        allow(mock_docker).to receive(:running?).with('odysseus-caddy').and_return(false, true)
+        allow(mock_docker).to receive(:run)
+        allow(client).to receive(:sleep)
+        allow(mock_ssh).to receive(:execute) # network creation, and echo $HOME unless overridden below
+      end
+
+      context 'for a root connection' do
+        before { allow(mock_ssh).to receive(:user).and_return('root') }
+
+        it 'mkdirs the historic system path, byte-identical to before this change' do
+          expect(mock_ssh).to receive(:execute).with('mkdir -p /var/lib/odysseus/caddy')
+          client.ensure_running
+        end
+
+        it 'mounts the historic system path, byte-identical to before this change' do
+          expect(mock_docker).to receive(:run).with(
+            hash_including(options: hash_including(volumes: ['/var/lib/odysseus/caddy:/data']))
+          )
+          client.ensure_running
+        end
+      end
+
+      context 'for a non-root connection' do
+        before do
+          allow(mock_ssh).to receive(:user).and_return('deploy')
+          allow(mock_ssh).to receive(:execute).with('echo $HOME').and_return("/home/deploy\n")
+        end
+
+        it 'mkdirs a directory under the connecting user\'s home' do
+          expect(mock_ssh).to receive(:execute).with('mkdir -p /home/deploy/.odysseus/caddy')
+          client.ensure_running
+        end
+
+        it 'mounts the same directory the mkdir created' do
+          expect(mock_docker).to receive(:run).with(
+            hash_including(options: hash_including(volumes: ['/home/deploy/.odysseus/caddy:/data']))
+          )
+          client.ensure_running
+        end
+      end
+
+      context 'when the home directory needs shell escaping' do
+        before do
+          allow(mock_ssh).to receive(:user).and_return('deploy')
+          allow(mock_ssh).to receive(:execute).with('echo $HOME').and_return("/home/deploy user\n")
+        end
+
+        it 'escapes the mkdir target' do
+          expect(mock_ssh).to receive(:execute).with('mkdir -p /home/deploy\ user/.odysseus/caddy')
+          client.ensure_running
+        end
+
+        it 'escapes the mounted directory the same way' do
+          expect(mock_docker).to receive(:run).with(
+            hash_including(options: hash_including(volumes: ['/home/deploy\ user/.odysseus/caddy:/data']))
+          )
+          client.ensure_running
+        end
       end
     end
   end

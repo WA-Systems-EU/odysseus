@@ -1,6 +1,7 @@
 # lib/odysseus/caddy/client.rb
 
 require 'json'
+require 'shellwords'
 
 module Odysseus
   module Caddy
@@ -37,9 +38,14 @@ module Odysseus
         @ssh.execute('docker network create --label odysseus.managed=true odysseus 2>/dev/null || true')
 
         # Create data directory for certificates
-        @ssh.execute('mkdir -p /var/lib/odysseus/caddy')
+        @ssh.execute("mkdir -p #{Shellwords.escape(host_paths.caddy_dir)}")
 
         # Run Caddy with admin API enabled and persistent storage for certs
+        #
+        # The mkdir above and this mount must name the same directory, or
+        # Caddy starts against an empty one and silently has no certificates.
+        # Docker::Client interpolates `-v` values into its command line
+        # unescaped, so the directory is escaped here rather than there.
         @docker.run(
           name: CONTAINER_NAME,
           image: CADDY_IMAGE,
@@ -48,7 +54,7 @@ module Odysseus
             ports: ['80:80', '443:443', "#{ADMIN_API_PORT}:#{ADMIN_API_PORT}"],
             network: 'odysseus',
             restart: 'unless-stopped',
-            volumes: ['/var/lib/odysseus/caddy:/data'],
+            volumes: ["#{Shellwords.escape(host_paths.caddy_dir)}:/data"],
             env: {
               'CADDY_ADMIN' => "0.0.0.0:#{ADMIN_API_PORT}"
             },
@@ -282,6 +288,10 @@ module Odysseus
       end
 
       private
+
+      def host_paths
+        @host_paths ||= Odysseus::HostPaths.new(@ssh)
+      end
 
       def ensure_https_server
         # Check if we have an HTTPS server configured

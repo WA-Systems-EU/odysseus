@@ -77,12 +77,17 @@ RSpec.describe Odysseus::HostPaths do
     end
   end
 
-  describe 'CADDY_DIR' do
-    # Not derived from the user on purpose: it holds issued Let's Encrypt
-    # certificates, is written by the Caddy container as root, and re-issuing
-    # costs rate limit against a real domain.
-    it 'is fixed regardless of who connects' do
-      expect(described_class::CADDY_DIR).to eq('/var/lib/odysseus/caddy')
+  describe '#caddy_dir' do
+    # Root must land on exactly the path every install has always used, so
+    # existing hosts find their issued certificates unmoved.
+    it 'is the historic system path for root' do
+      expect(described_class.new(ssh_double(user: 'root')).caddy_dir)
+        .to eq('/var/lib/odysseus/caddy')
+    end
+
+    it 'follows the user for a non-root connection' do
+      expect(described_class.new(ssh_double(user: 'odysseus')).caddy_dir)
+        .to eq('/home/odysseus/.odysseus/caddy')
     end
   end
 end
