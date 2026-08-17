@@ -16,7 +16,6 @@ module Odysseus
     # that. A host without it is refused rather than half-prepared.
     class Preparer
       SUPPORTED_UBUNTU = %w[24.04 26.04].freeze
-      HOME_BASE = '/home'.freeze
 
       # @param step [Symbol] which step this is
       # @param status [Symbol] :ok, :changed, :warn or :fail
@@ -34,6 +33,7 @@ module Odysseus
         @escalation = escalation
         @keys = keys
         @user = config.dig(:ssh, :user)
+        @home_dir = nil
       end
 
       # @return [Array<Result>] one per step that ran, in a stable order.
@@ -258,11 +258,15 @@ module Odysseus
         end
       end
 
-      # Ubuntu's useradd defaults HOME=/home, and the distro gate already
-      # confines this class to ubuntu — so this holds for every user this
-      # class either creates or verifies.
+      # Ubuntu's useradd defaults HOME=/home, but that only holds for a user
+      # this class creates itself. A pre-existing user can have any home at
+      # all -- assuming /home/<user> for one installs keys and a state
+      # directory where sshd never reads them, while still reporting
+      # success. Read it from the host instead, once the user is known to
+      # exist, and memoize it: a second call must not re-ask a question
+      # that cannot have changed mid-run.
       def home_dir
-        File.join(HOME_BASE, @user)
+        @home_dir ||= @escalation.run("getent passwd #{shell_user} | cut -d: -f6").to_s.strip
       end
 
       def ssh_dir

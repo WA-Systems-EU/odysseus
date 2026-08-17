@@ -78,12 +78,13 @@ RSpec.describe Odysseus::Setup::Preparer do
 
   # A host that is already fully prepared: every step should report :ok, and
   # nothing should be changed.
-  def healthy(user: 'odysseus')
+  def healthy(user: 'odysseus', home: "/home/#{user}")
     {
       /os-release/ => ubuntu_os_release,
       /sudo -n true/ => "\n",
       /docker info/ => "29.1.3\n",
       /id -u/ => "1000\n",
+      /getent passwd/ => "#{home}\n",
       /stat -c/ => "#{user} #{user}\n",
       /id -nG/ => "#{user} docker\n",
       /grep -qxF/ => "present\n",
@@ -213,6 +214,23 @@ RSpec.describe Odysseus::Setup::Preparer do
       expect(result_for(results, :user).status).to eq(:changed)
       expect(commands).to include(a_string_matching(%r{mkdir -p .*/home/odysseus\z}))
       expect(commands).to include(a_string_matching(%r{chown odysseus:odysseus .*/home/odysseus\z}))
+    end
+
+    # The false comment this replaces claimed /home/<user> held for every
+    # user this class either creates or verifies -- false for a pre-existing
+    # user with a custom home. The fixture's home is deliberately NOT
+    # /home/deploy: a fixture where the real home happened to equal the
+    # assumed one could not tell this fix from the bug it replaces.
+    it "creates .ssh and the state directory under a pre-existing user's real home, not /home/<user>" do
+      answers = healthy(user: 'deploy', home: '/srv/deploy').merge(/grep -qxF/ => "absent\n")
+      preparer, commands = build(answers: answers, user: 'deploy')
+
+      results = preparer.prepare
+
+      expect(commands).to include(a_string_matching(%r{mkdir -p .*/srv/deploy/\.ssh\z}))
+      expect(commands).to include(a_string_matching(%r{chown -R deploy:deploy .*/srv/deploy/\.ssh\z}))
+      expect(result_for(results, :state_dir).detail).to include('/srv/deploy/.odysseus')
+      expect(commands).to all(satisfy { |cmd| !cmd.include?('/home/deploy') })
     end
   end
 
