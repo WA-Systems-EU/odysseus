@@ -192,7 +192,7 @@ RSpec.describe Odysseus::CLI::CLI do
   # so this group drives the real Docker::Client over a doubled connection and
   # reads what was actually sent, rather than trusting a doubled run_once.
   describe 'what app exec sends to the host' do
-    let(:ssh) { instance_double(Odysseus::Deployer::SSH, close: nil) }
+    let(:ssh) { instance_double(Odysseus::Deployer::SSH, close: nil, user: 'root') }
     let(:awkward) { fixture_path('awkward-env.yml') }
     let(:secret_url) { "postgres://app:it's a pass@db.internal/app" }
     let(:executed) { [] }
@@ -272,6 +272,39 @@ RSpec.describe Odysseus::CLI::CLI do
         expect(uploaded.last.first).to include("DATABASE_URL=#{secret_url}")
       ensure
         FileUtils.remove_entry(dir)
+      end
+    end
+
+    # The three examples above all connect as root, where HostPaths never asks
+    # the host anything — so none of them would notice HostPaths breaking for
+    # a deploy user. This one connects as a non-root user and gives it a home
+    # directory unrelated to the username, on purpose: if HostPaths were ever
+    # rewritten to build the path from the username instead of asking the host
+    # for $HOME, a home like "/home/odysseus" would still satisfy this
+    # assertion by coincidence. A fixture home that shares nothing with the
+    # username can only pass if the code actually uses what the host reports.
+    context 'when the connected user is not root' do
+      let(:ssh) { instance_double(Odysseus::Deployer::SSH, close: nil, user: 'odysseus') }
+      let(:home) { '/srv/state/7f3c1' }
+
+      before do
+        allow(ssh).to receive(:execute) do |command|
+          executed << command
+          case command
+          when /\Aecho \$HOME\z/ then "#{home}\n"
+          when /\Adocker ps/ then '{"ID":"abc123abc123","Image":"myapp-production:latest"}'
+          when /\Aecho \$/ then "#{secret_url}\n"
+          else ''
+          end
+        end
+      end
+
+      it "writes the env file under the deploy user's home, not /var/lib/odysseus" do
+        output_of { cli.app_exec('web1.example.com', config: awkward, command: 'rails db:migrate') }
+
+        _content, path, mode = uploaded.last
+        expect(path).to start_with("#{home}/.odysseus/env/")
+        expect(mode).to eq(0o600)
       end
     end
   end

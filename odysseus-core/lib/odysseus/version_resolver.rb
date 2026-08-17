@@ -18,7 +18,13 @@ module Odysseus
     # @return [DeployVersion]
     # @raise [Odysseus::ConfigError] when no version can be established
     def resolve(image_tag: nil)
-      return DeployVersion.new(version: image_tag, ref: nil, deployer: nil) if image_tag
+      # ref stays nil here: an arbitrary explicit tag has no commit it honestly
+      # identifies, and recording HEAD would assert a link that may not exist.
+      # (The no-tag path below refuses on uncommitted changes for exactly this
+      # reason — so that when it does record a ref, the tag actually identifies
+      # the code.) deployer is available regardless, so there is no such reason
+      # to withhold it.
+      return DeployVersion.new(version: image_tag, ref: nil, deployer: deployer) if image_tag
 
       unless git.repository?
         raise Odysseus::ConfigError,

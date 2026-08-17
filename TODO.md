@@ -295,6 +295,114 @@ Smaller findings worth fixing but not blocking anything.
       `deploy_versioning_spec.rb` covers the method since the extraction, and
       is the only thing that catches that mutation — but the fixtures should be
       de-uniformed so they stop looking like coverage they do not provide.
+- [ ] **Caddy's health check addresses the upstream by container name, so any
+      app that validates the Host header is marked unhealthy.** The active
+      check is built with `uri`, `interval`, `timeout` and `expect_status` but
+      **no `headers`** (`caddy/client.rb:324-338`), so Caddy sends the dial
+      address — `<service>-<tag>-<timestamp>:3000` — as `Host`. An app that
+      rejects unknown hosts answers 403, Caddy marks the only upstream
+      unhealthy, and every real request gets 503 "no upstreams available".
+      Meanwhile `docker ps` still reports the container healthy, because
+      Docker's own check uses `Host: localhost`. The symptom points at the
+      proxy; the cause is the app.
+      Hit for real on 2026-08-17 deploying a Sinatra 4 app, which enables
+      `host_authorization` by default. **This will hit Rails users**, the
+      primary target, whenever `config.hosts` is set.
+      The container name cannot be allow-listed by the app — it changes every
+      deploy. Fix on our side: send `'headers' => { 'Host' => [<first
+      proxy.hosts value>] }` in the active check, so the health check presents
+      the same Host as real traffic and an app only has to permit its own
+      domain, which is normal practice. Note an app must permit its public
+      hostname regardless; this fix removes the impossible half of the problem,
+      not both halves.
+- [ ] **`odysseus cleanup` can destroy the shared proxy, quietly.**
+      `cli.rb:609-620` stops and force-removes `odysseus-caddy` when it decides
+      no services remain — and it decides that from **Caddy's own route list**,
+      not from the containers actually on the host. A service whose route was
+      never added (a deploy that failed before attaching, say) does not count,
+      so the list can read empty while real services are still running. Caddy
+      serves every service on a host, so getting this wrong is an outage for
+      all of them, not just the one being cleaned up.
+      Both the `stop` and the `remove` are wrapped in `rescue StandardError;
+      nil`, so a partial failure leaves a stopped-but-present container and
+      reports success. Until the sibling fix landed, that state then blocked
+      every subsequent deploy with a name conflict.
+      Needs its own design pass: decide the removal from containers rather than
+      routes, and let a failed stop or remove be reported rather than
+      swallowed.
+- [ ] **A restarted Caddy loses every route until each service is redeployed.**
+      The container runs `caddy run --config /etc/caddy/Caddyfile` with no
+      `--resume`, and odysseus adds routes through the admin API at runtime — so
+      they live only in Caddy's memory. Confirmed on dedalus-prototypes
+      2026-08-17: the mounted `/data` holds `certificates`, `instance.uuid` and
+      `locks`, and **no `autosave.json`**. Certificates therefore survive a
+      restart; routes do not.
+      `--restart unless-stopped` means a host reboot restarts the container and
+      re-runs that command, so this is not hypothetical: on a host with seven
+      services, all seven stay unreachable until seven separate deploys run. The
+      sibling entry about `ensure_running` recreating a stopped Caddy has the
+      same consequence, and so does anything that restarts the daemon.
+      Options: start Caddy with `--resume` so it reloads the autosaved config
+      (needs checking that odysseus's API calls actually trigger an autosave —
+      the missing file suggests they may not); or write a real Caddyfile / JSON
+      config to the mounted volume so the routes are declarative rather than
+      runtime state; or have odysseus reconcile all known services' routes on
+      any deploy rather than only the one being deployed. The last is the
+      smallest change and the least complete.
+- [ ] **Every service on a host shares one flat network, so every app can reach
+      every other service's database.** Everything is started with
+      `--network odysseus` and nothing else, and Docker's embedded DNS resolves
+      container names across it. Observed on dedalus-prod 2026-08-17: 16
+      containers, 7 services, 5 databases — `zafu-shop`'s app can open a
+      connection to `wa-systems-pel-db` by name. A buggy dependency, a
+      compromised app or an unpatched CVE in any one service reaches all the
+      others. This matters more than it would for a single-service host, because
+      running several services on one box is a thing odysseus is *for*.
+      A container can hold several networks (verified on Docker 29.7.2, both via
+      repeated `--network` at run time and `docker network connect` afterwards).
+      **The design, verified end to end 2026-08-17: invert it — Caddy joins each
+      service's network, and there is no shared network at all.** Each service
+      gets `odysseus-<service>` carrying its web containers and its own
+      dependencies; `odysseus-caddy` holds one attachment per service.
+      Measured with five throwaway containers and two networks: proxy reaches
+      both services' apps, each app reaches its own database, and an app reaches
+      *neither* the other service's database nor its app. Note the weaker shape
+      — services joining a shared network for Caddy — isolates databases but
+      still lets one service's app reach another's, so it does not achieve the
+      goal.
+      What makes it practical: `docker network connect` works on a **running**
+      container, so adding a service does not recreate Caddy, which serves every
+      live service on the host. Migration is therefore graceful — connect Caddy
+      to each new network on upgrade, and app and dependency containers move onto
+      theirs as each service is next deployed. No flag day, and nothing is
+      recreated earlier than it would have been.
+      Needs design: deliberately shared dependencies (two services meant to
+      share a Redis) break, and nothing distinguishes shares-by-design from
+      reachable-by-accident; how long the old flat `odysseus` network is kept for
+      services not yet redeployed; network lifecycle, since removing a service
+      should remove its network but Caddy must disconnect first and `cleanup`
+      knows nothing about either; and `setup` is where per-service network
+      creation would naturally live, which argues for the user-model phases
+      landing first.
+- [ ] **`containers.count` is read by nothing in core.** The parser accepts it
+      (`parse_containers`, defaulting to 1) and the validator checks it, but
+      neither `WebDeploy` nor `JobDeploy` ever looks at
+      `role_config[:containers]` — only `odysseus-sail-rolling` does. So a
+      config asking for two workers gets one, silently, unless it also opts into
+      the rolling sail. A core config key honoured only by a third-party plugin
+      has it backwards.
+      Wanted 2026-08-17: several instances of a worker on one host. Neither
+      route works today — the built-in orchestrator ignores `count`, and rolling
+      on a non-web role cannot report health, because the sail builds its Docker
+      HEALTHCHECK only from `proxy.healthcheck` and never reads the role-level
+      `servers.<role>.healthcheck` that `JobDeploy` uses (already recorded
+      against the sail).
+      Teaching `JobDeploy` to honour `count` is the right fix, and needs two
+      decisions first — both about worker semantics rather than mechanics: what
+      happens when the Nth instance fails to come up (abort as the sail does, or
+      leave a partial set), and whether old instances stop *before* the new ones
+      start. For a queue worker, overlapping old and new is often the thing you
+      are trying to avoid, which is the opposite of the web role's behaviour.
 - [ ] **`env.secret` with no `secrets_file:` fails silently.**
       `Secrets::Loader#configured?` is just `!config[:secrets_file].nil?`, so a
       config that names secrets but no file skips the encrypted file entirely

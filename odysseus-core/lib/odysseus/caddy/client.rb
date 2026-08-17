@@ -1,6 +1,7 @@
 # lib/odysseus/caddy/client.rb
 
 require 'json'
+require 'shellwords'
 
 module Odysseus
   module Caddy
@@ -17,9 +18,27 @@ module Odysseus
       end
 
       # Ensure Caddy is running
+      #
+      # There are three states, not two: running, absent, and stopped-but-
+      # present. Docker refuses `docker run --name odysseus-caddy` while a
+      # container by that name already exists, so a stopped Caddy would
+      # otherwise fail every deploy after it, forever.
+      #
+      # A stopped container is removed rather than `docker start`ed. It
+      # carries whatever configuration it was *created* with, including its
+      # volume mount — and this branch changed Caddy's data directory from a
+      # fixed system path to one derived from the deploy user (see
+      # Odysseus::HostPaths#caddy_dir). `docker start` would silently
+      # resurrect a container mounting the old path while everything else
+      # believes it moved. Recreating always applies current configuration.
+      # Nothing is lost: certificates live in the mounted volume, and routes
+      # are re-added by the deploy that follows.
+      #
       # @return [Boolean] true if caddy is running
       def ensure_running
         return true if running?
+
+        @docker.remove(CONTAINER_NAME) if @docker.container_exists?(CONTAINER_NAME)
 
         start_caddy
         running?
@@ -37,18 +56,32 @@ module Odysseus
         @ssh.execute('docker network create --label odysseus.managed=true odysseus 2>/dev/null || true')
 
         # Create data directory for certificates
-        @ssh.execute('mkdir -p /var/lib/odysseus/caddy')
+        @ssh.execute("mkdir -p #{Shellwords.escape(host_paths.caddy_dir)}")
 
         # Run Caddy with admin API enabled and persistent storage for certs
+        #
+        # The mkdir above and this mount must name the same directory, or
+        # Caddy starts against an empty one and silently has no certificates.
+        # Docker::Client interpolates `-v` values into its command line
+        # unescaped, so the directory is escaped here rather than there.
+        #
+        # The admin API is published on loopback only: it can rewrite the
+        # proxy config for every service on the host, and #api_request only
+        # ever reaches it via `curl localhost` over SSH, so nothing needs it
+        # exposed beyond the host itself. CADDY_ADMIN must stay bound to
+        # 0.0.0.0 *inside* the container regardless — that is what the
+        # published port maps to, and binding it to 127.0.0.1 there would put
+        # it behind the container's own loopback, unreachable even from the
+        # host.
         @docker.run(
           name: CONTAINER_NAME,
           image: CADDY_IMAGE,
           options: {
             service: 'odysseus-proxy',
-            ports: ['80:80', '443:443', "#{ADMIN_API_PORT}:#{ADMIN_API_PORT}"],
+            ports: ['80:80', '443:443', "127.0.0.1:#{ADMIN_API_PORT}:#{ADMIN_API_PORT}"],
             network: 'odysseus',
             restart: 'unless-stopped',
-            volumes: ['/var/lib/odysseus/caddy:/data'],
+            volumes: ["#{Shellwords.escape(host_paths.caddy_dir)}:/data"],
             env: {
               'CADDY_ADMIN' => "0.0.0.0:#{ADMIN_API_PORT}"
             },
@@ -282,6 +315,10 @@ module Odysseus
       end
 
       private
+
+      def host_paths
+        @host_paths ||= Odysseus::HostPaths.new(@ssh)
+      end
 
       def ensure_https_server
         # Check if we have an HTTPS server configured

@@ -58,9 +58,42 @@ ssh:
 2. Build and deploy:
 
 ```bash
-# Build, distribute, and deploy in one command
-odysseus deploy --image v1.0.0 --build
+# From a git repository with everything committed — the version is the commit
+odysseus deploy --build
+
+# Anywhere else, name the version yourself
+odysseus deploy --build --image v1.0.0
 ```
+
+Both work. They are not equivalent — see [Naming the
+version](#naming-the-version) for what the second one costs you.
+
+### Naming the version
+
+Every deploy is tagged with a version, and there are two ways to get one.
+
+**From a git commit — the proper way.** Run `deploy` in a git repository with
+nothing uncommitted and omit `--image`. Odysseus tags the image with the commit
+SHA and **refuses to deploy while the working tree is dirty**, which is the
+point: the tag then provably identifies the code that is running. It records the
+commit and your identity in each host's deploy log, so `odysseus rollback --list`
+can tell you which commit a version was and who shipped it.
+
+**With `--image TAG` — quick and dirty.** No git repository is needed, so it
+works anywhere, and it is the right tool for trying something out or deploying
+an image you built elsewhere. What you give up:
+
+- **No commit is recorded.** `rollback --list` shows the version but cannot tell
+  you what code it was, because an arbitrary tag has no commit it honestly
+  identifies.
+- **Nothing stops you reusing a tag.** The tag *is* the version's identity, so
+  deploying twice as `v1.0.0` leaves two entries in the deploy log that
+  odysseus cannot tell apart — and rollback and image retention cannot either.
+  This fails silently: you get a history that looks fine and does not say which
+  image is on the host.
+
+Use `--image` to get started or to test. Use a git repository for anything you
+might later need to roll back or account for.
 
 The `--build` flag automatically chooses how to distribute the image:
 - **Without `registry` config** → uses [pussh](https://github.com/psviderski/unregistry) to transfer images directly via SSH
@@ -78,7 +111,7 @@ odysseus deploy [options]
 
 Options:
 - `--config FILE` - Path to deploy.yml (default: deploy.yml)
-- `--image TAG` - Docker image tag (default: the git commit being deployed; required outside a clean git repository)
+- `--image TAG` - Docker image tag (default: the git commit being deployed; required outside a clean git repository). See [Naming the version](#naming-the-version) — it is the quick way, not the equivalent way.
 - `--build` - Build and distribute image before deploying
 - `--dry-run` - Show what would be deployed without doing it
 - `-v, --verbose` - Show SSH commands being executed
@@ -107,7 +140,7 @@ odysseus build [options]
 
 Options:
 - `--config FILE` - Path to deploy.yml (default: deploy.yml)
-- `--image TAG` - Docker image tag (default: the git commit being deployed; required outside a clean git repository)
+- `--image TAG` - Docker image tag (default: the git commit being deployed; required outside a clean git repository). See [Naming the version](#naming-the-version) — it is the quick way, not the equivalent way.
 - `--push` - Push image to registry after build
 - `--context PATH` - Build context path (default: . relative to deploy.yml)
 - `-v, --verbose` - Show build commands being executed
@@ -137,7 +170,7 @@ odysseus pussh [options]
 
 Options:
 - `--config FILE` - Path to deploy.yml (default: deploy.yml)
-- `--image TAG` - Docker image tag (default: the git commit being deployed; required outside a clean git repository)
+- `--image TAG` - Docker image tag (default: the git commit being deployed; required outside a clean git repository). See [Naming the version](#naming-the-version) — it is the quick way, not the equivalent way.
 - `--build` - Build image before pushing
 - `-v, --verbose` - Show commands being executed
 
@@ -524,9 +557,10 @@ env:
 - `clear` - Plaintext values stored in deploy.yml
 - `secret` - Keys to load from encrypted secrets file or server environment
 
-Both are handed to the container through an env file written to
-`/var/lib/odysseus/env` with `0600` permissions and removed once the container
-has been created, so secrets never appear in the host's process list. A value
+Both are handed to the container through an env file written under the state
+directory described in [ssh](#ssh) — `/var/lib/odysseus/env` for the default
+root connection — with `0600` permissions, and removed once the container has
+been created, so secrets never appear in the host's process list. A value
 containing a newline is rejected, since a Docker env file cannot represent one.
 
 `app exec`, `app shell` and `app console` get the same environment the same way.
@@ -539,10 +573,10 @@ relay change — is included: the file is removed over a fresh connection.
 Two cases still leave the file on the host. The `odysseus` process being killed
 outright — `SIGKILL`, or the machine going down — where no cleanup can run at
 all; and a host that is unreachable when the session ends, where there is
-nowhere to send the removal. The file is mode `0600` in `/var/lib/odysseus/env`,
-which is mode `0700`, so another user on the box still cannot read it; but
-nothing comes back to remove it, since the next run writes its own file rather
-than tidying old ones.
+nowhere to send the removal. The file is mode `0600` inside that same env
+directory, which is `0700` for every connection, so another user on the box
+still cannot read it; but nothing comes back to remove it, since the next run
+writes its own file rather than tidying old ones.
 
 ### secrets_file
 
@@ -573,7 +607,7 @@ dependencies:
     hosts:
       - db.example.com
     volumes:
-      - /var/lib/odysseus/myapp/postgres:/var/lib/postgresql/data
+      - /srv/myapp/postgres:/var/lib/postgresql/data
     env:
       clear:
         POSTGRES_USER: myapp
@@ -596,6 +630,18 @@ ssh:
   keys:
     - ~/.ssh/id_ed25519
 ```
+
+`user` defaults to `root` and also decides where odysseus keeps state on the
+host. A root connection writes to `/var/lib/odysseus`, exactly as always. Any
+other user writes under its own `$HOME/.odysseus` instead, because it cannot
+create or `chmod` a directory root owns. Caddy's certificate directory
+follows the same rule as everything else: `/var/lib/odysseus/caddy` for a
+root connection, `$HOME/.odysseus/caddy` for any other user.
+
+A non-root `user` must already exist on the target host — with membership in
+the `docker` group and a writable home directory — and its key must be one of
+`keys` above. Odysseus does not create this user, install Docker, or set up
+the host for you; all of that is on you today.
 
 ### builder
 

@@ -7,6 +7,83 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Fixed
+- `VersionResolver#resolve` now names the deployer for an explicitly-tagged
+  deploy (`odysseus deploy --image v1.2.3`), instead of recording `nil`. The
+  deployer comes from `git config user.email`, falling back to `$USER` — a
+  lookup that needs no commit and no clean working tree, so withholding it
+  alongside `ref` was never justified. Every explicitly-tagged deploy wrote a
+  host-side log line with no name on it, which emptied the "by whom" column
+  of `odysseus rollback --list` and left the host-side deploy history
+  unattributed. `ref` still stays `nil` for an explicit tag: an arbitrary tag
+  names no commit it honestly identifies, so there is nothing true to record
+  there.
+- `Caddy::Client#start_caddy` now publishes the admin API on
+  `127.0.0.1:2019` instead of `2019:2019`, which bound it to every
+  interface. That API can rewrite the proxy configuration — routes,
+  upstreams, TLS — for every service on the host, so anyone who could reach
+  the port controlled the proxy. `Caddy::Client` only ever calls it via
+  `curl localhost` over SSH, so nothing needed the external exposure. The
+  in-container `CADDY_ADMIN` bind stays `0.0.0.0:2019`, which is what the
+  published port maps to — only where the port lands on the host changed.
+  **This does not close the exposure on a host where Caddy is already
+  running**: `ensure_running` returns early when the container is up, so
+  the new binding only takes effect the next time Caddy is recreated
+  (stopped and restarted, or removed). An already-running Caddy stays bound
+  to every interface until that happens.
+- `JobDeploy` now ensures the `odysseus` Docker network exists before
+  starting a container, instead of assuming it. It ran every container with
+  `network: 'odysseus'` but never created that network itself, so a jobs-only
+  service deployed to a fresh host failed at `docker run`. The gap was
+  invisible on any host that had ever deployed a web role or a dependency
+  first: a web role's `ensure_caddy!` creates the network as a side effect of
+  starting Caddy, and `DependencyDeploy` has always had its own
+  `ensure_network!`. Found on a genuinely fresh host with the deploy user
+  ready but no prior deploy of either kind.
+- `Caddy::Client#ensure_running` now recreates a stopped Caddy container
+  instead of trying to `docker run` a new one over it. Once Caddy had been
+  stopped, `--name odysseus-caddy` collided with the container Docker still
+  had by that name, and `docker run` refused every time after: every
+  subsequent deploy failed and the proxy stayed down until someone removed
+  the container by hand. Absent and already-running containers are
+  unaffected. The stopped container is removed rather than `docker start`ed
+  so it always picks up current configuration — notably the deploy-user
+  Caddy directory added earlier in this file — instead of resuming with
+  whatever it was created with.
+
+### Added
+- `Odysseus::HostPaths`, which decides where odysseus keeps state on a host
+  from the connecting SSH user: `root` still gets `/var/lib/odysseus`, exactly
+  as before and with no extra SSH round trip; any other user gets
+  `$HOME/.odysseus`, resolved by asking the host once per connection.
+
+### Changed
+- Env files (`Docker::Client`) and the deploy log (`DeployLog`) now follow
+  `HostPaths` instead of a fixed `/var/lib/odysseus` constant. Before this,
+  a non-root deploy could not work at all: `write_env_file` chmods its
+  directory before writing into it, and a non-owner cannot chmod a directory
+  root created, so the deploy died at the first container start. This is the
+  change that makes a non-root deploy possible, on a host you have already
+  configured for it.
+- Caddy's certificate directory (`Caddy::Client`) now follows `HostPaths`
+  too, instead of staying fixed at `/var/lib/odysseus/caddy`. It was
+  deliberately left out of the earlier change in this release to avoid
+  moving issued Let's Encrypt certificates or re-issuing against rate
+  limits — but that risk only ever applied to root installs, which are the
+  only ones with certificates at the old path. Deriving the directory
+  protects them identically: root still resolves to
+  `/var/lib/odysseus/caddy`, byte-identical. Leaving it fixed meant a
+  non-root deploy user could never create it, so `ensure_running` failed at
+  `mkdir -p /var/lib/odysseus/caddy` on every non-root web deploy — found on
+  a real host. Root is unaffected.
+- `rollback --list` keeps its history across the move: a host that deployed
+  as root and later switches to a deploy user still has its old log read as
+  a fallback when the new location is absent (or unreadable) rather than
+  empty — an empty file at the new location exits 0 and suppresses the
+  fallback. Reads fall back to the old location; appends only ever go to the
+  new one.
+- Nothing changes for a root install.
+
 ## [0.7.0] - 2026-08-16
 
 A minor bump for two reasons: there is new public API, and a one-off container's

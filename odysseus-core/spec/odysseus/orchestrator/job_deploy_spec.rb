@@ -44,6 +44,7 @@ RSpec.describe Odysseus::Orchestrator::JobDeploy do
     allow(Odysseus::Docker::Client).to receive(:new).with(mock_ssh).and_return(mock_docker)
     allow(orchestrator).to receive(:sleep) # Don't actually sleep
     allow(mock_docker).to receive(:volume_exists?).and_return(false)
+    allow(mock_docker).to receive(:ensure_network)
   end
 
   describe '#deploy' do
@@ -91,6 +92,16 @@ RSpec.describe Odysseus::Orchestrator::JobDeploy do
         result = orchestrator.deploy(image_tag: 'v1', role: :jobs)
         expect(result[:success]).to be true
         expect(result[:service]).to eq('myapp-jobs')
+      end
+
+      # A jobs-only deploy may be the first thing ever run on a fresh host —
+      # there is no web role's ensure_caddy! and no dependency's
+      # ensure_network! to have created it first.
+      it 'ensures the Docker network exists before starting the container' do
+        expect(mock_docker).to receive(:ensure_network).with('odysseus',
+                                                             labels: { 'odysseus.managed' => 'true' }).ordered
+        expect(mock_docker).to receive(:run).ordered.and_return(new_container_id)
+        orchestrator.deploy(image_tag: 'v1', role: :jobs)
       end
     end
 

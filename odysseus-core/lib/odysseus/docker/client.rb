@@ -9,9 +9,6 @@ module Odysseus
     class Client
       HEALTHCHECK_POLL_INTERVAL = 2 # seconds
 
-      # Env files are written here just long enough for docker run to read them.
-      ENV_FILE_DIR = '/var/lib/odysseus/env'.freeze
-
       # @param ssh [Odysseus::Deployer::SSH] SSH connection to server
       def initialize(ssh)
         @ssh = ssh
@@ -112,6 +109,16 @@ module Odysseus
           "docker inspect --format '{{.State.Running}}' #{container_id} 2>/dev/null || echo 'false'"
         )
         output.strip == 'true'
+      end
+
+      # Check if a container exists, running or stopped
+      # @param container_id [String] container ID or name
+      # @return [Boolean]
+      def container_exists?(container_id)
+        output = @ssh.execute(
+          "docker inspect --format '{{.Id}}' #{container_id} 2>/dev/null || echo ''"
+        )
+        !output.strip.empty?
       end
 
       # Get container IP address
@@ -240,7 +247,7 @@ module Odysseus
           parts = ['docker run --rm']
 
           # Environment variables (see #write_env_file — never inlined here)
-          parts << "--env-file #{env_file}" if env_file
+          parts << "--env-file #{Shellwords.escape(env_file)}" if env_file
 
           # Volume mounts
           options[:volumes]&.each { |v| parts << "-v #{v}" }
@@ -367,6 +374,12 @@ module Odysseus
 
       private
 
+      # Where this connection's env files go. Derived rather than constant
+      # because a deploy user cannot write — or chmod — the system directory.
+      def host_paths
+        @host_paths ||= Odysseus::HostPaths.new(@ssh)
+      end
+
       # Where a container's env file goes, or nil when there is nothing to
       # write. Settled before the write rather than returned by it: scp creates
       # the remote file and then streams into it, so an upload that dies partway
@@ -378,7 +391,7 @@ module Odysseus
       def env_file_path(name, env)
         return nil if env.nil? || env.empty?
 
-        "#{ENV_FILE_DIR}/#{name}.env"
+        "#{host_paths.env_dir}/#{name}.env"
       end
 
       # Write the container's environment to a private file on the host.
@@ -390,7 +403,8 @@ module Odysseus
       def write_env_file(path, env)
         return unless path
 
-        @ssh.execute("mkdir -p #{ENV_FILE_DIR} && chmod 700 #{ENV_FILE_DIR}")
+        dir = host_paths.env_dir
+        @ssh.execute("mkdir -p #{Shellwords.escape(dir)} && chmod 700 #{Shellwords.escape(dir)}")
         @ssh.upload_string(format_env_file(env), path, mode: 0o600)
       end
 
@@ -442,14 +456,14 @@ module Odysseus
       def remove_env_file(path)
         return unless path
 
-        @ssh.execute("rm -f #{path}")
+        @ssh.execute("rm -f #{Shellwords.escape(path)}")
       rescue StandardError
         remove_env_file_on_a_new_connection(path)
       end
 
       def remove_env_file_on_a_new_connection(path)
         @ssh.close
-        @ssh.execute("rm -f #{path}")
+        @ssh.execute("rm -f #{Shellwords.escape(path)}")
       rescue StandardError
         nil
       end
@@ -474,7 +488,7 @@ module Odysseus
         options[:ports]&.each { |p| parts << "-p #{p}" }
 
         # Environment variables (see #write_env_file — never inlined here)
-        parts << "--env-file #{env_file}" if env_file
+        parts << "--env-file #{Shellwords.escape(env_file)}" if env_file
 
         # Memory limits
         parts << "--memory #{options[:memory]}" if options[:memory]

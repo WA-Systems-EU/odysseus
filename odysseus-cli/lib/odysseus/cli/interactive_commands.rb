@@ -149,10 +149,12 @@ module Odysseus
       # through with_env_file's ensure. What that cannot cover is this process
       # being killed outright (SIGKILL, or the machine going down): no ensure
       # runs, so the file stays until something else removes it. It is mode 0600
-      # inside /var/lib/odysseus/env, which write_env_file chmods to 0700, so no
-      # other user on the host can read it — but it is a file of secrets that
-      # nobody is coming back for: the next deploy or one-off run writes its own
-      # rather than tidying this one.
+      # inside that connection's env directory (HostPaths#env_dir —
+      # /var/lib/odysseus/env for root, $HOME/.odysseus/env otherwise), which
+      # write_env_file chmods to 0700 for every connection, so no other user on
+      # the host can read it — but it is a file of secrets that nobody is
+      # coming back for: the next deploy or one-off run writes its own rather
+      # than tidying this one.
       def with_container_env(server, config, config_file, &)
         ssh = connect_to_server(server, config)
 
