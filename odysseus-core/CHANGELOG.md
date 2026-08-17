@@ -17,6 +17,16 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   starting Caddy, and `DependencyDeploy` has always had its own
   `ensure_network!`. Found on a genuinely fresh host with the deploy user
   ready but no prior deploy of either kind.
+- `Caddy::Client#ensure_running` now recreates a stopped Caddy container
+  instead of trying to `docker run` a new one over it. Once Caddy had been
+  stopped, `--name odysseus-caddy` collided with the container Docker still
+  had by that name, and `docker run` refused every time after: every
+  subsequent deploy failed and the proxy stayed down until someone removed
+  the container by hand. Absent and already-running containers are
+  unaffected. The stopped container is removed rather than `docker start`ed
+  so it always picks up current configuration — notably the deploy-user
+  Caddy directory added earlier in this file — instead of resuming with
+  whatever it was created with.
 
 ### Added
 - `Odysseus::HostPaths`, which decides where odysseus keeps state on a host

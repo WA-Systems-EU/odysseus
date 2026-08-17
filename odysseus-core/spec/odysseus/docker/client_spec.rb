@@ -260,6 +260,18 @@ RSpec.describe Odysseus::Docker::Client do
     end
   end
 
+  describe '#container_exists?' do
+    it 'returns true when the container exists, running or not' do
+      expect(mock_ssh).to receive(:execute).and_return("abc123def456\n")
+      expect(client.container_exists?('odysseus-caddy')).to be true
+    end
+
+    it 'returns false when no such container exists' do
+      expect(mock_ssh).to receive(:execute).and_return("\n")
+      expect(client.container_exists?('odysseus-caddy')).to be false
+    end
+  end
+
   describe '#container_ip' do
     it 'returns IP address' do
       expect(mock_ssh).to receive(:execute).and_return("172.17.0.2\n")

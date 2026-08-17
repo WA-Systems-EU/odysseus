@@ -18,9 +18,27 @@ module Odysseus
       end
 
       # Ensure Caddy is running
+      #
+      # There are three states, not two: running, absent, and stopped-but-
+      # present. Docker refuses `docker run --name odysseus-caddy` while a
+      # container by that name already exists, so a stopped Caddy would
+      # otherwise fail every deploy after it, forever.
+      #
+      # A stopped container is removed rather than `docker start`ed. It
+      # carries whatever configuration it was *created* with, including its
+      # volume mount — and this branch changed Caddy's data directory from a
+      # fixed system path to one derived from the deploy user (see
+      # Odysseus::HostPaths#caddy_dir). `docker start` would silently
+      # resurrect a container mounting the old path while everything else
+      # believes it moved. Recreating always applies current configuration.
+      # Nothing is lost: certificates live in the mounted volume, and routes
+      # are re-added by the deploy that follows.
+      #
       # @return [Boolean] true if caddy is running
       def ensure_running
         return true if running?
+
+        @docker.remove(CONTAINER_NAME) if @docker.container_exists?(CONTAINER_NAME)
 
         start_caddy
         running?

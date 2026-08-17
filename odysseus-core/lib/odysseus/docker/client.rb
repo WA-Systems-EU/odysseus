@@ -111,6 +111,16 @@ module Odysseus
         output.strip == 'true'
       end
 
+      # Check if a container exists, running or stopped
+      # @param container_id [String] container ID or name
+      # @return [Boolean]
+      def container_exists?(container_id)
+        output = @ssh.execute(
+          "docker inspect --format '{{.Id}}' #{container_id} 2>/dev/null || echo ''"
+        )
+        !output.strip.empty?
+      end
+
       # Get container IP address
       # @param container_id [String] container ID or name
       # @param network [String] network name (default: bridge)

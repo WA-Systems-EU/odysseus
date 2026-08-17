@@ -24,13 +24,20 @@ RSpec.describe Odysseus::Caddy::Client do
         expect(mock_docker).not_to receive(:run)
         expect(client.ensure_running).to be true
       end
+
+      it 'does not check for or remove an existing container' do
+        expect(mock_docker).not_to receive(:container_exists?)
+        expect(mock_docker).not_to receive(:remove)
+        client.ensure_running
+      end
     end
 
-    context 'when Caddy is not running' do
+    context 'when Caddy is absent' do
       before do
         allow(mock_docker).to receive(:running?)
           .with('odysseus-caddy')
           .and_return(false, true) # First check false, then true after start
+        allow(mock_docker).to receive(:container_exists?).with('odysseus-caddy').and_return(false)
         allow(mock_ssh).to receive(:user).and_return('root')
         allow(mock_ssh).to receive(:execute) # For network creation
         allow(mock_docker).to receive(:run)
@@ -59,6 +66,39 @@ RSpec.describe Odysseus::Caddy::Client do
       it 'returns true after starting' do
         expect(client.ensure_running).to be true
       end
+
+      it 'does not attempt to remove a container' do
+        expect(mock_docker).not_to receive(:remove)
+        client.ensure_running
+      end
+    end
+
+    # The container survives a stop under its fixed CONTAINER_NAME, so
+    # `docker run --name odysseus-caddy` refuses to reuse it — every deploy
+    # after the stop would fail at exactly this point, forever, unless the
+    # old container is cleared out of the way first.
+    context 'when Caddy is stopped but the container still exists' do
+      before do
+        allow(mock_docker).to receive(:running?)
+          .with('odysseus-caddy')
+          .and_return(false, true) # First check false, then true after recreate
+        allow(mock_docker).to receive(:container_exists?).with('odysseus-caddy').and_return(true)
+        allow(mock_docker).to receive(:remove).with('odysseus-caddy')
+        allow(mock_ssh).to receive(:user).and_return('root')
+        allow(mock_ssh).to receive(:execute)
+        allow(mock_docker).to receive(:run)
+        allow(client).to receive(:sleep)
+      end
+
+      it 'removes the existing container before creating a new one' do
+        expect(mock_docker).to receive(:remove).with('odysseus-caddy').ordered
+        expect(mock_docker).to receive(:run).ordered
+        client.ensure_running
+      end
+
+      it 'returns true after recreating' do
+        expect(client.ensure_running).to be true
+      end
     end
 
     # Caddy's data directory follows the connecting user, exactly like every
@@ -69,6 +109,7 @@ RSpec.describe Odysseus::Caddy::Client do
     describe "Caddy's data directory" do
       before do
         allow(mock_docker).to receive(:running?).with('odysseus-caddy').and_return(false, true)
+        allow(mock_docker).to receive(:container_exists?).with('odysseus-caddy').and_return(false)
         allow(mock_docker).to receive(:run)
         allow(client).to receive(:sleep)
         allow(mock_ssh).to receive(:execute) # network creation, and echo $HOME unless overridden below
