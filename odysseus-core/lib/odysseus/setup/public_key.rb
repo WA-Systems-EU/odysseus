@@ -63,16 +63,31 @@ module Odysseus
       end
 
       # An explicit --key path must be a public key itself; an ssh.keys entry
-      # is a private key whose public half is read from its .pub sibling, or,
-      # when that sibling is missing, empty, or has nothing valid in it,
-      # derived -- common where keys were copied rather than generated.
+      # is a private key whose public half is read from its .pub sibling.
+      #
+      # A sibling with nothing written in it -- missing, empty, or
+      # whitespace-only -- is silently derived from the private key: nothing
+      # was expressed there, so deriving is helpful, not presumptuous. A
+      # sibling that has content but none of it validates (for example a
+      # restricted `command="..."` line, which LINE_PATTERN deliberately does
+      # not accept -- see its comment) is refused rather than derived around:
+      # silently substituting a different, less restricted key is the same
+      # "operator believes X is installed, Y is installed instead" failure
+      # the explicit --key raise below exists to prevent, just reached by the
+      # implicit path instead.
       def self.from_path(path, explicit:)
         return valid_lines(path) if explicit
 
-        sibling_lines = valid_lines("#{path}.pub")
+        sibling = "#{path}.pub"
+        sibling_lines = valid_lines(sibling)
         return sibling_lines if sibling_lines.any?
+        return derive(path) unless content?(sibling)
 
-        derive(path)
+        raise Odysseus::SetupError,
+              "#{sibling} exists but has no valid, unrestricted public key in it, so " \
+              'odysseus will not silently derive a different key in its place. Fix the ' \
+              'file, remove it so the key is derived from the private key instead, or ' \
+              'pass --key with the key to install.'
       end
 
       # @return [Array<String>] the valid public-key lines in the file, in
@@ -84,6 +99,13 @@ module Odysseus
           line = raw.strip
           line if !line.empty? && LINE_PATTERN.match?(line)
         end
+      end
+
+      # @return [Boolean] whether the file exists and has more than
+      #   whitespace in it -- distinguishes "nothing was expressed here" from
+      #   "something was expressed here, and it didn't validate"
+      def self.content?(path)
+        File.file?(path) && !File.read(path).strip.empty?
       end
 
       # `ssh-keygen -y` prints the public half of a private key. It fails
@@ -99,7 +121,7 @@ module Odysseus
         LINE_PATTERN.match?(line) ? [line] : []
       end
 
-      private_class_method :from_path, :valid_lines, :derive
+      private_class_method :from_path, :valid_lines, :content?, :derive
     end
   end
 end

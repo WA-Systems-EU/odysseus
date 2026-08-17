@@ -136,14 +136,27 @@ RSpec.describe Odysseus::Setup::PublicKey do
       expect(lines.first).to start_with('ssh-ed25519 ')
     end
 
-    it 'derives when the .pub sibling contains no valid key content' do
+    # Content that doesn't validate is a different case from no content at
+    # all: something was written here on purpose, so odysseus refuses rather
+    # than quietly substituting whatever the private key derives to.
+    it 'refuses when the .pub sibling contains only garbage, rather than deriving a key in its place' do
       File.write(public_key, "this is not a key\n")
 
-      lines = described_class.resolve(keys: [private_key])
+      expect { described_class.resolve(keys: [private_key]) }
+        .to raise_error(Odysseus::SetupError, /#{Regexp.escape(public_key)}/)
+    end
 
-      expect(lines.size).to eq(1)
-      expect(lines.first).to start_with('ssh-ed25519 ')
-      expect(lines.first).not_to include('not a key')
+    # The failure mode this guards against: a restricted line
+    # (command="...") is a deliberate scoping-down of the key. Deriving
+    # around it -- because ssh-keygen -y only ever prints the bare key, with
+    # no options prefix -- would silently hand the operator a MORE permissive
+    # key than the one they wrote, the opposite of what they asked for.
+    it 'refuses when the .pub sibling contains a restricted line, rather than deriving the unrestricted key in its place' do
+      bare_line = File.read(public_key).strip
+      File.write(public_key, "command=\"/usr/bin/true\" #{bare_line}\n")
+
+      expect { described_class.resolve(keys: [private_key]) }
+        .to raise_error(Odysseus::SetupError, /#{Regexp.escape(public_key)}/)
     end
 
     # Guards the validation fix from over-correcting: a comment is free text,
