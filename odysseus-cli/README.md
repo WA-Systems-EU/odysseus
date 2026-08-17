@@ -359,13 +359,14 @@ installed, nothing is repaired. Caddy's directory is deliberately not
 checked — it doesn't exist until the first deploy starts Caddy, so checking
 for it would report a correctly configured, not-yet-deployed host as broken.
 
-**What it's for.** Preparing a server — creating a user, installing Docker,
-opening firewall ports — is not odysseus's job; that belongs to OpenTofu,
-Terraform or an equivalent tool that can do it declaratively and at scale.
-`doctor` answers whether the host they produced is actually usable by
-odysseus as the user your config names, which is worth asking however the
-host was prepared, and can serve as the acceptance test for a tofu-built one.
-odysseus does not provision servers.
+**What it's for.** Preparing servers at scale — users, Docker, firewall
+ports, everything declaratively and repeatably — belongs to OpenTofu,
+Terraform or an equivalent tool, not to odysseus. [`setup`](#setup) does a
+deliberately narrow slice of that for one host, to get a trial going; it
+opens no ports, and it is not a provisioning tool. `doctor` answers whether
+a host is actually usable by odysseus as the user your config names, which
+is worth asking however the host was prepared, and can serve as the
+acceptance test for a tofu-built one.
 
 ### rollback
 
