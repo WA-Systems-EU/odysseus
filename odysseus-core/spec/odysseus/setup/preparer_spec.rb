@@ -222,15 +222,39 @@ RSpec.describe Odysseus::Setup::Preparer do
         expect(commands).to include(a_string_matching(/apt-get.*install -y docker-ce/))
       end
 
-      it 'fails when the daemon still does not answer after installing' do
-        preparer, = build(
-          answers: healthy.merge(docker_answers(second_probe: "Cannot connect to the Docker daemon\n"))
-        )
+      # The idempotence property, pinned by name rather than by accident. It
+      # holds today only because `healthy` never stubs /apt-get/, so a stray
+      # apt call crashes most of this file with "spec did not anticipate" --
+      # protection that a future broad stub (`/apt/ => ''`, say) would silently
+      # remove with nothing left to notice. A second `setup` against a prepared
+      # host must not touch the package manager at all.
+      it 'touches apt not at all when docker already answers' do
+        preparer, commands = build(answers: healthy)
 
         result = preparer.prepare.find { |r| r.step == :docker }
 
+        expect(result.status).to eq(:ok)
+        expect(commands).not_to include(a_string_matching(/apt-get/))
+        expect(commands).not_to include(a_string_matching(/docker\.list/))
+      end
+
+      it 'fails when the daemon still does not answer after installing' do
+        preparer, commands = build(
+          answers: healthy.merge(docker_answers(second_probe: "Cannot connect to the Docker daemon\n"))
+        )
+
+        results = preparer.prepare
+        result = results.find { |r| r.step == :docker }
+
         expect(result.status).to eq(:fail)
         expect(result.detail).to match(/installed/i)
+        # apt exiting zero says a package was unpacked, not that a daemon
+        # answers -- so this must halt the sequence exactly like an apt failure
+        # does. Pinned here rather than left to the sibling example that makes
+        # apt-get itself raise: that one proves the halt for a raised error,
+        # not for an install that "succeeded" into a silent daemon.
+        expect(results.last.step).to eq(:docker)
+        expect(commands).not_to include(a_string_matching(/useradd/))
       end
 
       # The specific pattern goes FIRST: the harness takes the first key that
