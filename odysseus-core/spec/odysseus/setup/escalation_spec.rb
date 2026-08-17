@@ -90,5 +90,18 @@ RSpec.describe Odysseus::Setup::Escalation do
       expect { described_class.new(ssh: ssh, as: 'deploy').probe! }
         .to raise_error(Odysseus::SetupError, /deploy/)
     end
+
+    # The wrapper text alone (checked above) can't tell "sudo: command not
+    # found" apart from "sudo: a password is required" — only the
+    # underlying error's own detail can. Assert on that detail specifically
+    # so dropping e.message from the raised message (e.g. swapping it for
+    # e.class.name) fails this spec even though it satisfies every other one.
+    it "carries the underlying sudo failure's own detail, not just its class" do
+      ssh = instance_double(Odysseus::Deployer::SSH)
+      allow(ssh).to receive(:execute).and_raise(Odysseus::SSHCommandError, 'sudo: command not found')
+
+      expect { described_class.new(ssh: ssh, as: 'deploy').probe! }
+        .to raise_error(Odysseus::SetupError, /sudo: command not found/)
+    end
   end
 end

@@ -162,6 +162,9 @@ module Odysseus
           error_msg += "  3. The host is online: tailscale ping #{@host}"
         end
         raise Odysseus::SSHConnectionError, error_msg
+      rescue IOError, Net::SSH::Disconnect, Errno::ECONNRESET, Errno::EPIPE => e
+        raise Odysseus::SSHConnectionError,
+              "Connection to #{@host} dropped mid-command rather than failing to open: #{e.message}"
       end
 
       def connect

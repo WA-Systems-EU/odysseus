@@ -85,6 +85,37 @@ RSpec.describe Odysseus::Deployer::SSH do
       end
     end
 
+    context 'when the session drops mid-command' do
+      before do
+        allow(mock_session).to receive(:open_channel).and_yield(mock_channel)
+        allow(mock_channel).to receive(:exec).and_yield(mock_channel, true)
+        allow(mock_channel).to receive(:on_data)
+        allow(mock_channel).to receive(:on_extended_data)
+        allow(mock_channel).to receive(:on_request)
+      end
+
+      [
+        IOError.new('closed stream'),
+        Net::SSH::Disconnect.new('connection lost'),
+        Errno::ECONNRESET.new('Connection reset by peer'),
+        Errno::EPIPE.new('Broken pipe')
+      ].each do |raised|
+        it "turns a mid-command #{raised.class} into SSHConnectionError naming the host" do
+          allow(mock_session).to receive(:loop).and_raise(raised)
+
+          expect { ssh.execute('docker ps') }
+            .to raise_error(Odysseus::SSHConnectionError, /test-server/)
+        end
+
+        it "says a mid-command #{raised.class} dropped rather than failed to open" do
+          allow(mock_session).to receive(:loop).and_raise(raised)
+
+          expect { ssh.execute('docker ps') }
+            .to raise_error(Odysseus::SSHConnectionError, /dropped mid-command/)
+        end
+      end
+    end
+
     context 'when the remote command exits non-zero' do
       before do
         allow(mock_channel).to receive(:on_extended_data)
