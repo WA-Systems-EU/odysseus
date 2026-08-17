@@ -313,14 +313,39 @@ are deployed with it between releases.
    host you configure by hand.
 2. **`odysseus doctor`.** Read-only diagnosis. Most of the surprise removed for
    a fraction of the work, and the half that lasts.
-3. **`setup` bootstrap**, without the Docker install: config block, sudo
-   probe, user, group, keys, directories, log migration, self-test. A host
-   without Docker is refused plainly.
-4. **Docker install.** The riskiest part — repository keys, apt locks on a
-   minutes-old host, dpkg state — lands last, behind the distro gate.
+3. **`setup`, including the Docker install.** Sudo probe, distro gate, Docker
+   from apt, user, group, keys, directories, log migration, self-test.
+   **Decided 2026-08-17 to land the install with the rest rather than after
+   it.** The original split held the riskiest step back — repository keys, apt
+   locks on a minutes-old host, dpkg state — but a trial user on a fresh cloud
+   image has no Docker either, so a `setup` that refuses without it fails the
+   only person it exists for. The risk is real and is answered by the step's own
+   design: check-then-apply, files written whole rather than appended, a bounded
+   wait on a dpkg lock, and no attempt to repair an apt state it did not create.
+4. **Per-service networks are NOT setup's job.** Decided 2026-08-17 alongside
+   the network-isolation design. Hosts that never run `setup` — the ones a
+   provisioning tool built, which is the supported path at scale — still need
+   their networks, so the deploy path has to create them regardless. Setup
+   creating them too would be two implementations of one thing, and the one in
+   `setup` would be the one nobody exercises.
 5. **Docs.** The quickstart becomes setup-then-deploy; root documented as the
    legacy mode. `odysseus-cli/README.md:670` ("your target servers only need
    Docker installed") changes in the phase that makes it true, not before.
+
+### How this gets tested
+
+`odysseus doctor` is the acceptance test for `setup`, which is the payoff of
+having built the diagnostic first and named it separately. The loop is: scrap a
+host, boot a stock Ubuntu LTS image, run `setup`, run `doctor`, and expect five
+`:ok` results — then deploy. Anything `setup` gets wrong shows up as a `doctor`
+finding rather than as a mysterious deploy failure, which is the whole reason
+that command exists.
+
+Noted 2026-08-17: `dedalus-prototypes` will be scrapped and rebuilt this way, so
+the hand-configured user that `doctor` was first tested against is deliberately
+being replaced by one `setup` produced. That trades a known-good reference for a
+real test of the thing being built, and `doctor` is what tells us the rebuild
+matched.
 
 ## What could go wrong
 
