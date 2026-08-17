@@ -295,6 +295,26 @@ Smaller findings worth fixing but not blocking anything.
       `deploy_versioning_spec.rb` covers the method since the extraction, and
       is the only thing that catches that mutation — but the fixtures should be
       de-uniformed so they stop looking like coverage they do not provide.
+- [ ] **Caddy's health check addresses the upstream by container name, so any
+      app that validates the Host header is marked unhealthy.** The active
+      check is built with `uri`, `interval`, `timeout` and `expect_status` but
+      **no `headers`** (`caddy/client.rb:324-338`), so Caddy sends the dial
+      address — `<service>-<tag>-<timestamp>:3000` — as `Host`. An app that
+      rejects unknown hosts answers 403, Caddy marks the only upstream
+      unhealthy, and every real request gets 503 "no upstreams available".
+      Meanwhile `docker ps` still reports the container healthy, because
+      Docker's own check uses `Host: localhost`. The symptom points at the
+      proxy; the cause is the app.
+      Hit for real on 2026-08-17 deploying a Sinatra 4 app, which enables
+      `host_authorization` by default. **This will hit Rails users**, the
+      primary target, whenever `config.hosts` is set.
+      The container name cannot be allow-listed by the app — it changes every
+      deploy. Fix on our side: send `'headers' => { 'Host' => [<first
+      proxy.hosts value>] }` in the active check, so the health check presents
+      the same Host as real traffic and an app only has to permit its own
+      domain, which is normal practice. Note an app must permit its public
+      hostname regardless; this fix removes the impossible half of the problem,
+      not both halves.
 - [ ] **`env.secret` with no `secrets_file:` fails silently.**
       `Secrets::Loader#configured?` is just `!config[:secrets_file].nil?`, so a
       config that names secrets but no file skips the encrypted file entirely
