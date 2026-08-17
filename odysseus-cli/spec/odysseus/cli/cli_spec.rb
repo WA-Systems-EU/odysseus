@@ -950,6 +950,31 @@ RSpec.describe Odysseus::CLI::CLI do
       expect { output_of { run_setup([ok, warn]) } }.not_to raise_error
     end
 
+    # No other example in this file puts a :warn and a :fail in the same
+    # survey. Ranking statuses ok: 0, warn: 2, fail: 1 — instead of the
+    # correct ok: 0, warn: 1, fail: 2 — still passes every one of them, and
+    # under that ranking a :fail arriving after a :warn cannot raise the
+    # recorded worst above :warn, so the run exits zero. That ordering is
+    # the common real case: checks run distro first, so a warned distro
+    # is typically followed by a later check (docker, on a broken daemon)
+    # failing.
+    it 'exits non-zero when a warning is followed by a failure' do
+      expect { output_of { run_setup([warn, bad]) } }
+        .to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
+    end
+
+    # The reverse order is also realistic: worst carries across hosts, so one
+    # host's docker check can fail before a later host's distro check warns.
+    # This pins that a recorded failure is never downgraded by a later
+    # warning — a mutant that assigned the latest status outright, instead of
+    # ranking it against the current worst, would still pass the example
+    # above (fail is the last status seen there) but would silently clear
+    # this survey's failing exit code.
+    it 'exits non-zero when a failure is followed by a warning' do
+      expect { output_of { run_setup([bad, warn]) } }
+        .to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
+    end
+
     it 'names the failing check and its detail, so the reader can act' do
       output = output_of do
         run_setup([ok, bad])
@@ -1000,11 +1025,13 @@ RSpec.describe Odysseus::CLI::CLI do
       expect(ssh).to have_received(:close).at_least(:once)
     end
 
-    # #verify itself can raise rather than return a :fail Result: SSH#execute
-    # raises on a nonzero exit, and net-ssh raises IOError, Net::SSH::Disconnect,
-    # Errno::EPIPE or ECONNRESET when the connection drops mid-check — none of
-    # them Odysseus::Error. doctor's whole purpose is surveying every host, so
-    # one host dying this way must not abort the rest of the run.
+    # #verify itself can raise rather than return a :fail Result: a dropped
+    # connection mid-check can surface as IOError, Net::SSH::Disconnect (a
+    # RuntimeError) or Errno::EPIPE/ECONNRESET (a SystemCallError) — three
+    # branches of StandardError with no narrower ancestor in common, so
+    # nothing tighter than StandardError could catch all of them in one
+    # rescue. doctor's whole purpose is surveying every host, so one host
+    # dying this way must not abort the rest of the run.
     context "when a host's check raises instead of returning a result" do
       let(:sshes) { [] }
 

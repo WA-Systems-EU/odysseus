@@ -70,8 +70,8 @@ RSpec.describe Odysseus::HostVerifier do
       end
     end
 
-    # A warning, not a failure: odysseus deploys to any host with Docker. Only
-    # `setup`'s installer needs apt, and this command is not that.
+    # A warning, not a failure: odysseus deploys to any host with Docker. The
+    # supported list is what odysseus is tested against, not a requirement.
     it 'warns rather than fails on an unsupported distro, and names it' do
       results = verify(ssh_double(answers: healthy_answers(os: DEBIAN_12)))
       result = result_for(results, :distro)

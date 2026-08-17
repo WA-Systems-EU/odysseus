@@ -56,12 +56,13 @@ module Odysseus
       if id == 'ubuntu' && SUPPORTED_UBUNTU.include?(version)
         Result.new(check: :distro, status: :ok, detail: "ubuntu #{version}")
       else
-        # A warning, not a failure: deploys work on any host with Docker. Only
-        # `odysseus setup`'s installer is apt-specific.
+        # A warning, not a failure: odysseus deploys to any host with Docker.
+        # SUPPORTED_UBUNTU is what odysseus is tested against, not a
+        # requirement.
         Result.new(
           check: :distro, status: :warn,
           detail: "#{id || 'unknown'} #{version}".strip +
-                  " — deploys work here, but `odysseus setup` supports only ubuntu #{SUPPORTED_UBUNTU.join(', ')}"
+                  " — deploys work here, but odysseus is tested against ubuntu #{SUPPORTED_UBUNTU.join(', ')}"
         )
       end
     end
