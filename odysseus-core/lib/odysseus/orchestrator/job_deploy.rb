@@ -100,6 +100,11 @@ module Odysseus
         server_config = @config[:servers][role] || {}
         options = server_config[:options] || {}
 
+        # A jobs-only deploy may be the first thing ever run on this host, so
+        # the network can't be assumed to exist (a web role gets it as a side
+        # effect of ensure_caddy!, and DependencyDeploy has its own copy).
+        ensure_network!
+
         env = build_environment
         log "  Environment: #{env.size} variable(s) injected"
 
@@ -128,6 +133,11 @@ module Odysseus
             cmd: server_config[:cmd]
           }
         )
+      end
+
+      def ensure_network!
+        log 'Ensuring Docker network exists...'
+        @docker.ensure_network('odysseus', labels: { 'odysseus.managed' => 'true' })
       end
 
       # Same environment a web container gets — see Core::Environment.

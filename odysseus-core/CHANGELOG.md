@@ -7,6 +7,17 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Fixed
+- `JobDeploy` now ensures the `odysseus` Docker network exists before
+  starting a container, instead of assuming it. It ran every container with
+  `network: 'odysseus'` but never created that network itself, so a jobs-only
+  service deployed to a fresh host failed at `docker run`. The gap was
+  invisible on any host that had ever deployed a web role or a dependency
+  first: a web role's `ensure_caddy!` creates the network as a side effect of
+  starting Caddy, and `DependencyDeploy` has always had its own
+  `ensure_network!`. Found on a genuinely fresh host with the deploy user
+  ready but no prior deploy of either kind.
+
 ### Added
 - `Odysseus::HostPaths`, which decides where odysseus keeps state on a host
   from the connecting SSH user: `root` still gets `/var/lib/odysseus`, exactly

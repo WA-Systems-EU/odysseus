@@ -295,17 +295,6 @@ Smaller findings worth fixing but not blocking anything.
       `deploy_versioning_spec.rb` covers the method since the extraction, and
       is the only thing that catches that mutation — but the fixtures should be
       de-uniformed so they stop looking like coverage they do not provide.
-- [ ] **A jobs-only service cannot be deployed to a fresh host.** `JobDeploy`
-      runs every container with `network: 'odysseus'` (`job_deploy.rb:126`) but
-      never creates that network. `DependencyDeploy` has `ensure_network!`
-      (`dependency_deploy.rb:37,144`), and for a web role `ensure_caddy!`
-      creates it as a side effect of starting Caddy — so the gap only shows on
-      a host that has never had a web role or a dependency deployed. Found for
-      real on 2026-08-17 on dedalus-prototypes: fresh host, `odysseus` user
-      ready, no `odysseus` network, so a jobs deploy fails on `docker run`.
-      Note `odysseus-sail-rolling` — a plugin — already calls
-      `ensure_network` for non-web roles; core's own orchestrator does not.
-      One line in `JobDeploy`, matching what DependencyDeploy already does.
 - [ ] **`env.secret` with no `secrets_file:` fails silently.**
       `Secrets::Loader#configured?` is just `!config[:secrets_file].nil?`, so a
       config that names secrets but no file skips the encrypted file entirely
