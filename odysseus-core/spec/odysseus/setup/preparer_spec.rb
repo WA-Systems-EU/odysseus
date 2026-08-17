@@ -38,6 +38,7 @@ RSpec.describe Odysseus::Setup::Preparer do
       answer = answers[pattern]
       raise answer if answer.is_a?(Exception)
 
+      answer = answer.call if answer.respond_to?(:call)
       answer
     end
     allow(ssh).to receive(:upload_string)
@@ -73,7 +74,7 @@ RSpec.describe Odysseus::Setup::Preparer do
   end
 
   def ubuntu_os_release
-    "ID=ubuntu\nVERSION_ID=\"24.04\"\n"
+    "ID=ubuntu\nVERSION_ID=\"24.04\"\nVERSION_CODENAME=noble\n"
   end
 
   # A host that is already fully prepared: every step should report :ok, and
@@ -188,16 +189,91 @@ RSpec.describe Odysseus::Setup::Preparer do
   end
 
   describe 'docker' do
-    # 3b replaces this with an install. Until then a missing daemon is a plain
-    # refusal rather than a half-prepared host.
-    it 'refuses when the daemon does not answer, naming what is missing' do
-      answers = healthy.merge(/docker info/ => "command not found\n")
-      preparer, = build(answers: answers)
+    # The three docker outcomes. The fixture answers `docker info` with a
+    # failure first and a version second, because that is what a real install
+    # looks like from the outside: the same probe, a different answer.
+    context 'when the host has no docker' do
+      def docker_answers(second_probe:)
+        probes = ["Cannot connect to the Docker daemon\n", second_probe]
+        {
+          /docker info/ => -> { probes.shift },
+          /apt-get/ => '',
+          /dpkg --print-architecture/ => "amd64\n",
+          /install -m 0755 -d/ => '',
+          /curl -fsSL/ => '',
+          /chmod a\+r/ => '',
+          /tee .*docker\.list/ => '',
+          # Only reached when an apt-get command fails: DockerApt#apt calls
+          # #lock_holder_note to attribute the failure, which runs `fuser`
+          # first. An empty answer (no PID) mirrors the common case -- an
+          # apt-get failure that isn't a lock contention -- and short-circuits
+          # before the `ps` lookup that would otherwise also need a stub.
+          /fuser/ => ''
+        }
+      end
 
-      result = result_for(preparer.prepare, :docker)
+      it 'installs it and reports what it changed' do
+        preparer, commands = build(answers: healthy.merge(docker_answers(second_probe: "29.1.3\n")))
 
-      expect(result.status).to eq(:fail)
-      expect(result.detail).to match(/docker/i)
+        result = preparer.prepare.find { |r| r.step == :docker }
+
+        expect(result.status).to eq(:changed)
+        expect(result.detail).to include('29.1.3')
+        expect(commands).to include(a_string_matching(/apt-get.*install -y docker-ce/))
+      end
+
+      it 'fails when the daemon still does not answer after installing' do
+        preparer, = build(
+          answers: healthy.merge(docker_answers(second_probe: "Cannot connect to the Docker daemon\n"))
+        )
+
+        result = preparer.prepare.find { |r| r.step == :docker }
+
+        expect(result.status).to eq(:fail)
+        expect(result.detail).to match(/installed/i)
+      end
+
+      # The specific pattern goes FIRST: the harness takes the first key that
+      # matches, so appending this would let docker_answers' general `/apt-get/`
+      # answer it and the failure would never fire.
+      it 'reports the install failing without attempting the steps after it' do
+        answers = { /apt-get .*install -y docker-ce/ => Odysseus::SSHCommandError.new('exit status 100') }
+                  .merge(healthy)
+                  .merge(docker_answers(second_probe: "29.1.3\n"))
+        preparer, commands = build(answers: answers)
+
+        results = preparer.prepare
+
+        expect(results.last.step).to eq(:docker)
+        expect(results.last.status).to eq(:fail)
+        expect(commands).not_to include(a_string_matching(/useradd/))
+      end
+
+      # The codename comes from the host's os-release, and os-release is read
+      # once for both the distro gate and this.
+      #
+      # `wonderfowl` is deliberately not a real Ubuntu codename. A fixture using
+      # `noble` could not tell a genuine read from an implementation that
+      # hardcoded the codename of the release it was written against -- the
+      # fixture-too-uniform defect this project keeps shipping. A synthetic value
+      # cannot coincide with anything the implementation might hardcode.
+      it 'builds the repository line from the host os-release codename' do
+        answers = healthy.merge(docker_answers(second_probe: "29.1.3\n"))
+        answers[/os-release/] = "ID=ubuntu\nVERSION_ID=\"24.04\"\nVERSION_CODENAME=wonderfowl\n"
+        preparer, commands = build(answers: answers)
+
+        preparer.prepare
+
+        expect(commands.grep(%r{cat /etc/os-release}).size).to eq(1)
+        # Compare against the ESCAPED fragment. The sources line reaches the
+        # shell through Shellwords.escape, which backslash-escapes both `=` and
+        # spaces -- `include(' wonderfowl stable')` can never match, and an
+        # assertion that can never match is one that never fails. Escaping is
+        # per-character, so the escape of a fragment is a substring of the
+        # escaped whole, which makes this exact and readable at once.
+        expect(commands.find { |c| c.include?('docker.list') })
+          .to include(Shellwords.escape('wonderfowl stable'))
+      end
     end
   end
 

@@ -12,8 +12,9 @@ module Odysseus
     # already-prepared host changes nothing and every step reports :ok — the
     # first run, mid-preparation, is the one that should say :changed.
     #
-    # Docker is checked for, never installed: a plan later than this one adds
-    # that. A host without it is refused rather than half-prepared.
+    # Docker is installed from Docker's own apt repository when the host does
+    # not have it (see DockerApt); a host whose daemon still does not answer
+    # afterwards fails the step rather than being handed back half-prepared.
     class Preparer
       SUPPORTED_UBUNTU = %w[24.04 26.04].freeze
 
@@ -94,19 +95,34 @@ module Odysseus
         end
       end
 
+      # Check, then install, then check again. The second probe is the only
+      # thing that decides success: apt exiting 0 says a package was unpacked,
+      # not that a daemon answers, and it is the daemon every deploy needs.
       def docker_step
-        output = @escalation.run("docker info --format '{{.ServerVersion}}' 2>&1 || true").to_s.strip
+        version = docker_version
+        return Result.new(step: :docker, status: :ok, detail: "docker #{version}") if version
 
-        if output.match?(/\A\d+\./)
-          Result.new(step: :docker, status: :ok, detail: "docker #{output}")
-        else
-          Result.new(
+        DockerApt.new(ssh: @ssh, escalation: @escalation, codename: read_os_release['VERSION_CODENAME']).install!
+
+        version = docker_version
+        unless version
+          return Result.new(
             step: :docker, status: :fail,
-            detail: 'docker is required, and its daemon did not answer -- it may not be ' \
-                    'installed, or it may be installed with the daemon stopped: ' \
-                    "#{output.lines.first.to_s.strip}"
+            detail: 'installed docker from apt, but its daemon still does not answer. ' \
+                    'The host may need a reboot, or the daemon may have failed to start.'
           )
         end
+
+        Result.new(step: :docker, status: :changed, detail: "installed docker #{version}")
+      end
+
+      # @return [String, nil] the running daemon's version, or nil if it does
+      #   not answer -- which does not distinguish "not installed" from
+      #   "installed, stopped", and does not need to: both are a host without
+      #   a usable Docker until this step has run.
+      def docker_version
+        output = @escalation.run("docker info --format '{{.ServerVersion}}' 2>&1 || true").to_s.strip
+        output.match?(/\A\d+\./) ? output : nil
       end
 
       def user_step
@@ -268,13 +284,15 @@ module Odysseus
       end
 
       def read_os_release
-        raw = @ssh.execute('cat /etc/os-release 2>/dev/null || true').to_s
+        @read_os_release ||= begin
+          raw = @ssh.execute('cat /etc/os-release 2>/dev/null || true').to_s
 
-        raw.lines.each_with_object({}) do |line, acc|
-          key, value = line.strip.split('=', 2)
-          next if key.nil? || value.nil?
+          raw.lines.each_with_object({}) do |line, acc|
+            key, value = line.strip.split('=', 2)
+            next if key.nil? || value.nil?
 
-          acc[key] = value.delete('"')
+            acc[key] = value.delete('"')
+          end
         end
       end
 
