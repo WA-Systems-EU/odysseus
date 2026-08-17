@@ -340,17 +340,31 @@ Smaller findings worth fixing but not blocking anything.
       others. This matters more than it would for a single-service host, because
       running several services on one box is a thing odysseus is *for*.
       A container can hold several networks (verified on Docker 29.7.2, both via
-      repeated `--network` at run time and `docker network connect` afterwards),
-      so the shape of the fix is: `odysseus-<service>` carrying the app and its
-      own dependencies, and the shared `odysseus` network carrying only Caddy
-      and the web containers it must route to. Caddy still reaches every web
-      container, each app still reaches its own database, and no app reaches
-      another's.
-      Needs design: what happens to existing hosts on upgrade (containers would
-      have to be recreated to change network membership), whether dependencies
-      shared deliberately between services are a use case worth supporting, and
-      whether `cleanup` and the retention sweeper need to know about per-service
-      networks.
+      repeated `--network` at run time and `docker network connect` afterwards).
+      **The design, verified end to end 2026-08-17: invert it — Caddy joins each
+      service's network, and there is no shared network at all.** Each service
+      gets `odysseus-<service>` carrying its web containers and its own
+      dependencies; `odysseus-caddy` holds one attachment per service.
+      Measured with five throwaway containers and two networks: proxy reaches
+      both services' apps, each app reaches its own database, and an app reaches
+      *neither* the other service's database nor its app. Note the weaker shape
+      — services joining a shared network for Caddy — isolates databases but
+      still lets one service's app reach another's, so it does not achieve the
+      goal.
+      What makes it practical: `docker network connect` works on a **running**
+      container, so adding a service does not recreate Caddy, which serves every
+      live service on the host. Migration is therefore graceful — connect Caddy
+      to each new network on upgrade, and app and dependency containers move onto
+      theirs as each service is next deployed. No flag day, and nothing is
+      recreated earlier than it would have been.
+      Needs design: deliberately shared dependencies (two services meant to
+      share a Redis) break, and nothing distinguishes shares-by-design from
+      reachable-by-accident; how long the old flat `odysseus` network is kept for
+      services not yet redeployed; network lifecycle, since removing a service
+      should remove its network but Caddy must disconnect first and `cleanup`
+      knows nothing about either; and `setup` is where per-service network
+      creation would naturally live, which argues for the user-model phases
+      landing first.
 - [ ] **`containers.count` is read by nothing in core.** The parser accepts it
       (`parse_containers`, defaulting to 1) and the validator checks it, but
       neither `WebDeploy` nor `JobDeploy` ever looks at
