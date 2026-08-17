@@ -58,11 +58,10 @@ correction under Host state for why that conclusion did not survive.
 
 ### Three identities, two configured
 
-**The bootstrap identity** connects only for `odysseus setup`. It needs to be
-root or to have passwordless sudo. It is configured separately from the deploy
-identity because on a fresh host the deploy identity does not exist yet — a
-single `ssh.user` cannot serve both, and a `setup` that cannot run on a fresh
-host has no purpose.
+**The bootstrap identity** connects only for `odysseus setup`, and is named by
+the `--as` flag rather than by config. It needs to be root or to have
+passwordless sudo. It cannot be `ssh.user`, because on a fresh host that user
+does not exist yet — a `setup` that cannot run on a fresh host has no purpose.
 
 **The deploy identity** is `ssh.user`, exactly as today. Setup creates *the
 user named in `ssh.user`* rather than a user named in some new key, so it is
@@ -72,15 +71,36 @@ structurally impossible to create one user and then deploy as another.
 never again. The deploy identity gets `docker` group membership and its own
 `$HOME`. It does not get sudo.
 
+**Decided 2026-08-17: the bootstrap identity is a flag, and `setup` adds no
+config keys at all.**
+
+```
+odysseus setup                 # connects as `ubuntu`, escalates with sudo
+odysseus setup --as root       # connects as root, no sudo
+odysseus setup --as ubuntu     # the default, stated
+```
+
+It reads only keys `deploy.yml` already has: `ssh.user` for the user to create,
+`ssh.keys` for the keys to install (their `.pub` siblings, or derived with
+`ssh-keygen -y`), and `servers.*.hosts` for the hosts to reach. A `--key PATH`
+flag overrides the key source when the sibling is missing or the wrong one.
+
+Why a flag rather than a `setup:` block: the bootstrap runs once per host, and a
+config key is permanent surface for a one-off. `deploy.yml` describes how a
+service is deployed, not how its hosts were built — and the whole positioning
+below is that building hosts is not odysseus's job.
+
+**The default is `ubuntu`, which means sudo is the common path, not the
+exception.** Ubuntu's LTS cloud images ship an `ubuntu` user with passwordless
+sudo already configured (`/etc/sudoers.d/90-cloud-init-users`), so the default
+works on a stock image. `--as root` needs no sudo and is for images where root
+SSH is enabled. A host with neither a usable `ubuntu` nor root SSH is refused,
+and the error names both flags.
+
 ```yaml
 ssh:
-  user: odysseus          # deploy identity; default changes to this
+  user: odysseus          # the user setup creates; deploys connect as it
   keys: [~/.ssh/id_ed25519]
-
-setup:                    # read only by `odysseus setup`
-  connect_as: root        # or ubuntu, on images where root SSH is disabled
-  authorized_keys:        # optional; defaults to the .pub siblings of ssh.keys
-    - ~/.ssh/id_ed25519.pub
 ```
 
 **No sudo for the deploy user.** The verified deploy path needs the docker
@@ -148,13 +168,13 @@ deliberate, not an oversight.
 
 ## What `setup` does
 
-Connect as `setup.connect_as`, then run the sequence below. Every step is
+Connect as the `--as` identity (default `ubuntu`), then run the sequence below. Every step is
 check-then-apply: a run that is interrupted re-converges on the next run, and
 a second run against a healthy host changes nothing and says so. Commands
-needing root are prefixed `sudo -n` **only** when `connect_as` is not root,
+needing root are prefixed `sudo -n` **only** when `--as` is not root,
 because minimal images often have no `sudo` at all.
 
-0. **Escalation probe.** If `connect_as` is not root, run `sudo -n true`. On
+0. **Escalation probe.** If `--as` is not root — the default case — run `sudo -n true`. On
    failure, refuse and say why: odysseus cannot answer a password prompt
    (`ssh.rb:166`), so this is a hard requirement rather than a preference.
 1. **Distro gate.** Read `/etc/os-release` and require Ubuntu on one of the
@@ -316,7 +336,7 @@ are deployed with it between releases.
   minutes-old host — gets a bounded wait and then an error naming the holder,
   never a silent stall. Setup does not attempt to repair a broken apt state it
   did not create.
-- **The wrong `connect_as`.** Surfaces as an authentication failure, already
+- **The wrong `--as` identity.** Surfaces as an authentication failure, already
   mapped to a readable message (`ssh.rb:150`); setup names the *bootstrap*
   identity so the reader fixes the right key.
 - **The deploy user losing docker group membership.** Every deploy fails on
