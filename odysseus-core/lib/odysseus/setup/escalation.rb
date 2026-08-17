@@ -41,10 +41,24 @@ module Odysseus
               'Use --as root on a host where root can log in, or give this user NOPASSWD sudo.'
       end
 
+      # The one place that decides whether a command needs a sudo prefix.
+      # Exposed rather than kept inside #run because a command whose
+      # privileged half is only *part* of a pipeline cannot go through #run:
+      # `sudo -n printf ... | tee file` would elevate printf and leave tee
+      # unprivileged, which is the defect that made the first authorized_keys
+      # append fail under the documented default identity. Callers in that
+      # position build the pipeline themselves and elevate the writer alone.
+      #
+      # @param command [String] a command that needs root
+      # @return [String] it, prefixed when a prefix is needed
+      def elevate(command)
+        sudo? ? "sudo -n #{command}" : command
+      end
+
       # @param command [String] a command that needs root
       # @return [String] its output
       def run(command)
-        @ssh.execute(sudo? ? "sudo -n #{command}" : command)
+        @ssh.execute(elevate(command))
       end
     end
   end

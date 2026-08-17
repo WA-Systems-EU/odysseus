@@ -104,4 +104,34 @@ RSpec.describe Odysseus::Setup::Escalation do
         .to raise_error(Odysseus::SetupError, /sudo: command not found/)
     end
   end
+
+  describe '#elevate' do
+    it 'prefixes sudo for a non-root bootstrap identity' do
+      ssh = instance_double(Odysseus::Deployer::SSH)
+      escalation = described_class.new(ssh: ssh, as: 'ubuntu')
+
+      expect(escalation.elevate('tee /etc/apt/sources.list.d/docker.list'))
+        .to eq('sudo -n tee /etc/apt/sources.list.d/docker.list')
+    end
+
+    it 'leaves the command alone as root, which may not have sudo installed' do
+      ssh = instance_double(Odysseus::Deployer::SSH)
+      escalation = described_class.new(ssh: ssh, as: 'root')
+
+      expect(escalation.elevate('tee /etc/apt/sources.list.d/docker.list'))
+        .to eq('tee /etc/apt/sources.list.d/docker.list')
+    end
+
+    # The point of extracting this: #run must be the same decision, not a
+    # second one that happens to agree today.
+    it 'is the same decision #run makes' do
+      ssh = instance_double(Odysseus::Deployer::SSH)
+      allow(ssh).to receive(:execute)
+      escalation = described_class.new(ssh: ssh, as: 'ubuntu')
+
+      escalation.run('whoami')
+
+      expect(ssh).to have_received(:execute).with(escalation.elevate('whoami'))
+    end
+  end
 end

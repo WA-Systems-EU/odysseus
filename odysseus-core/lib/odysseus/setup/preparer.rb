@@ -188,11 +188,12 @@ module Odysseus
       # under the documented default of --as ubuntu. Piping into `tee -a`
       # instead keeps the open() inside the process that's actually
       # escalated, which is the standard idiom for exactly this reason.
-      # Nothing here needs escalation at all under --as root, so the sudo
-      # prefix is applied to the writer alone, and only when it's needed.
+      # Nothing here needs escalation at all under --as root, so the prefix is
+      # applied to the writer alone and only when needed -- via
+      # Escalation#elevate, so this is not a second opinion about when sudo is
+      # required.
       def append_key(line)
-        writer = "tee -a #{Shellwords.escape(authorized_keys)}"
-        writer = "sudo -n #{writer}" if @escalation.sudo?
+        writer = @escalation.elevate("tee -a #{Shellwords.escape(authorized_keys)}")
         @ssh.execute("printf '%s\n' #{Shellwords.escape(line)} | #{writer} >/dev/null")
       end
 
