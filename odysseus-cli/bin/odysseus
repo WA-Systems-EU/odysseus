@@ -33,7 +33,8 @@ def main
     'containers' => { method: :containers, needs_server: true },
     'logs' => { method: :logs, needs_server: true },
     'cleanup' => { method: :cleanup, needs_server: true },
-    'validate' => { method: :validate, needs_server: false }
+    'validate' => { method: :validate, needs_server: false },
+    'doctor' => { method: :doctor, needs_server: false }
   }
   # `dependency`, `app` and `secrets` are not in the table: they have
   # subcommands of their own and are handled by the guards below, which return
@@ -290,6 +291,7 @@ def print_help
   puts '  logs <server>             Show logs for a service'
   puts '  cleanup <server>          Clean up old containers and images'
   puts '  validate                  Validate deploy.yml'
+  puts '  doctor                    Check that hosts are ready to deploy to (changes nothing)'
   puts '  dependency <subcommand>    Manage dependencies (db, redis, ...); alias: dep'
   puts '  app <subcommand>          Run commands in app containers'
   puts '  secrets <subcommand>      Manage encrypted secrets'

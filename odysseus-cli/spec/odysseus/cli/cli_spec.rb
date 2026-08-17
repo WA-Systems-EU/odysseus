@@ -912,6 +912,90 @@ RSpec.describe Odysseus::CLI::CLI do
     end
   end
 
+  describe '#doctor' do
+    # Overrides the outer `executor` double: doctor drives the host loop off
+    # #host_roles rather than any of the deploy-shaped methods the other
+    # describes stub.
+    let(:executor) do
+      instance_double(
+        Odysseus::Deployer::Executor,
+        host_roles: { 'web1.example.com' => [:web], 'worker1.example.com' => [:jobs] }
+      )
+    end
+
+    let(:ok)   { Odysseus::HostVerifier::Result.new(check: :docker, status: :ok, detail: 'docker 29.1.3') }
+    let(:warn) { Odysseus::HostVerifier::Result.new(check: :distro, status: :warn, detail: 'debian 12 — deploys work here') }
+    let(:bad)  { Odysseus::HostVerifier::Result.new(check: :state_dir, status: :fail, detail: '/home/odysseus/.odysseus is not writable') }
+
+    def run_setup(results, options = {})
+      ssh = instance_double(Odysseus::Deployer::SSH, close: nil, user: 'odysseus')
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      verifier = instance_double(Odysseus::HostVerifier, verify: results)
+      allow(Odysseus::HostVerifier).to receive(:new).and_return(verifier)
+
+      cli.doctor({ config: fixture_path('deploy.yml') }.merge(options))
+    end
+
+    it 'reports each check and exits zero when all pass' do
+      expect { output_of { run_setup([ok]) } }.not_to raise_error
+    end
+
+    it 'exits non-zero when any check fails' do
+      expect { output_of { run_setup([ok, bad]) } }.to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
+    end
+
+    # A warning is information, not a broken host: deploys work on a distro
+    # `setup` cannot bootstrap.
+    it 'exits zero when the worst result is a warning' do
+      expect { output_of { run_setup([ok, warn]) } }.not_to raise_error
+    end
+
+    it 'names the failing check and its detail, so the reader can act' do
+      output = output_of do
+        run_setup([ok, bad])
+      rescue SystemExit
+        nil
+      end
+
+      expect(output).to include('state_dir')
+      expect(output).to include('not writable')
+    end
+
+    it 'verifies every host in the config, not only the first' do
+      hosts = []
+      allow(Odysseus::Deployer::SSH).to receive(:new) do |args|
+        hosts << args[:host]
+        instance_double(Odysseus::Deployer::SSH, close: nil, user: 'odysseus')
+      end
+      allow(Odysseus::HostVerifier).to receive(:new)
+        .and_return(instance_double(Odysseus::HostVerifier, verify: [ok]))
+
+      output_of { cli.doctor(config: fixture_path('deploy.yml')) }
+
+      # The fixture config's stubbed host_roles names two hosts. Asserting the
+      # exact set (not just hosts.uniq.size >= 1, which a single visited host
+      # would also satisfy) is what actually catches breaking out of the loop
+      # after the first host.
+      expect(hosts).to contain_exactly('web1.example.com', 'worker1.example.com')
+      expect(hosts).to eq(hosts.uniq) # each host visited once, not once per role
+    end
+
+    it 'closes every connection it opens, even when a check fails' do
+      ssh = instance_double(Odysseus::Deployer::SSH, close: nil, user: 'odysseus')
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      allow(Odysseus::HostVerifier).to receive(:new)
+        .and_return(instance_double(Odysseus::HostVerifier, verify: [bad]))
+
+      output_of do
+        cli.doctor(config: fixture_path('deploy.yml'))
+      rescue SystemExit
+        nil
+      end
+
+      expect(ssh).to have_received(:close).at_least(:once)
+    end
+  end
+
   describe '#dependency_boot' do
     it 'boots the named dependency' do
       expect(executor).to receive(:deploy_dependency).with(name: 'db')

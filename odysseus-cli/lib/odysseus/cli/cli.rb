@@ -6,12 +6,14 @@ require 'tempfile'
 require_relative 'ui'
 require_relative 'rollback_commands'
 require_relative 'interactive_commands'
+require_relative 'doctor_commands'
 
 module Odysseus
   module CLI
     class CLI
       include RollbackCommands
       include InteractiveCommands
+      include DoctorCommands
 
       def initialize(debug: false)
         @ui = UI.new(debug: debug)
