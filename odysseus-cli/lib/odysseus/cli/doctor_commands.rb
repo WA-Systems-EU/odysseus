@@ -36,18 +36,18 @@ module Odysseus
           rescue StandardError => e
             # A check failing is a Result with status: :fail, produced by
             # HostVerifier without raising. This rescues something else: the
-            # connection itself dying mid-survey. SSH#execute raises on a
-            # nonzero exit, and net-ssh raises IOError, Net::SSH::Disconnect,
-            # Errno::EPIPE or ECONNRESET on a dropped connection — none of
-            # them Odysseus::Error, so none of them reach the rescue below.
-            # An unreachable host is the most useful thing doctor can report,
-            # not a reason to abort the survey and never visit the rest —
-            # StandardError is deliberately wide so no single host's failure
-            # mode, however it fails, can take down the others. The risk of
-            # that width is masking a genuine HostVerifier bug as "host
-            # unreachable"; naming the exception's own class and message in
-            # the detail is what keeps a NoMethodError legible as a bug
-            # rather than indistinguishable from a dropped connection.
+            # connection itself dying mid-survey. A drop there can surface as
+            # IOError, Net::SSH::Disconnect (a RuntimeError) or
+            # Errno::EPIPE/ECONNRESET (a SystemCallError) — three branches of
+            # StandardError with no narrower ancestor in common, so nothing
+            # tighter than StandardError could catch all of them in one
+            # rescue. A narrower rescue would also reintroduce the defect
+            # this exists to fix: one host's failure aborting the survey for
+            # everyone after it. The risk of that width is masking a genuine
+            # HostVerifier bug as "host unreachable"; naming the exception's
+            # own class and message in the detail is what keeps a
+            # NoMethodError legible as a bug rather than indistinguishable
+            # from a dropped connection.
             worst = escalate(worst, :fail)
             render_check(
               Odysseus::HostVerifier::Result.new(
