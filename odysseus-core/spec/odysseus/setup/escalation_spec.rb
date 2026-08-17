@@ -122,16 +122,24 @@ RSpec.describe Odysseus::Setup::Escalation do
         .to eq('tee /etc/apt/sources.list.d/docker.list')
     end
 
-    # The point of extracting this: #run must be the same decision, not a
-    # second one that happens to agree today.
-    it 'is the same decision #run makes' do
+    # The point of extracting this: #run must ASK #elevate, not hold a second
+    # opinion that happens to agree today. Asserting the call rather than
+    # comparing output is deliberate -- an earlier version of this example
+    # expected `execute` to have received `escalation.elevate('whoami')`,
+    # deriving the oracle from the method under test, so a #run that forked
+    # the decision back inline would still have agreed with itself and
+    # passed. This fails the moment #run stops going through #elevate,
+    # whatever string the fork happens to produce.
+    it 'asks #elevate rather than deciding again' do
       ssh = instance_double(Odysseus::Deployer::SSH)
       allow(ssh).to receive(:execute)
       escalation = described_class.new(ssh: ssh, as: 'ubuntu')
+      allow(escalation).to receive(:elevate).and_call_original
 
       escalation.run('whoami')
 
-      expect(ssh).to have_received(:execute).with(escalation.elevate('whoami'))
+      expect(escalation).to have_received(:elevate).with('whoami')
+      expect(ssh).to have_received(:execute).with('sudo -n whoami')
     end
   end
 end
