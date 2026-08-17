@@ -8,6 +8,16 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 ## [Unreleased]
 
 ### Fixed
+- `VersionResolver#resolve` now names the deployer for an explicitly-tagged
+  deploy (`odysseus deploy --image v1.2.3`), instead of recording `nil`. The
+  deployer comes from `git config user.email`, falling back to `$USER` — a
+  lookup that needs no commit and no clean working tree, so withholding it
+  alongside `ref` was never justified. Every explicitly-tagged deploy wrote a
+  host-side log line with no name on it, which emptied the "by whom" column
+  of `odysseus rollback --list` and left the host-side deploy history
+  unattributed. `ref` still stays `nil` for an explicit tag: an arbitrary tag
+  names no commit it honestly identifies, so there is nothing true to record
+  there.
 - `Caddy::Client#start_caddy` now publishes the admin API on
   `127.0.0.1:2019` instead of `2019:2019`, which bound it to every
   interface. That API can rewrite the proxy configuration — routes,
