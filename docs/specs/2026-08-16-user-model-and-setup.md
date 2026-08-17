@@ -195,9 +195,11 @@ because minimal images often have no `sudo` at all.
    recovery. Otherwise `useradd --create-home`. The password stays locked;
    login is key-only by construction.
 4. **Group.** `usermod -aG docker <user>`, idempotent by nature. No sudo group.
-5. **Authorized keys.** Sources, in order: explicit `setup.authorized_keys`
-   entries, else the `.pub` siblings of `ssh.keys` that exist locally. If that
-   yields nothing, **refuse before creating anything** — a created user with
+5. **Authorized keys.** Sources, in order: paths given with `--key`, else the
+   `.pub` siblings of `ssh.keys` that exist locally, else the public half
+   derived from a private key with `ssh-keygen -y -f` (common on machines where
+   keys were copied rather than generated). If that yields nothing, **refuse
+   before creating anything** — a created user with
    no way to log in is the worst outcome available. Install by *appending*
    missing lines, never overwriting, so a second operator's key survives
    someone else's re-run. Create `~/.ssh` as `700` and `authorized_keys` as
