@@ -330,6 +330,27 @@ Smaller findings worth fixing but not blocking anything.
       Needs its own design pass: decide the removal from containers rather than
       routes, and let a failed stop or remove be reported rather than
       swallowed.
+- [ ] **Every service on a host shares one flat network, so every app can reach
+      every other service's database.** Everything is started with
+      `--network odysseus` and nothing else, and Docker's embedded DNS resolves
+      container names across it. Observed on dedalus-prod 2026-08-17: 16
+      containers, 7 services, 5 databases — `zafu-shop`'s app can open a
+      connection to `wa-systems-pel-db` by name. A buggy dependency, a
+      compromised app or an unpatched CVE in any one service reaches all the
+      others. This matters more than it would for a single-service host, because
+      running several services on one box is a thing odysseus is *for*.
+      A container can hold several networks (verified on Docker 29.7.2, both via
+      repeated `--network` at run time and `docker network connect` afterwards),
+      so the shape of the fix is: `odysseus-<service>` carrying the app and its
+      own dependencies, and the shared `odysseus` network carrying only Caddy
+      and the web containers it must route to. Caddy still reaches every web
+      container, each app still reaches its own database, and no app reaches
+      another's.
+      Needs design: what happens to existing hosts on upgrade (containers would
+      have to be recreated to change network membership), whether dependencies
+      shared deliberately between services are a use case worth supporting, and
+      whether `cleanup` and the retention sweeper need to know about per-service
+      networks.
 - [ ] **`containers.count` is read by nothing in core.** The parser accepts it
       (`parse_containers`, defaulting to 1) and the validator checks it, but
       neither `WebDeploy` nor `JobDeploy` ever looks at
