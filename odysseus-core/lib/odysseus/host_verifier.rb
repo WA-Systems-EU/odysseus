@@ -67,15 +67,15 @@ module Odysseus
     end
 
     def docker
-      output = @ssh.execute('docker info 2>&1 || true').to_s
-      version = output[/^Server Version:\s*(\S+)/, 1]
+      output = @ssh.execute("docker info --format '{{.ServerVersion}}' 2>&1 || true")
+      version = output.to_s.strip
 
-      if version
+      if version.match?(/\A\d+\./)
         Result.new(check: :docker, status: :ok, detail: "docker #{version}")
       else
         Result.new(
           check: :docker, status: :fail,
-          detail: "the docker daemon did not answer as #{@ssh.user}: #{output.lines.first.to_s.strip}"
+          detail: "the docker daemon did not answer as #{@ssh.user}: #{version.lines.first.to_s.strip}"
         )
       end
     end
@@ -122,7 +122,10 @@ module Odysseus
       path = File.join(host_paths.service_dir(@config[:service]), Odysseus::DeployLog::FILENAME)
       legacy = File.join(host_paths.legacy_base, @config[:service], Odysseus::DeployLog::FILENAME)
 
-      return Result.new(check: :deploy_log, status: :ok, detail: path) if root? || legacy == path
+      # For root, path and legacy are always the same string: HostPaths#base
+      # resolves to legacy_base for root, so this already covers root without
+      # a separate root? check — one that could never change the outcome.
+      return Result.new(check: :deploy_log, status: :ok, detail: path) if legacy == path
 
       present = @ssh.execute("test -e #{Shellwords.escape(legacy)} && echo present || echo absent").to_s.strip
 

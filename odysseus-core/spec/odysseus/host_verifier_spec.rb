@@ -31,7 +31,7 @@ RSpec.describe Odysseus::HostVerifier do
   def healthy_answers(os: UBUNTU_2404)
     {
       /os-release/ => os,
-      /docker info/ => "Server Version: 29.1.3\n",
+      /docker info/ => "29.1.3\n",
       /\bid -nG\b/ => "odysseus docker\n",
       /test -w/ => "writable\n",
       /test -e/ => "absent\n"
