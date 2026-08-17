@@ -170,26 +170,50 @@ module Odysseus
         end
       end
 
-      # Deliberately over the connection as-is, with no sudo: this is the
-      # proof that the host is usable without any help from escalation, which
-      # is the whole safety argument for the command. Because it never writes
-      # anything, a failure here leaves the bootstrap path — and everything
-      # already prepared — untouched and the host still reachable.
+      # A genuinely fresh connection, authenticated as the deploy user rather
+      # than the bootstrap identity -- reusing @ssh would only prove @user's
+      # own access, over a session that may predate the docker-group change
+      # (usermod -aG only takes effect for new logins) and against a home
+      # directory @ssh's identity typically cannot even read into. no sudo
+      # here either way: this is the proof the host is usable with no help
+      # from escalation, which is the whole safety argument for the command.
+      # Because it never writes anything, a failure here leaves the bootstrap
+      # path -- and everything already prepared -- untouched and the host
+      # still reachable. A failure to even log in is reported by name rather
+      # than left to propagate, since that is the bricked-host case this step
+      # exists to catch before odysseus hands the host back.
       def self_test_step
         dir = state_dir
-        docker_output = @ssh.execute("docker info --format '{{.ServerVersion}}' 2>&1 || true").to_s.strip
-        docker_ok = docker_output.match?(/\A\d+\./)
-        writable = @ssh.execute(
-          "test -d #{Shellwords.escape(dir)} && test -w #{Shellwords.escape(dir)} && echo present || echo absent"
-        ).to_s.strip == 'present'
+        fresh = Odysseus::Deployer::SSH.new(
+          host: @ssh.host,
+          user: @user,
+          port: @ssh.port,
+          keys: @config.dig(:ssh, :keys) || [],
+          use_tailscale: false
+        )
 
-        if docker_ok && writable
-          Result.new(step: :self_test, status: :ok, detail: "docker and #{dir} reachable as #{@user}")
-        else
-          problems = []
-          problems << 'docker did not answer' unless docker_ok
-          problems << "#{dir} is not writable" unless writable
-          Result.new(step: :self_test, status: :fail, detail: problems.join('; '))
+        begin
+          docker_output = fresh.execute("docker info --format '{{.ServerVersion}}' 2>&1 || true").to_s.strip
+          docker_ok = docker_output.match?(/\A\d+\./)
+          writable = fresh.execute(
+            "test -d #{Shellwords.escape(dir)} && test -w #{Shellwords.escape(dir)} && echo present || echo absent"
+          ).to_s.strip == 'present'
+
+          if docker_ok && writable
+            Result.new(step: :self_test, status: :ok, detail: "docker and #{dir} reachable as #{@user}")
+          else
+            problems = []
+            problems << 'docker did not answer' unless docker_ok
+            problems << "#{dir} is not writable" unless writable
+            Result.new(step: :self_test, status: :fail, detail: problems.join('; '))
+          end
+        rescue Odysseus::Error => e
+          Result.new(
+            step: :self_test, status: :fail,
+            detail: "could not log in as #{@user}: #{e.message.lines.first.to_s.strip}"
+          )
+        ensure
+          fresh.close
         end
       end
 

@@ -27,6 +27,13 @@ module Odysseus
       # else.
       attr_reader :user
 
+      # Host and port a caller needs to open an equivalent second connection
+      # (Setup::Preparer's self-test, which must reconnect as a different
+      # user against the same target) without this class exposing @keys or
+      # @use_tailscale too -- those the caller already has, from config and
+      # from its own reasons for choosing them.
+      attr_reader :host, :port
+
       # Execute remote command
       #
       # Standard error is kept out of the returned value so callers can parse
