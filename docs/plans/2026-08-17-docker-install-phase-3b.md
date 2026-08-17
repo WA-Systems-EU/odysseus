@@ -250,7 +250,7 @@ RSpec.describe Odysseus::Setup::DockerApt do
 
     apt.install!
 
-    expect(commands.find { |c| c.include?('docker.list') }).to include('arch=arm64')
+    expect(commands.find { |c| c.include?('docker.list') }).to include(Shellwords.escape('arch=arm64'))
   end
 
   it 'takes the codename from the caller rather than assuming one' do
@@ -258,7 +258,7 @@ RSpec.describe Odysseus::Setup::DockerApt do
 
     apt.install!
 
-    expect(commands.find { |c| c.include?('docker.list') }).to include(' plucky stable')
+    expect(commands.find { |c| c.include?('docker.list') }).to include(Shellwords.escape('plucky stable'))
   end
 
   it 'runs apt non-interactively and with a bounded wait for the dpkg lock' do
@@ -474,7 +474,7 @@ end
 - [ ] **Step 4: Run them and watch them pass**
 
 Run: `cd odysseus-core && bundle exec rspec spec/odysseus/setup/docker_apt_spec.rb && bundle exec rubocop`
-Expected: 10 examples, 0 failures; RuboCop clean (84 files now).
+Expected: 10 examples, 0 failures; RuboCop clean (85 files now — the new lib file and its spec).
 
 - [ ] **Step 5: Mutation check**
 
@@ -588,7 +588,14 @@ Add to `odysseus-core/spec/odysseus/setup/preparer_spec.rb`. The existing health
       preparer.prepare
 
       expect(commands.grep(%r{cat /etc/os-release}).size).to eq(1)
-      expect(commands.find { |c| c.include?('docker.list') }).to include(' wonderfowl stable')
+      # Compare against the ESCAPED fragment. The sources line reaches the
+      # shell through Shellwords.escape, which backslash-escapes both `=` and
+      # spaces -- `include(' wonderfowl stable')` can never match, and an
+      # assertion that can never match is one that never fails. Escaping is
+      # per-character, so the escape of a fragment is a substring of the
+      # escaped whole, which makes this exact and readable at once.
+      expect(commands.find { |c| c.include?('docker.list') })
+        .to include(Shellwords.escape('wonderfowl stable'))
     end
   end
 ```
@@ -666,7 +673,7 @@ Update the class comment — it currently says *"Docker is checked for, never in
 - [ ] **Step 4: Run the full core suite**
 
 Run: `cd odysseus-core && bundle exec rspec && bundle exec rubocop`
-Expected: **707/0** (690 baseline + 3 from Task 1 + 10 from Task 2 + 4 here), 84 files clean. If your count differs because you added an example, say so and report the number you measured — do not adjust the number to match a guess.
+Expected: **707/0** (690 baseline + 3 from Task 1 + 10 from Task 2 + 4 here), 85 files clean. If your count differs because you added an example, say so and report the number you measured — do not adjust the number to match a guess.
 
 - [ ] **Step 5: Mutation check**
 
@@ -744,7 +751,7 @@ Re-run both greps from Step 1. Every remaining hit must be true of what ships. R
 - [ ] **Step 4: Both suites**
 
 Run: `cd odysseus-core && bundle exec rspec && bundle exec rubocop` then the same in `odysseus-cli`.
-Expected: core 707/0 and 84 files clean; cli 190/0 and 15 files clean. Docs-only changes, so any failure is a real signal.
+Expected: core 707/0 and 85 files clean; cli 190/0 and 15 files clean. Docs-only changes, so any failure is a real signal.
 
 - [ ] **Step 5: Commit**
 
@@ -766,7 +773,7 @@ git commit -m "Document the Docker install, replacing the claim that setup refus
 
 ## Definition of done
 
-- `odysseus-core` 707/0 and RuboCop clean across 84 files; `odysseus-cli` 190/0 and clean across 15. (690 + 3 + 10 + 4; report the number you measure rather than the number written here.)
+- `odysseus-core` 707/0 and RuboCop clean across 85 files; `odysseus-cli` 190/0 and clean across 15. (690 + 3 + 10 + 4; report the number you measure rather than the number written here.)
 - Every mutation in the three tables run, failing the named example, and reverted.
 - `grep -rn "odysseus setup" odysseus-core/lib odysseus-cli/lib` returns only strings true of what shipped.
 - No claim anywhere in either README or CHANGELOG says setup refuses a host without Docker.
