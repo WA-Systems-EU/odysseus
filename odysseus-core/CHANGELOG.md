@@ -56,6 +56,12 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   from the connecting SSH user: `root` still gets `/var/lib/odysseus`, exactly
   as before and with no extra SSH round trip; any other user gets
   `$HOME/.odysseus`, resolved by asking the host once per connection.
+- `Odysseus::HostVerifier`, a read-only diagnosis of one host, run as the
+  user the config names rather than root. `#verify` runs distro, docker
+  reachability, docker group membership, state-directory writability and
+  deploy-log location, and returns one `Result` per check with a `:ok`,
+  `:warn` or `:fail` status — it writes nothing to the host. `odysseus
+  doctor` (odysseus-cli) drives it over every host in a config.
 
 ### Changed
 - Env files (`Docker::Client`) and the deploy log (`DeployLog`) now follow
