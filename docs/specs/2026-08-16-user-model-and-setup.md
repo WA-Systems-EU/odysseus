@@ -189,11 +189,24 @@ place — `Odysseus::HostPaths` — which the deploy lock will also consume.
 | --- | --- | --- |
 | Deploy log | `/var/lib/odysseus/<service>/deploys.log` | `$HOME/.odysseus/<service>/deploys.log` |
 | Env files | `/var/lib/odysseus/env` | `$HOME/.odysseus/env` |
-| Caddy certificates | `/var/lib/odysseus/caddy` | `/var/lib/odysseus/caddy` — unchanged |
+| Caddy certificates | `/var/lib/odysseus/caddy` | `$HOME/.odysseus/caddy` |
 
-The env directory *must* move; see the `chmod 700` finding above. The Caddy
-directory must *not*: it is daemon-side state holding issued certificates, and
-moving it means copying live certs or re-issuing against rate limits.
+The env directory *must* move; see the `chmod 700` finding above.
+
+**Correction, 2026-08-17.** This section originally argued the Caddy
+directory must *not* move, since it is daemon-side state holding issued
+certificates and moving it risks copying live certs or re-issuing against
+Let's Encrypt's rate limits. That reasoning is sound, but it only ever
+protects a *root* install — the only kind with certificates at the old path
+today. Deriving the Caddy directory the same way as every other path here
+protects root identically: root still resolves to exactly
+`/var/lib/odysseus/caddy`, byte-identical, nothing moves and nothing
+re-issues. What the fixed-path design actually did was make every non-root
+web deploy fail outright, because `Caddy::Client#ensure_running` ran `mkdir -p
+/var/lib/odysseus/caddy` over the deploy connection and a non-root user
+cannot create that parent. This was found on a real deploy to a real host
+(`dedalus-prototypes`), not in review. The Caddy directory now follows
+`HostPaths#caddy_dir`, exactly like the deploy log and env files.
 
 `$HOME` is resolved once per connection with `echo $HOME` and paths built
 absolute, rather than relying on tilde expansion — remote paths travel through
@@ -279,7 +292,7 @@ are deployed with it between releases.
 | Deploy user gets no sudo | The verified deploy path needs docker and `$HOME`. Adding later is trivial; removing is a migration |
 | 1.0 includes the Docker install | Scoped to the last two Ubuntu LTS releases only |
 | Default `ssh.user` becomes `odysseus` | 1.0 is the only honest moment. Safe now because every config in use sets it explicitly |
-| Caddy's directory does not move | Certificates, root-owned, rate-limited to re-issue |
+| Caddy's directory follows the connection user | Reversed 2026-08-17: the original "does not move" reasoning (root-owned certificates, rate-limited to re-issue) only ever protected root, and deriving the path protects root identically while letting a non-root deploy user create its own directory. Found by a real non-root deploy failing at `mkdir` |
 | Setup touches nothing belonging to root or the bootstrap user | It only adds access, so failure always leaves a reachable host |
 | No `odysseus key add` | Setup has the privilege; the deploy identity does not |
 

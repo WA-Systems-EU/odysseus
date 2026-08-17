@@ -32,11 +32,17 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   root created, so the deploy died at the first container start. This is the
   change that makes a non-root deploy possible, on a host you have already
   configured for it.
-- Caddy's certificate directory does not move. It stays at
-  `/var/lib/odysseus/caddy` for every user, because it holds issued Let's
-  Encrypt certificates, is written by the Caddy container as root, and
-  moving it would mean copying live certificates or re-issuing against
-  Let's Encrypt's rate limits.
+- Caddy's certificate directory (`Caddy::Client`) now follows `HostPaths`
+  too, instead of staying fixed at `/var/lib/odysseus/caddy`. It was
+  deliberately left out of the earlier change in this release to avoid
+  moving issued Let's Encrypt certificates or re-issuing against rate
+  limits — but that risk only ever applied to root installs, which are the
+  only ones with certificates at the old path. Deriving the directory
+  protects them identically: root still resolves to
+  `/var/lib/odysseus/caddy`, byte-identical. Leaving it fixed meant a
+  non-root deploy user could never create it, so `ensure_running` failed at
+  `mkdir -p /var/lib/odysseus/caddy` on every non-root web deploy — found on
+  a real host. Root is unaffected.
 - `rollback --list` keeps its history across the move: a host that deployed
   as root and later switches to a deploy user still has its old log read as
   a fallback when the new location is absent (or unreadable) rather than
