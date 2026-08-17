@@ -56,7 +56,7 @@ RSpec.describe Odysseus::Caddy::Client do
           image: 'caddy:2-alpine',
           options: hash_including(
             service: 'odysseus-proxy',
-            ports: ['80:80', '443:443', '2019:2019'],
+            ports: ['80:80', '443:443', '127.0.0.1:2019:2019'],
             labels: { 'odysseus.managed' => 'true' }
           )
         )
@@ -69,6 +69,34 @@ RSpec.describe Odysseus::Caddy::Client do
 
       it 'does not attempt to remove a container' do
         expect(mock_docker).not_to receive(:remove)
+        client.ensure_running
+      end
+    end
+
+    # The admin API can rewrite the proxy config -- routes, upstreams, TLS --
+    # for every service on the host, so it must never be reachable from
+    # outside the host itself.
+    describe 'the admin API port' do
+      before do
+        allow(mock_docker).to receive(:running?).with('odysseus-caddy').and_return(false, true)
+        allow(mock_docker).to receive(:container_exists?).with('odysseus-caddy').and_return(false)
+        allow(mock_ssh).to receive(:user).and_return('root')
+        allow(mock_ssh).to receive(:execute)
+        allow(mock_docker).to receive(:run)
+        allow(client).to receive(:sleep)
+      end
+
+      it 'publishes the admin port bound to loopback only, not every interface' do
+        expect(mock_docker).to receive(:run).with(
+          hash_including(options: hash_including(ports: ['80:80', '443:443', '127.0.0.1:2019:2019']))
+        )
+        client.ensure_running
+      end
+
+      it 'keeps CADDY_ADMIN bound to every interface inside the container' do
+        expect(mock_docker).to receive(:run).with(
+          hash_including(options: hash_including(env: hash_including('CADDY_ADMIN' => '0.0.0.0:2019')))
+        )
         client.ensure_running
       end
     end

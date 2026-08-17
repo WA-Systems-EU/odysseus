@@ -8,6 +8,19 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 ## [Unreleased]
 
 ### Fixed
+- `Caddy::Client#start_caddy` now publishes the admin API on
+  `127.0.0.1:2019` instead of `2019:2019`, which bound it to every
+  interface. That API can rewrite the proxy configuration — routes,
+  upstreams, TLS — for every service on the host, so anyone who could reach
+  the port controlled the proxy. `Caddy::Client` only ever calls it via
+  `curl localhost` over SSH, so nothing needed the external exposure. The
+  in-container `CADDY_ADMIN` bind stays `0.0.0.0:2019`, which is what the
+  published port maps to — only where the port lands on the host changed.
+  **This does not close the exposure on a host where Caddy is already
+  running**: `ensure_running` returns early when the container is up, so
+  the new binding only takes effect the next time Caddy is recreated
+  (stopped and restarted, or removed). An already-running Caddy stays bound
+  to every interface until that happens.
 - `JobDeploy` now ensures the `odysseus` Docker network exists before
   starting a container, instead of assuming it. It ran every container with
   `network: 'odysseus'` but never created that network itself, so a jobs-only

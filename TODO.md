@@ -330,23 +330,6 @@ Smaller findings worth fixing but not blocking anything.
       Needs its own design pass: decide the removal from containers rather than
       routes, and let a failed stop or remove be reported rather than
       swallowed.
-- [ ] **Caddy's admin API is published on every interface.**
-      `caddy/client.rb` starts Caddy with `-p 2019:2019`, so the admin API
-      binds `0.0.0.0`. That API can rewrite the whole proxy configuration —
-      routes, upstreams, TLS — for every service on the host, so anyone who can
-      reach the port controls the proxy.
-      `Caddy::Client` only ever reaches it by running `curl localhost:2019` on
-      the host over SSH, so it never needs external access: publishing it as
-      `127.0.0.1:2019:2019` removes the exposure with no functional change
-      (Caddy's in-container `CADDY_ADMIN` stays `0.0.0.0:2019`, which is just
-      the bind inside the container).
-      Noted 2026-08-17 on dedalus-prototypes, where the port is published on
-      0.0.0.0 and an external firewall blocks it. **The owner's hosts are
-      firewalled and this is not a problem for them.** It matters for a public
-      1.0: a stranger on a VPS with a permissive default firewall gets a
-      publicly writable proxy config, and neither README mentions port 2019.
-      Either bind to localhost, or document the requirement to block it —
-      binding is cheaper and cannot be forgotten by the reader.
 - [ ] **`env.secret` with no `secrets_file:` fails silently.**
       `Secrets::Loader#configured?` is just `!config[:secrets_file].nil?`, so a
       config that names secrets but no file skips the encrypted file entirely

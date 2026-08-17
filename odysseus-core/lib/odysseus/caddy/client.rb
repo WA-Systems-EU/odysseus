@@ -64,12 +64,21 @@ module Odysseus
         # Caddy starts against an empty one and silently has no certificates.
         # Docker::Client interpolates `-v` values into its command line
         # unescaped, so the directory is escaped here rather than there.
+        #
+        # The admin API is published on loopback only: it can rewrite the
+        # proxy config for every service on the host, and #api_request only
+        # ever reaches it via `curl localhost` over SSH, so nothing needs it
+        # exposed beyond the host itself. CADDY_ADMIN must stay bound to
+        # 0.0.0.0 *inside* the container regardless — that is what the
+        # published port maps to, and binding it to 127.0.0.1 there would put
+        # it behind the container's own loopback, unreachable even from the
+        # host.
         @docker.run(
           name: CONTAINER_NAME,
           image: CADDY_IMAGE,
           options: {
             service: 'odysseus-proxy',
-            ports: ['80:80', '443:443', "#{ADMIN_API_PORT}:#{ADMIN_API_PORT}"],
+            ports: ['80:80', '443:443', "127.0.0.1:#{ADMIN_API_PORT}:#{ADMIN_API_PORT}"],
             network: 'odysseus',
             restart: 'unless-stopped',
             volumes: ["#{Shellwords.escape(host_paths.caddy_dir)}:/data"],
