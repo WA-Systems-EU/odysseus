@@ -330,6 +330,25 @@ Smaller findings worth fixing but not blocking anything.
       Needs its own design pass: decide the removal from containers rather than
       routes, and let a failed stop or remove be reported rather than
       swallowed.
+- [ ] **`containers.count` is read by nothing in core.** The parser accepts it
+      (`parse_containers`, defaulting to 1) and the validator checks it, but
+      neither `WebDeploy` nor `JobDeploy` ever looks at
+      `role_config[:containers]` — only `odysseus-sail-rolling` does. So a
+      config asking for two workers gets one, silently, unless it also opts into
+      the rolling sail. A core config key honoured only by a third-party plugin
+      has it backwards.
+      Wanted 2026-08-17: several instances of a worker on one host. Neither
+      route works today — the built-in orchestrator ignores `count`, and rolling
+      on a non-web role cannot report health, because the sail builds its Docker
+      HEALTHCHECK only from `proxy.healthcheck` and never reads the role-level
+      `servers.<role>.healthcheck` that `JobDeploy` uses (already recorded
+      against the sail).
+      Teaching `JobDeploy` to honour `count` is the right fix, and needs two
+      decisions first — both about worker semantics rather than mechanics: what
+      happens when the Nth instance fails to come up (abort as the sail does, or
+      leave a partial set), and whether old instances stop *before* the new ones
+      start. For a queue worker, overlapping old and new is often the thing you
+      are trying to avoid, which is the opposite of the web role's behaviour.
 - [ ] **`env.secret` with no `secrets_file:` fails silently.**
       `Secrets::Loader#configured?` is just `!config[:secrets_file].nil?`, so a
       config that names secrets but no file skips the encrypted file entirely
