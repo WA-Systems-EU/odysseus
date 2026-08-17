@@ -62,7 +62,7 @@ module Odysseus
         Result.new(
           check: :distro, status: :warn,
           detail: "#{id || 'unknown'} #{version}".strip +
-                  " — deploys work here, but odysseus is tested against ubuntu #{SUPPORTED_UBUNTU.join(', ')}"
+                  " — not ubuntu #{SUPPORTED_UBUNTU.join(' or ')}; deploys work anywhere Docker does"
         )
       end
     end

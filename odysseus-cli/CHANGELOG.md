@@ -7,6 +7,15 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-17
+
+### Changed
+- Requires odysseus-core `~> 0.8.0`. The dependency was `~> 0.7.0`, which
+  excludes 0.8.0 outright, so this is not a tightening: without it the two gems
+  cannot resolve together. `odysseus doctor` also calls
+  `Odysseus::HostVerifier` and `Executor#host_roles`, neither available in
+  0.7.0.
+
 ### Added
 - `odysseus doctor`, a read-only diagnosis of every host in the config,
   connecting as the user `ssh.user` names rather than root. It reports

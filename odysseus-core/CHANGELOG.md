@@ -7,6 +7,8 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-17
+
 ### Fixed
 - `VersionResolver#resolve` now names the deployer for an explicitly-tagged
   deploy (`odysseus deploy --image v1.2.3`), instead of recording `nil`. The
