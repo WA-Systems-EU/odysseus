@@ -208,6 +208,24 @@ RSpec.describe 'bin/odysseus' do
     end
   end
 
+  describe 'doctor' do
+    it 'dispatches doctor' do
+      stdout, stderr, status = run_cli('doctor', '--config', 'nope.yml')
+
+      # Reaches the command and fails on the missing config, rather than
+      # printing the global usage banner or raising NoMethodError.
+      expect(stdout).not_to include('Usage: odysseus <command> [options]')
+      expect(stderr).not_to match(/undefined method|NoMethodError/)
+      expect(status.exitstatus).not_to eq(0)
+    end
+
+    it 'needs no server argument for doctor' do
+      stdout, _stderr, _status = run_cli('doctor', '--config', 'nope.yml')
+
+      expect(stdout).not_to match(/Server (name|argument) required/i)
+    end
+  end
+
   # The dispatch table named three methods that do not exist on the CLI object
   # — dependency_dispatch, app_dispatch, secrets_dispatch — reachable only if
   # the guards above it ever stopped intercepting those verbs first. That is
@@ -218,7 +236,7 @@ RSpec.describe 'bin/odysseus' do
   # dispatched to something that is not there.
   describe 'every command the help lists' do
     %w[deploy rollback build pussh status containers logs cleanup validate
-       dependency app secrets version].each do |command|
+       dependency app secrets version doctor].each do |command|
       it "#{command} dispatches" do
         stdout, stderr, = run_cli(command)
 

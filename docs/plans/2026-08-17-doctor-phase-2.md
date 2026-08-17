@@ -701,7 +701,7 @@ Add a `### doctor` section beside the other command sections. It must say:
   prepared, and serves as the acceptance test for a tofu-built one. Say this
   plainly and point at provisioning tools; do not position odysseus as one.
 - What each check reports: distro, docker reachable, docker group membership, state directory writable, deploy-log location.
-- That an unsupported distro is a **warning**, not a failure: deploys work anywhere Docker does, and only the (unbuilt) bootstrap is Ubuntu-specific.
+- That an unsupported distro is a **warning**, not a failure: deploys work anywhere Docker does. Explain it that way without invoking a bootstrap — the next bullet forbids mentioning one, and an earlier draft of this bullet contradicted it.
 - That Caddy's directory is deliberately not checked, because it does not exist until the first deploy.
 - Nothing about `odysseus setup`, which does not exist. Do not describe a bootstrap as coming, or name a version.
 

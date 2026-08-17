@@ -249,6 +249,48 @@ This loads `plugins:`/`sails:` before checking anything else, the same as
 every other command, so it also catches a plugin gem that is not installed
 on this machine — see `plugins` in the configuration reference below.
 
+### doctor
+
+Read-only diagnosis of every host in the config, connecting as the user
+`ssh.user` names — not root. That's the point: a host that is perfectly fine
+for root can be unusable for a deploy user, and this is the identity odysseus
+will actually deploy as.
+
+```bash
+odysseus doctor [--config FILE]
+```
+
+For each host it reports:
+
+- **distro** — informational only. An unsupported distro is a **warning**,
+  not a failure: odysseus deploys to any host with a working Docker daemon,
+  and nothing here depends on which distro it is.
+- **docker** — whether the Docker daemon answers as the deploy user.
+- **docker group membership** — whether the deploy user can reach the docker
+  socket (skipped for root, which needs no group membership).
+- **state directory** — whether odysseus's state directory, or its nearest
+  existing ancestor, is writable by the deploy user.
+- **deploy-log location** — where `odysseus rollback` will read and write
+  this service's deploy history, and whether older history exists at a
+  location the deploy user can read but no longer write to.
+
+Only a failing check sets a non-zero exit; a warning does not. If a check
+itself blows up — a dropped connection mid-host, say — that host is reported
+and the survey moves on to the rest rather than aborting.
+
+`doctor` changes nothing on the host: no directory is created, no package is
+installed, nothing is repaired. Caddy's directory is deliberately not
+checked — it doesn't exist until the first deploy starts Caddy, so checking
+for it would report a correctly configured, not-yet-deployed host as broken.
+
+**What it's for.** Preparing a server — creating a user, installing Docker,
+opening firewall ports — is not odysseus's job; that belongs to OpenTofu,
+Terraform or an equivalent tool that can do it declaratively and at scale.
+`doctor` answers whether the host they produced is actually usable by
+odysseus as the user your config names, which is worth asking however the
+host was prepared, and can serve as the acceptance test for a tofu-built one.
+odysseus does not provision servers.
+
 ### rollback
 
 Return every role on every host to a previously deployed version.

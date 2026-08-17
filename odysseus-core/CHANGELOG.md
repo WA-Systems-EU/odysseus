@@ -7,6 +7,8 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-17
+
 ### Fixed
 - `VersionResolver#resolve` now names the deployer for an explicitly-tagged
   deploy (`odysseus deploy --image v1.2.3`), instead of recording `nil`. The
@@ -56,6 +58,12 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   from the connecting SSH user: `root` still gets `/var/lib/odysseus`, exactly
   as before and with no extra SSH round trip; any other user gets
   `$HOME/.odysseus`, resolved by asking the host once per connection.
+- `Odysseus::HostVerifier`, a read-only diagnosis of one host, run as the
+  user the config names rather than root. `#verify` runs distro, docker
+  reachability, docker group membership, state-directory writability and
+  deploy-log location, and returns one `Result` per check with a `:ok`,
+  `:warn` or `:fail` status — it writes nothing to the host. `odysseus
+  doctor` (odysseus-cli) drives it over every host in a config.
 
 ### Changed
 - Env files (`Docker::Client`) and the deploy log (`DeployLog`) now follow
@@ -82,6 +90,11 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   empty — an empty file at the new location exits 0 and suppresses the
   fallback. Reads fall back to the old location; appends only ever go to the
   new one.
+- `Executor#host_roles` is public API now, not a private helper. It answers
+  the same question the CLI needs answered — which hosts does this config
+  target, and which roles does each serve — so `odysseus doctor` can visit
+  every host once, however many roles it serves, without duplicating the
+  host-resolution logic this method already implements.
 - Nothing changes for a root install.
 
 ## [0.7.0] - 2026-08-16

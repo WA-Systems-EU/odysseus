@@ -912,6 +912,179 @@ RSpec.describe Odysseus::CLI::CLI do
     end
   end
 
+  describe '#doctor' do
+    # Overrides the outer `executor` double: doctor drives the host loop off
+    # #host_roles rather than any of the deploy-shaped methods the other
+    # describes stub.
+    let(:executor) do
+      instance_double(
+        Odysseus::Deployer::Executor,
+        host_roles: { 'web1.example.com' => [:web], 'worker1.example.com' => [:jobs] }
+      )
+    end
+
+    let(:ok)   { Odysseus::HostVerifier::Result.new(check: :docker, status: :ok, detail: 'docker 29.1.3') }
+    let(:warn) { Odysseus::HostVerifier::Result.new(check: :distro, status: :warn, detail: 'debian 12 — deploys work here') }
+    let(:bad)  { Odysseus::HostVerifier::Result.new(check: :state_dir, status: :fail, detail: '/home/odysseus/.odysseus is not writable') }
+
+    def run_setup(results, options = {})
+      ssh = instance_double(Odysseus::Deployer::SSH, close: nil, user: 'odysseus')
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      verifier = instance_double(Odysseus::HostVerifier, verify: results)
+      allow(Odysseus::HostVerifier).to receive(:new).and_return(verifier)
+
+      cli.doctor({ config: fixture_path('deploy.yml') }.merge(options))
+    end
+
+    it 'reports each check and exits zero when all pass' do
+      expect { output_of { run_setup([ok]) } }.not_to raise_error
+    end
+
+    it 'exits non-zero when any check fails' do
+      expect { output_of { run_setup([ok, bad]) } }.to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
+    end
+
+    # A warning is information, not a broken host: deploys work on a distro
+    # `setup` cannot bootstrap.
+    it 'exits zero when the worst result is a warning' do
+      expect { output_of { run_setup([ok, warn]) } }.not_to raise_error
+    end
+
+    # No other example in this file puts a :warn and a :fail in the same
+    # survey. Ranking statuses ok: 0, warn: 2, fail: 1 — instead of the
+    # correct ok: 0, warn: 1, fail: 2 — still passes every one of them, and
+    # under that ranking a :fail arriving after a :warn cannot raise the
+    # recorded worst above :warn, so the run exits zero. That ordering is
+    # the common real case: checks run distro first, so a warned distro
+    # is typically followed by a later check (docker, on a broken daemon)
+    # failing.
+    it 'exits non-zero when a warning is followed by a failure' do
+      expect { output_of { run_setup([warn, bad]) } }
+        .to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
+    end
+
+    # The reverse order is also realistic: worst carries across hosts, so one
+    # host's docker check can fail before a later host's distro check warns.
+    # This pins that a recorded failure is never downgraded by a later
+    # warning — a mutant that assigned the latest status outright, instead of
+    # ranking it against the current worst, would still pass the example
+    # above (fail is the last status seen there) but would silently clear
+    # this survey's failing exit code.
+    it 'exits non-zero when a failure is followed by a warning' do
+      expect { output_of { run_setup([bad, warn]) } }
+        .to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
+    end
+
+    it 'names the failing check and its detail, so the reader can act' do
+      output = output_of do
+        run_setup([ok, bad])
+      rescue SystemExit
+        nil
+      end
+
+      expect(output).to include('state_dir')
+      expect(output).to include('not writable')
+    end
+
+    it 'verifies every host in the config, not only the first' do
+      hosts = []
+      allow(Odysseus::Deployer::SSH).to receive(:new) do |args|
+        hosts << args[:host]
+        instance_double(Odysseus::Deployer::SSH, close: nil, user: 'odysseus')
+      end
+      allow(Odysseus::HostVerifier).to receive(:new)
+        .and_return(instance_double(Odysseus::HostVerifier, verify: [ok]))
+
+      output_of { cli.doctor(config: fixture_path('deploy.yml')) }
+
+      # The fixture config's stubbed host_roles names two hosts. Asserting the
+      # exact set (not just hosts.uniq.size >= 1, which a single visited host
+      # would also satisfy) is what actually catches breaking out of the loop
+      # after the first host.
+      expect(hosts).to contain_exactly('web1.example.com', 'worker1.example.com')
+      expect(hosts).to eq(hosts.uniq) # each host visited once, not once per role
+    end
+
+    # Renamed from 'closes every connection it opens, even when a check
+    # fails': a :fail Result is a value HostVerifier returns, not a raise, so
+    # this pins only the ordinary sequential path through the begin/ensure —
+    # it says nothing about what happens when the connection itself dies
+    # mid-survey. The context below covers that.
+    it 'closes the connection after a check reports a failing result' do
+      ssh = instance_double(Odysseus::Deployer::SSH, close: nil, user: 'odysseus')
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      allow(Odysseus::HostVerifier).to receive(:new)
+        .and_return(instance_double(Odysseus::HostVerifier, verify: [bad]))
+
+      output_of do
+        cli.doctor(config: fixture_path('deploy.yml'))
+      rescue SystemExit
+        nil
+      end
+
+      expect(ssh).to have_received(:close).at_least(:once)
+    end
+
+    # #verify itself can raise rather than return a :fail Result: a dropped
+    # connection mid-check can surface as IOError, Net::SSH::Disconnect (a
+    # RuntimeError) or Errno::EPIPE/ECONNRESET (a SystemCallError) — three
+    # branches of StandardError with no narrower ancestor in common, so
+    # nothing tighter than StandardError could catch all of them in one
+    # rescue. doctor's whole purpose is surveying every host, so one host
+    # dying this way must not abort the rest of the run.
+    context "when a host's check raises instead of returning a result" do
+      let(:sshes) { [] }
+
+      before do
+        allow(Odysseus::Deployer::SSH).to receive(:new) do
+          instance_double(Odysseus::Deployer::SSH, close: nil, user: 'odysseus').tap { |ssh| sshes << ssh }
+        end
+
+        raising_verifier = instance_double(Odysseus::HostVerifier)
+        allow(raising_verifier).to receive(:verify).and_raise(IOError, 'connection reset')
+        ok_verifier = instance_double(Odysseus::HostVerifier, verify: [ok])
+
+        seen = 0
+        allow(Odysseus::HostVerifier).to receive(:new) do
+          seen += 1
+          seen == 1 ? raising_verifier : ok_verifier
+        end
+      end
+
+      def run
+        output_of do
+          cli.doctor(config: fixture_path('deploy.yml'))
+        rescue SystemExit
+          nil
+        end
+      end
+
+      it 'still visits the other host rather than stopping the survey' do
+        run
+
+        expect(sshes.size).to eq(2)
+      end
+
+      it 'closes the connection to the host whose check raised' do
+        run
+
+        expect(sshes.first).to have_received(:close)
+      end
+
+      it "reports the error's class and message, so the reader can tell it from an ordinary failing check" do
+        output = run
+
+        expect(output).to include('IOError')
+        expect(output).to include('connection reset')
+      end
+
+      it 'exits non-zero' do
+        expect { output_of { cli.doctor(config: fixture_path('deploy.yml')) } }
+          .to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
+      end
+    end
+  end
+
   describe '#dependency_boot' do
     it 'boots the named dependency' do
       expect(executor).to receive(:deploy_dependency).with(name: 'db')
