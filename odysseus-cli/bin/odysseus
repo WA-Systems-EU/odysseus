@@ -34,7 +34,8 @@ def main
     'logs' => { method: :logs, needs_server: true },
     'cleanup' => { method: :cleanup, needs_server: true },
     'validate' => { method: :validate, needs_server: false },
-    'doctor' => { method: :doctor, needs_server: false }
+    'doctor' => { method: :doctor, needs_server: false },
+    'setup' => { method: :setup, needs_server: false }
   }
   # `dependency`, `app` and `secrets` are not in the table: they have
   # subcommands of their own and are handled by the guards below, which return
@@ -90,6 +91,11 @@ def main
     opts.on('-f', '--follow', 'Follow log output') { |v| options[:follow] = v }
     opts.on('-n', '--lines N', Integer, 'Number of lines to show') { |v| options[:lines] = v }
     opts.on('--since TIME', 'Show logs since timestamp') { |v| options[:since] = v }
+    # Setup options
+    opts.on('--as USER', 'Bootstrap identity for setup (default: ubuntu)') { |v| options[:as] = v }
+    opts.on('--key PATH', 'Public key to install (repeatable; default: ssh.keys siblings)') do |v|
+      (options[:key] ||= []) << v
+    end
   end.parse!(command_args)
 
   # rollback takes an optional positional VERSION; OptionParser#parse! has
@@ -292,6 +298,7 @@ def print_help
   puts '  cleanup <server>          Clean up old containers and images'
   puts '  validate                  Validate deploy.yml'
   puts '  doctor                    Check that hosts are ready to deploy to (changes nothing)'
+  puts '  setup                     Prepare hosts: create the deploy user, its group, key and state dir'
   puts '  dependency <subcommand>    Manage dependencies (db, redis, ...); alias: dep'
   puts '  app <subcommand>          Run commands in app containers'
   puts '  secrets <subcommand>      Manage encrypted secrets'
@@ -334,6 +341,10 @@ def print_help
   puts ''
   puts 'Cleanup options:'
   puts '  --prune-images            Also prune dangling images after removing containers'
+  puts ''
+  puts 'Setup options:'
+  puts '  --as USER                 Bootstrap identity for setup (default: ubuntu)'
+  puts '  --key PATH                Public key to install (repeatable; default: ssh.keys siblings)'
 end
 
 main

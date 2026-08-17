@@ -1085,6 +1085,157 @@ RSpec.describe Odysseus::CLI::CLI do
     end
   end
 
+  describe '#setup' do
+    # Overrides the outer `executor` double: setup drives the host loop off
+    # #host_roles rather than any of the deploy-shaped methods the other
+    # describes stub.
+    let(:executor) do
+      instance_double(
+        Odysseus::Deployer::Executor,
+        host_roles: { 'web1.example.com' => [:web], 'worker1.example.com' => [:jobs] }
+      )
+    end
+
+    let(:ok)      { Odysseus::Setup::Preparer::Result.new(step: :docker, status: :ok, detail: 'docker 29.1.3') }
+    let(:changed) { Odysseus::Setup::Preparer::Result.new(step: :user, status: :changed, detail: 'created odysseus') }
+    let(:bad)     { Odysseus::Setup::Preparer::Result.new(step: :distro, status: :fail, detail: 'debian 12') }
+
+    def run_setup(results, options = {})
+      ssh = instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu')
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['ssh-ed25519 AAAAtest t@e'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: results))
+
+      cli.setup({ config: fixture_path('deploy.yml') }.merge(options))
+    end
+
+    it 'exits zero when every step is ok or changed' do
+      expect { output_of { run_setup([ok, changed]) } }.not_to raise_error
+    end
+
+    it 'exits non-zero when a step fails' do
+      expect { output_of { run_setup([ok, bad]) } }
+        .to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
+    end
+
+    it 'shows what it changed distinctly from what was already correct' do
+      output = output_of { run_setup([ok, changed]) }
+
+      expect(output).to include('created odysseus')
+      expect(output).to include('docker 29.1.3')
+    end
+
+    # The default is the Ubuntu cloud image's user, so a stock image works
+    # untouched.
+    it 'connects as ubuntu by default' do
+      users = []
+      allow(Odysseus::Deployer::SSH).to receive(:new) do |args|
+        users << args[:user]
+        instance_double(Odysseus::Deployer::SSH, close: nil, user: args[:user])
+      end
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
+
+      output_of { cli.setup(config: fixture_path('deploy.yml')) }
+
+      expect(users.uniq).to eq(['ubuntu'])
+    end
+
+    it 'connects as the identity --as names' do
+      users = []
+      allow(Odysseus::Deployer::SSH).to receive(:new) do |args|
+        users << args[:user]
+        instance_double(Odysseus::Deployer::SSH, close: nil, user: args[:user])
+      end
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
+
+      output_of { cli.setup(config: fixture_path('deploy.yml'), as: 'root') }
+
+      expect(users.uniq).to eq(['root'])
+    end
+
+    # A created user with no way to log in is the worst outcome available, so
+    # the key is resolved before a single host is touched.
+    it 'refuses before connecting when no public key can be resolved' do
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve)
+        .and_raise(Odysseus::SetupError, 'Found no public key to install')
+      expect(Odysseus::Deployer::SSH).not_to receive(:new)
+
+      expect { output_of { cli.setup(config: fixture_path('deploy.yml')) } }.to raise_error(SystemExit)
+    end
+
+    it 'prepares every host in the config, not only the first' do
+      hosts = []
+      allow(Odysseus::Deployer::SSH).to receive(:new) do |args|
+        hosts << args[:host]
+        instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu')
+      end
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
+
+      output_of { cli.setup(config: fixture_path('deploy.yml')) }
+
+      expect(hosts).to contain_exactly('web1.example.com', 'worker1.example.com')
+    end
+
+    it 'opens setup connections without Tailscale troubleshooting advice on timeout' do
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
+
+      expect(Odysseus::Deployer::SSH).to receive(:new)
+        .with(hash_including(use_tailscale: false))
+        .at_least(:once)
+        .and_return(instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu'))
+
+      output_of { cli.setup(config: fixture_path('deploy.yml')) }
+    end
+
+    it 'closes every connection it opens, even when a step fails' do
+      ssh = instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu')
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [bad]))
+
+      output_of do
+        cli.setup(config: fixture_path('deploy.yml'))
+      rescue SystemExit
+        nil
+      end
+
+      expect(ssh).to have_received(:close).at_least(:once)
+    end
+
+    it 'reports a host whose preparation raises and continues to the next' do
+      hosts = []
+      allow(Odysseus::Deployer::SSH).to receive(:new) do |args|
+        hosts << args[:host]
+        instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu')
+      end
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new) do
+        instance_double(Odysseus::Setup::Preparer).tap do |p|
+          allow(p).to receive(:prepare).and_raise(IOError, 'connection dropped')
+        end
+      end
+
+      output = output_of do
+        cli.setup(config: fixture_path('deploy.yml'))
+      rescue SystemExit
+        nil
+      end
+
+      expect(hosts.size).to eq(2)
+      expect(output).to include('IOError')
+    end
+  end
+
   describe '#dependency_boot' do
     it 'boots the named dependency' do
       expect(executor).to receive(:deploy_dependency).with(name: 'db')

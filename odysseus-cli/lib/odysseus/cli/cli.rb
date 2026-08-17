@@ -7,6 +7,7 @@ require_relative 'ui'
 require_relative 'rollback_commands'
 require_relative 'interactive_commands'
 require_relative 'doctor_commands'
+require_relative 'setup_commands'
 
 module Odysseus
   module CLI
@@ -14,6 +15,7 @@ module Odysseus
       include RollbackCommands
       include InteractiveCommands
       include DoctorCommands
+      include SetupCommands
 
       def initialize(debug: false)
         @ui = UI.new(debug: debug)
