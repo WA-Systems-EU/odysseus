@@ -7,6 +7,22 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Added
+- `odysseus setup`, which prepares every host in the config so odysseus can
+  deploy to it as a non-root user: creates the user `ssh.user` names, adds
+  it to the `docker` group, installs your public key, and creates its
+  state directory. Connects as `--as USER`, default `ubuntu` — the user
+  Ubuntu's LTS cloud images ship with passwordless sudo already
+  configured; `--as root` needs no sudo. It reads no new configuration
+  keys: the user, keys and hosts all come from the existing `ssh.user`,
+  `ssh.keys` and `servers.*.hosts`, with `--key PATH` (repeatable) to
+  override the key source. It refuses a host without Docker already
+  installed, naming what's missing, rather than installing it — and
+  refuses anything other than Ubuntu 24.04 or 26.04 by name. It reports
+  what it changed separately from what was already correct, and finishes
+  by reconnecting as the new user to prove the host actually works before
+  reporting success.
+
 ## [0.8.0] - 2026-08-17
 
 ### Changed

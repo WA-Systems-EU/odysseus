@@ -249,6 +249,67 @@ This loads `plugins:`/`sails:` before checking anything else, the same as
 every other command, so it also catches a plugin gem that is not installed
 on this machine — see `plugins` in the configuration reference below.
 
+### setup
+
+Prepares every host in the config so odysseus can deploy to it as a
+non-root user: creates the user `ssh.user` names, adds it to the `docker`
+group, installs your public key, and creates its state directory under
+that user's home (`~/.odysseus`). It only **adds** access — it never
+modifies root's configuration or the bootstrap user's.
+
+```bash
+odysseus setup [--config FILE] [--as USER] [--key PATH]
+```
+
+Options:
+- `--as USER` - Identity to connect as while preparing the host (default:
+  `ubuntu`, the user Ubuntu's LTS cloud images ship, with passwordless sudo
+  already configured). `--as root` connects as root and needs no sudo at
+  all. Passwordless sudo is a hard requirement for any other identity —
+  odysseus cannot answer a password prompt, so a host without it is
+  refused before anything is changed.
+- `--key PATH` - Install this public key instead of the one resolved from
+  `ssh.keys`. Repeatable.
+
+It reads no new configuration keys: the user comes from `ssh.user`, the
+hosts from `servers.*.hosts`, and the keys from `ssh.keys` — each entry's
+`.pub` sibling if one has a valid key line in it, otherwise derived from
+the private key itself with `ssh-keygen -y`. A `--key` path that doesn't
+resolve to a valid public key refuses, naming the path, rather than
+falling back to `ssh.keys`; the same goes for a `.pub` sibling that has
+content but no line in it validates — for example a restricted
+`command="..." ssh-ed25519 ...` entry, which setup deliberately does not
+install. Setup installs plain login keys only, and it will not silently
+substitute a different key for the one you named or the one on disk. Only
+an empty or whitespace-only `.pub` sibling falls through to deriving the
+key from its private half.
+
+**Docker must already be installed.** This version refuses a host without
+it, naming what's missing, rather than installing Docker itself. Ubuntu
+24.04 and 26.04 are the only distros it knows; anything else is refused by
+name too — unlike `doctor`, which only warns on an unsupported distro,
+because a deploy just needs a working Docker daemon and doesn't care which
+distro provides it. Setup is stricter because it changes the host: it
+stops at the first thing it can't verify rather than proceeding on a guess.
+
+It reports what it changed separately from what was already correct, and
+running it twice against an already-prepared host changes nothing on
+either run.
+
+The last thing it does is open a second connection — as the user it just
+created, not the bootstrap identity — and prove Docker and the state
+directory both work from there. It reports success only if that passes. A
+failure at this step leaves the bootstrap path, and everything already
+prepared, untouched: the host stays reachable and there is always a way
+back in to try again.
+
+**What it's for.** `setup` gets a single host ready for odysseus to deploy
+to. Preparing servers at scale — many hosts, built from scratch — belongs
+to OpenTofu, Terraform or an equivalent tool that can do it declaratively;
+`setup` is not a substitute for that, only for getting one host going.
+However a host was prepared, including one a provisioning tool built, run
+[`doctor`](#doctor) afterwards to check it.
+
 ### doctor
 
 Read-only diagnosis of every host in the config, connecting as the user
@@ -682,8 +743,9 @@ root connection, `$HOME/.odysseus/caddy` for any other user.
 
 A non-root `user` must already exist on the target host — with membership in
 the `docker` group and a writable home directory — and its key must be one of
-`keys` above. Odysseus does not create this user, install Docker, or set up
-the host for you; all of that is on you today.
+`keys` above. [`odysseus setup`](#setup) can create that user, add it to
+`docker`, and install the key for you; it does not install Docker itself,
+which still has to be there first.
 
 ### builder
 
