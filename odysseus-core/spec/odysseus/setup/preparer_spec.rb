@@ -200,6 +200,20 @@ RSpec.describe Odysseus::Setup::Preparer do
       expect(commands).to all(satisfy { |cmd| !cmd.match?(/useradd/) })
     end
 
+    # Both halves of the ownership check must hold independently: a home
+    # owned odysseus:root (group wrong, owner right) must still be repaired.
+    # `owner == @user && group == @user` weakened to `||` would report :ok
+    # here and never fix the group.
+    it 'repairs a home whose owner is correct but whose group is not' do
+      answers = healthy.merge(/stat -c/ => "odysseus root\n")
+      preparer, commands = build(answers: answers)
+
+      result = result_for(preparer.prepare, :user)
+
+      expect(result.status).to eq(:changed)
+      expect(commands).to include(a_string_matching(/chown odysseus:odysseus/))
+    end
+
     # The half-created-user recovery the brief names: a user that exists but
     # whose home does not (made some other way, or emptied out afterward).
     # `chown` on a path that isn't there fails outright, so this must create
@@ -279,7 +293,12 @@ RSpec.describe Odysseus::Setup::Preparer do
 
       expect(commands).to include(a_string_matching(/chmod 700 .*\.ssh/))
       expect(commands).to include(a_string_matching(/chmod 600 .*authorized_keys/))
-      expect(commands).to include(a_string_matching(/chown .*odysseus.*\.ssh/))
+      # \bchown -R\b, not just /chown .*\.ssh/: a plain (non-recursive) chown
+      # also matches the looser pattern, but leaves authorized_keys itself
+      # -- created root-owned by `sudo tee` -- unowned by the user, who can
+      # then neither read nor rotate their own key even though login still
+      # works.
+      expect(commands).to include(a_string_matching(/\bchown -R\b.*odysseus.*\.ssh/))
     end
 
     # The append goes through the connection directly (not escalation.run),
@@ -359,6 +378,35 @@ RSpec.describe Odysseus::Setup::Preparer do
 
       expect(result_for(preparer.prepare, :state_dir).status).to eq(:ok)
       expect(commands).to all(satisfy { |cmd| !cmd.match?(%r{mkdir -p .*/\.odysseus}) })
+    end
+
+    # A run interrupted (e.g. SIGINT) between `mkdir -p` -- which runs via
+    # sudo and so leaves the directory root-owned -- and the `chown` one
+    # line later leaves the directory existing but owned by root. The next
+    # run must repair it rather than report :ok: `exists && owner == @user`
+    # weakened to just `exists` would report :ok forever and never repair,
+    # so the self-test's `test -w` would fail on every subsequent run
+    # against a host setup itself calls fine.
+    #
+    # healthy's own generic /stat -c/ answer must be removed, not merely
+    # shadowed: `answers.keys.find` checks patterns in insertion order, so a
+    # broader pattern already present would still match first and hide a
+    # merged-in narrower one. The two replacements below don't overlap each
+    # other, though: state_dir's query is `stat -c '%U' path` (one field)
+    # while the user step's is `stat -c '%U %G' path` (two) -- `'%U'` alone
+    # is not a substring of `'%U %G'` because a space, not a closing quote,
+    # follows U there, so each pattern matches only its own command.
+    it 'repairs a state directory that exists but is owned by someone else' do
+      answers = healthy.reject { |pattern, _| pattern == /stat -c/ }.merge(
+        /stat -c '%U %G'/ => "odysseus odysseus\n",
+        /stat -c '%U'/ => "root\n"
+      )
+      preparer, commands = build(answers: answers)
+
+      result = result_for(preparer.prepare, :state_dir)
+
+      expect(result.status).to eq(:changed)
+      expect(commands).to include(a_string_matching(%r{chown odysseus:odysseus .*/\.odysseus}))
     end
   end
 

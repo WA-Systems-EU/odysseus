@@ -136,6 +136,19 @@ RSpec.describe Odysseus::Setup::PublicKey do
       expect(lines.first).to start_with('ssh-ed25519 ')
     end
 
+    # Distinct from the empty-file example above: '' is already empty before
+    # #strip runs, so that example alone can't tell a #content? that forgot
+    # to strip from one that never had to. Whitespace-only content is not
+    # empty until it's stripped, which is exactly what this pins.
+    it 'derives when the .pub sibling is whitespace-only, rather than dropping a resolvable key' do
+      File.write(public_key, "\n  \n")
+
+      lines = described_class.resolve(keys: [private_key])
+
+      expect(lines.size).to eq(1)
+      expect(lines.first).to start_with('ssh-ed25519 ')
+    end
+
     # Content that doesn't validate is a different case from no content at
     # all: something was written here on purpose, so odysseus refuses rather
     # than quietly substituting whatever the private key derives to.

@@ -1173,6 +1173,30 @@ RSpec.describe Odysseus::CLI::CLI do
       expect(ui).not_to have_received(:step_ok).with(a_string_matching('created odysseus'))
     end
 
+    # Mirrors the :changed example directly above, for the :warn arm of the
+    # same case statement. `escalate`'s rank table already has coverage that
+    # :warn and :ok/:changed are ranked differently ('exits zero when the
+    # worst result is a warning' etc. above); render_result's :warn branch
+    # calling @ui.step_ok instead of @ui.warn is the same class of mutation
+    # those examples cannot see, since none of them inspect what got
+    # rendered, only the exit code. Preparer emits no :warn today (this
+    # fixture's `warn` let is synthetic), but the render arm exists and must
+    # hold regardless of whether anything feeds it yet.
+    it 'shows a warning distinctly from a step that was already correct' do
+      ui = cli.instance_variable_get(:@ui)
+      allow(ui).to receive(:warn).and_call_original
+      allow(ui).to receive(:step_ok).and_call_original
+
+      output_of { run_setup([ok, warn]) }
+
+      # Exactly twice, not at_least(:once): two hosts, each rendering the
+      # whole result list -- see the :changed example above for why looser
+      # cardinality would miss a regression on only one host.
+      expect(ui).to have_received(:warn).with(a_string_matching('debian 12')).exactly(2).times
+      expect(ui).to have_received(:step_ok).with(a_string_matching('docker 29.1.3')).exactly(2).times
+      expect(ui).not_to have_received(:step_ok).with(a_string_matching('debian 12'))
+    end
+
     # The default is the Ubuntu cloud image's user, so a stock image works
     # untouched.
     it 'connects as ubuntu by default' do
