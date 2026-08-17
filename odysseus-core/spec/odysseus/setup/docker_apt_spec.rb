@@ -195,4 +195,73 @@ RSpec.describe Odysseus::Setup::DockerApt do
     expect { apt.install! }.to raise_error(Odysseus::SetupError, /codename/i)
     expect(commands).to be_empty
   end
+
+  # Finding 1: only #apt used to convert a raised Odysseus::SSHCommandError
+  # into Odysseus::SetupError. The other four host calls -- the keyrings
+  # directory, the curl fetch, the chmod, and the sources tee -- raised the
+  # raw SSHCommandError straight out of #install!, which escapes
+  # Preparer#run_step's `rescue Odysseus::SetupError` untouched.
+  #
+  # Each example merges its failure INTO `healthy`, not the other way
+  # around: these patterns are the exact same Regexp `healthy` already
+  # stubs (Regexp equality is by source/options, so it's the same hash key),
+  # and Hash#merge takes the *value* from its argument -- `healthy.merge(x)`
+  # is what lets `x`'s exception win, `{x}.merge(healthy)` would silently
+  # let `healthy`'s success answer win instead and the example would pass
+  # while testing nothing, the same fixture-shadowing trap the lock-holder
+  # examples above call out.
+  describe 'a non-apt failure' do
+    it 'wraps a failure creating /etc/apt/keyrings into SetupError' do
+      answers = healthy.merge(/install -m 0755 -d/ => Odysseus::SSHCommandError.new('exit status 1: Permission denied'))
+      apt, = build(answers: answers)
+
+      expect { apt.install! }.to raise_error(Odysseus::SetupError, %r{etc/apt/keyrings})
+    end
+
+    it 'wraps a failed keyring download into SetupError, naming the URL' do
+      answers = healthy.merge(/curl -fsSL/ => Odysseus::SSHCommandError.new('exit status 6: Could not resolve host'))
+      apt, = build(answers: answers)
+
+      expect { apt.install! }
+        .to raise_error(Odysseus::SetupError, %r{download.docker.com/linux/ubuntu/gpg})
+    end
+
+    it 'wraps a failed chmod of the keyring into SetupError' do
+      answers = healthy.merge(/chmod a\+r/ => Odysseus::SSHCommandError.new('exit status 1: No such file or directory'))
+      apt, = build(answers: answers)
+
+      expect { apt.install! }.to raise_error(Odysseus::SetupError, /docker\.asc/)
+    end
+
+    it 'wraps a failed sources write into SetupError' do
+      answers = healthy.merge(/tee/ => Odysseus::SSHCommandError.new('exit status 1: Permission denied'))
+      apt, = build(answers: answers)
+
+      expect { apt.install! }.to raise_error(Odysseus::SetupError, /sources.*docker\.list|docker\.list.*sources/)
+    end
+
+    # Each wrapped failure reads differently, matching the brief: a failed
+    # keyring download and a failed sources write are different problems.
+    it 'gives the keyring download and the sources write distinct messages' do
+      curl_answers = healthy.merge(/curl -fsSL/ => Odysseus::SSHCommandError.new('boom'))
+      curl_apt, = build(answers: curl_answers)
+      curl_message = begin
+        curl_apt.install!
+      rescue Odysseus::SetupError => e
+        e.message
+      end
+
+      tee_answers = healthy.merge(/tee/ => Odysseus::SSHCommandError.new('boom'))
+      tee_apt, = build(answers: tee_answers)
+      tee_message = begin
+        tee_apt.install!
+      rescue Odysseus::SetupError => e
+        e.message
+      end
+
+      expect(curl_message).not_to be_nil
+      expect(tee_message).not_to be_nil
+      expect(curl_message).not_to eq(tee_message)
+    end
+  end
 end

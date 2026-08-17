@@ -64,11 +64,9 @@ module Odysseus
 
         apt('update')
         apt('install -y ca-certificates curl')
-        @escalation.run('install -m 0755 -d /etc/apt/keyrings')
-        # curl -o, not a redirect: the file is opened by the process sudo
-        # elevated, not by the bootstrap identity's own shell.
-        @escalation.run("curl -fsSL #{GPG_URL} -o #{KEYRING}")
-        @escalation.run("chmod a+r #{KEYRING}")
+        make_keyring_dir
+        fetch_keyring
+        make_keyring_readable
         write_sources
         # The repository is only visible to apt after a refresh that follows
         # the sources file, so this update is not the same as the one above.
@@ -88,6 +86,40 @@ module Odysseus
         "deb [arch=#{arch} signed-by=#{KEYRING}] #{REPO_URL} #{@codename} stable"
       end
 
+      # Every non-apt host call below is wrapped the same way #apt already
+      # is: a raw Odysseus::SSHCommandError from any of these used to escape
+      # #install! untouched, past Preparer#run_step's `rescue
+      # Odysseus::SetupError` and out of #prepare entirely -- reported by the
+      # CLI's per-host `rescue StandardError` as a step named :connection,
+      # discarding every step result that had already succeeded on that
+      # host. Wrapping here, at the point each command actually runs, is what
+      # keeps #install!'s own `@raise [Odysseus::SetupError] on any failure`
+      # true.
+
+      def make_keyring_dir
+        @escalation.run('install -m 0755 -d /etc/apt/keyrings')
+      rescue Odysseus::Error => e
+        raise Odysseus::SetupError,
+              "could not create /etc/apt/keyrings: #{e.message.lines.first.to_s.strip}"
+      end
+
+      # curl -o, not a redirect: the file is opened by the process sudo
+      # elevated, not by the bootstrap identity's own shell.
+      def fetch_keyring
+        @escalation.run("curl -fsSL #{GPG_URL} -o #{KEYRING}")
+      rescue Odysseus::Error => e
+        raise Odysseus::SetupError,
+              "could not download Docker's signing key from #{GPG_URL}: " \
+              "#{e.message.lines.first.to_s.strip}"
+      end
+
+      def make_keyring_readable
+        @escalation.run("chmod a+r #{KEYRING}")
+      rescue Odysseus::Error => e
+        raise Odysseus::SetupError,
+              "could not make #{KEYRING} readable: #{e.message.lines.first.to_s.strip}"
+      end
+
       # `tee`, not `tee -a`: this file is replaced, not added to. The prefix
       # goes on the writer alone via Escalation#elevate -- prefixing the whole
       # pipeline would elevate printf and leave tee unprivileged, which is the
@@ -96,6 +128,9 @@ module Odysseus
       def write_sources
         writer = @escalation.elevate("tee #{Shellwords.escape(SOURCES)}")
         @ssh.execute("printf '%s\n' #{Shellwords.escape(sources_line)} | #{writer} >/dev/null")
+      rescue Odysseus::Error => e
+        raise Odysseus::SetupError,
+              "could not write the apt sources file #{SOURCES}: #{e.message.lines.first.to_s.strip}"
       end
 
       # `env DEBIAN_FRONTEND=noninteractive` rather than a bare assignment:

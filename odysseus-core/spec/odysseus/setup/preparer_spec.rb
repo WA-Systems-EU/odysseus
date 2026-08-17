@@ -281,6 +281,34 @@ RSpec.describe Odysseus::Setup::Preparer do
       # hardcoded the codename of the release it was written against -- the
       # fixture-too-uniform defect this project keeps shipping. A synthetic value
       # cannot coincide with anything the implementation might hardcode.
+      # Finding 1: before DockerApt wrapped its non-apt calls, a raw
+      # Odysseus::SSHCommandError from the curl keyring fetch escaped
+      # Preparer#run_step's `rescue Odysseus::SetupError` and #prepare
+      # entirely -- the CLI then reported it under a step named :connection,
+      # discarding every result that had already succeeded on that host.
+      #
+      # The override is merged LAST here, unlike the sibling apt-failure
+      # example above: `docker_answers` already stubs this exact `/curl
+      # -fsSL/` pattern (same Regexp source, so the same hash key), and
+      # Hash#merge takes its VALUE from whichever hash is merged last. Merging
+      # the override first, as the apt example does for a pattern
+      # `docker_answers` does NOT already contain, would have it silently
+      # overwritten by `docker_answers`' own success answer -- the
+      # fixture-shadowing trap by another route.
+      it 'attributes a non-apt failure (the keyring download) to :docker, not :connection' do
+        answers = healthy
+                  .merge(docker_answers(second_probe: "29.1.3\n"))
+                  .merge(/curl -fsSL/ => Odysseus::SSHCommandError.new('exit status 6: Could not resolve host'))
+        preparer, commands = build(answers: answers)
+
+        results = preparer.prepare
+
+        expect(results.last.step).to eq(:docker)
+        expect(results.last.status).to eq(:fail)
+        expect(results.last.detail).to match(%r{download.docker.com/linux/ubuntu/gpg})
+        expect(commands).not_to include(a_string_matching(/useradd/))
+      end
+
       it 'builds the repository line from the host os-release codename' do
         answers = healthy.merge(docker_answers(second_probe: "29.1.3\n"))
         answers[/os-release/] = "ID=ubuntu\nVERSION_ID=\"24.04\"\nVERSION_CODENAME=wonderfowl\n"
