@@ -1,14 +1,14 @@
-# `odysseus setup --verify` — Implementation Plan
+# `odysseus doctor` — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Tell an operator, read-only, whether a host is configured for odysseus to deploy to it as the user their config names — before a deploy finds out the hard way.
 
-**Architecture:** A new core class `Odysseus::HostVerifier` runs a fixed list of checks over one SSH connection and returns structured results; the CLI renders them per host and sets the exit code. Nothing is written to the host, and nothing is repaired — this phase diagnoses only.
+**Architecture:** A new core class `Odysseus::HostVerifier` runs a fixed list of checks over one SSH connection and returns structured results; a new `odysseus doctor` command renders them per host and sets the exit code. Nothing is written to the host, and nothing is repaired — this phase diagnoses only.
 
 **Tech Stack:** Ruby 3.2+ (developed on 4.0.6), Zeitwerk autoloading, RSpec with `verify_partial_doubles` and `config.warnings = true`, RuboCop.
 
-**Spec:** `docs/specs/2026-08-16-user-model-and-setup.md` — phase 2 of its Phasing section. Read *Verified ground truth*, *Host state* and the `setup --verify` paragraph (around line 182) before starting.
+**Spec:** `docs/specs/2026-08-16-user-model-and-setup.md` — phase 2 of its Phasing section. Read *Verified ground truth*, *Host state*, *What `setup` is for, and what it is not*, and the `odysseus doctor` paragraph before starting. Note the spec's filename still says `setup`: it covers both this diagnostic and the later bootstrap.
 
 ## Global Constraints
 
@@ -20,7 +20,7 @@
 - Every spec must be verified against a deliberate mutation of the code under test (`CONTRIBUTING.md`). A spec that passes when its code is broken is not a spec.
 - **Do not edit `.rubocop_todo.yml`** in either gem — they are debt snapshots.
 - Both suites and RuboCop stay green. Baselines: odysseus-core **604 examples / 0 failures / 75 files clean**; odysseus-cli **156 / 0 / 13 files clean**.
-- Work on branch `feat/setup-verify`, branched from `trunk`. Do not merge.
+- Work on branch `feat/doctor`, branched from `trunk`. Do not merge.
 - Commit messages explain *why*, matching `git log --oneline -12`. No "Generated with Claude Code" trailers, no Co-Authored-By lines.
 
 ## File Structure
@@ -29,8 +29,8 @@
 | --- | --- |
 | `odysseus-core/lib/odysseus/host_verifier.rb` | **New.** Runs the checks over one connection, returns `Result` values. Knows nothing about rendering or exit codes. |
 | `odysseus-core/spec/odysseus/host_verifier_spec.rb` | **New.** |
-| `odysseus-cli/lib/odysseus/cli/cli.rb` | **Modify.** Add `setup`, which renders results per host and sets the exit code. |
-| `odysseus-cli/bin/odysseus` | **Modify.** Dispatch `setup`, parse `--verify`, document it in help. |
+| `odysseus-cli/lib/odysseus/cli/cli.rb` | **Modify.** Add `doctor`, which renders results per host and sets the exit code. |
+| `odysseus-cli/bin/odysseus` | **Modify.** Dispatch `doctor` and document it in help. |
 | `odysseus-cli/spec/odysseus/cli/cli_spec.rb` | **Modify.** |
 | `odysseus-cli/spec/bin_spec.rb` | **Modify.** Dispatch coverage, as every other verb has. |
 
@@ -450,7 +450,7 @@ The message should say why the checks run as the deploy user rather than root, a
 
 ---
 
-### Task 2: `odysseus setup --verify`
+### Task 2: `odysseus doctor`
 
 **Files:**
 - Modify: `odysseus-cli/lib/odysseus/cli/cli.rb`
@@ -467,7 +467,7 @@ The message should say why the checks run as the deploy user rather than root, a
 Add to `odysseus-cli/spec/odysseus/cli/cli_spec.rb`, following the file's existing style of stubbing `Odysseus::Deployer::SSH.new`:
 
 ```ruby
-  describe '#setup' do
+  describe '#doctor' do
     let(:ok)   { Odysseus::HostVerifier::Result.new(check: :docker, status: :ok, detail: 'docker 29.1.3') }
     let(:warn) { Odysseus::HostVerifier::Result.new(check: :distro, status: :warn, detail: 'debian 12 — deploys work here') }
     let(:bad)  { Odysseus::HostVerifier::Result.new(check: :state_dir, status: :fail, detail: '/home/odysseus/.odysseus is not writable') }
@@ -478,7 +478,7 @@ Add to `odysseus-cli/spec/odysseus/cli/cli_spec.rb`, following the file's existi
       verifier = instance_double(Odysseus::HostVerifier, verify: results)
       allow(Odysseus::HostVerifier).to receive(:new).and_return(verifier)
 
-      cli.setup({ config: fixture_path('deploy.yml') }.merge(options))
+      cli.doctor({ config: fixture_path('deploy.yml') }.merge(options))
     end
 
     it 'reports each check and exits zero when all pass' do
@@ -511,7 +511,7 @@ Add to `odysseus-cli/spec/odysseus/cli/cli_spec.rb`, following the file's existi
       allow(Odysseus::HostVerifier).to receive(:new)
         .and_return(instance_double(Odysseus::HostVerifier, verify: [ok]))
 
-      cli.setup(config: fixture_path('deploy.yml'))
+      cli.doctor(config: fixture_path('deploy.yml'))
 
       expect(hosts.uniq.size).to be >= 1
       expect(hosts).to eq(hosts.uniq) # each host visited once, not once per role
@@ -524,21 +524,12 @@ Add to `odysseus-cli/spec/odysseus/cli/cli_spec.rb`, following the file's existi
         .and_return(instance_double(Odysseus::HostVerifier, verify: [bad]))
 
       begin
-        cli.setup(config: fixture_path('deploy.yml'))
+        cli.doctor(config: fixture_path('deploy.yml'))
       rescue SystemExit
         nil
       end
 
       expect(ssh).to have_received(:close).at_least(:once)
-    end
-
-    # Bare `setup` must not look like it did something. The bootstrap is phase 3.
-    it 'refuses without --verify, naming what is not built yet' do
-      output = capture_output do
-        cli.setup(config: fixture_path('deploy.yml'), verify: false) rescue SystemExit
-      end
-
-      expect(output).to match(/--verify/)
     end
   end
 ```
@@ -548,8 +539,8 @@ Adapt `capture_output` and `fixture_path` to whatever the file already uses for 
 Add to `odysseus-cli/spec/bin_spec.rb`, matching how that file drives the real executable for other verbs:
 
 ```ruby
-  it 'dispatches setup' do
-    output, status = run_odysseus('setup', '--verify', '--config', 'nope.yml')
+  it 'dispatches doctor' do
+    output, status = run_odysseus('doctor', '--config', 'nope.yml')
 
     # Reaches the command and fails on the missing config, rather than printing
     # the global usage banner or raising NoMethodError.
@@ -558,17 +549,17 @@ Add to `odysseus-cli/spec/bin_spec.rb`, matching how that file drives the real e
     expect(status).not_to eq(0)
   end
 
-  it 'accepts --verify on setup' do
-    output, = run_odysseus('setup', '--verify', '--config', 'nope.yml')
+  it 'needs no server argument for doctor' do
+    output, = run_odysseus('doctor', '--config', 'nope.yml')
 
-    expect(output).not_to include('OptionParser::InvalidOption')
+    expect(output).not_to match(/Server (name|argument) required/i)
   end
 ```
 
 - [ ] **Step 2: Run them and watch them fail**
 
 Run: `cd odysseus-cli && bundle exec rspec`
-Expected: FAIL — `cli.setup` is undefined, and the bin examples see the usage banner.
+Expected: FAIL — `cli.doctor` is undefined, and the bin examples see the usage banner.
 
 - [ ] **Step 3: Add the command to the CLI**
 
@@ -576,18 +567,13 @@ In `odysseus-cli/lib/odysseus/cli/cli.rb`, add `setup` near `status` (which it r
 
 ```ruby
       # Read-only diagnosis of every host in the config, as the user the config
-      # names. `--verify` is the only mode: the bootstrap that creates the user
-      # and installs Docker is not built yet.
-      def setup(options = {})
-        unless options[:verify]
-          @ui.error 'odysseus setup cannot configure a host yet — that is not built.'
-          @ui.step 'Use `odysseus setup --verify` to check a host you have configured yourself.'
-          exit 1
-        end
-
+      # names. Its own command rather than a mode of `setup`, because it lasts:
+      # "is this host usable by odysseus as my deploy user" is worth asking on
+      # any host, including one a provisioning tool built.
+      def doctor(options = {})
         config = load_config(options[:config] || 'deploy.yml')
 
-        @ui.header 'Odysseus Setup: Verify'
+        @ui.header 'Odysseus Doctor'
         @ui.info 'Service', config[:service]
         @ui.info 'Deploy user', config[:ssh][:user]
         @ui.blank
@@ -650,19 +636,14 @@ There is no shared helper for this: `cli.rb` constructs `Odysseus::Deployer::Exe
 In `odysseus-cli/bin/odysseus`, add to the `commands` hash (around line 36):
 
 ```ruby
-    'setup' => { method: :setup, needs_server: false },
+    'doctor' => { method: :doctor, needs_server: false },
 ```
 
-Add the flag to the option parser alongside the other global options:
+No new option is needed — `doctor` reads only `--config`, which the parser
+already handles. Add it to `print_help`'s command list, worded so the reader knows what it does and does not do yet:
 
 ```ruby
-    opts.on('--verify', 'Check hosts without changing them (setup)') { options[:verify] = true }
-```
-
-And add it to `print_help`'s command list, worded so the reader knows what it does and does not do yet:
-
-```ruby
-  puts '  setup --verify            Check that hosts are ready to deploy to (does not configure them)'
+  puts '  doctor                    Check that hosts are ready to deploy to (changes nothing)'
 ```
 
 - [ ] **Step 5: Run the specs**
@@ -674,19 +655,18 @@ Expected: PASS.
 
 | Mutation | Must fail |
 | --- | --- |
-| drop the `options[:verify]` guard | `refuses without --verify, naming what is not built yet` |
 | `escalate` returns `current` always | `exits non-zero when any check fails` |
 | treat `:warn` as `:fail` in the exit decision | `exits zero when the worst result is a warning` |
 | break out of the host loop after the first host | `verifies every host in the config, not only the first` |
 | remove the `ensure ssh.close` | `closes every connection it opens, even when a check fails` |
 | `render_check` prints only the status, not the detail | `names the failing check and its detail, so the reader can act` |
-| remove `'setup'` from the `commands` hash | `dispatches setup` |
+| remove `'doctor'` from the `commands` hash | `dispatches doctor` |
 
 - [ ] **Step 7: Both suites and RuboCop**
 
 Run: `cd odysseus-core && bundle exec rspec && bundle exec rubocop`
 Run: `cd ../odysseus-cli && bundle exec rspec && bundle exec rubocop`
-Expected: core 619 / 0 and clean; cli 165 / 0 and clean.
+Expected: core 619 / 0 and clean; cli 164 / 0 and clean.
 
 - [ ] **Step 8: Commit**
 
@@ -696,7 +676,7 @@ git add odysseus-cli/lib/odysseus/cli/cli.rb odysseus-cli/bin/odysseus \
 git commit
 ```
 
-Say in the message why bare `setup` refuses rather than doing something partial, and why a warning does not fail the command.
+Say in the message why this is its own command rather than a mode of `setup` — the diagnostic lasts, the bootstrap is a trial convenience — and why a warning does not fail the command.
 
 ---
 
@@ -711,9 +691,9 @@ Say in the message why bare `setup` refuses rather than doing something partial,
 
 - [ ] **Step 1: Document the command in the README**
 
-Add a `### setup` section beside the other command sections. It must say:
+Add a `### doctor` section beside the other command sections. It must say:
 
-- `odysseus setup --verify` checks every host in the config, read-only, **as the user `ssh.user` names** — and that this is the point, because a host that is fine for root can be unusable for a deploy user.
+- `odysseus doctor` checks every host in the config, read-only, **as the user `ssh.user` names** — and that this is the point, because a host that is fine for root can be unusable for a deploy user.
 - **What it is for.** Preparing servers is not odysseus's job — that belongs to
   OpenTofu, Terraform or equivalent, which does it declaratively and at scale.
   `--verify` is the half that lasts: it answers whether a host is usable by
@@ -723,20 +703,20 @@ Add a `### setup` section beside the other command sections. It must say:
 - What each check reports: distro, docker reachable, docker group membership, state directory writable, deploy-log location.
 - That an unsupported distro is a **warning**, not a failure: deploys work anywhere Docker does, and only the (unbuilt) bootstrap is Ubuntu-specific.
 - That Caddy's directory is deliberately not checked, because it does not exist until the first deploy.
-- That **bare `odysseus setup` does not configure anything yet** — the bootstrap is not written. Do not describe the bootstrap as coming, or name a version.
+- Nothing about `odysseus setup`, which does not exist. Do not describe a bootstrap as coming, or name a version.
 
-Per `CONTRIBUTING.md`, a README that promises a feature the code lacks is a bug. Describe only `--verify`.
+Per `CONTRIBUTING.md`, a README that promises a feature the code lacks is a bug. Describe only `doctor`.
 
 - [ ] **Step 2: Changelog entries**
 
 `odysseus-core/CHANGELOG.md` under `## [Unreleased]` → `### Added`: `Odysseus::HostVerifier`, what it checks and that it writes nothing.
 
-`odysseus-cli/CHANGELOG.md` under `## [Unreleased]` → `### Added`: `odysseus setup --verify`, and that bare `setup` refuses because the bootstrap is not built.
+`odysseus-cli/CHANGELOG.md` under `## [Unreleased]` → `### Added`: `odysseus doctor`, what it checks, and that it changes nothing on the host.
 
 - [ ] **Step 3: Check no doc contradicts this**
 
-Run: `grep -rn "setup" odysseus-cli/README.md odysseus-core/README.md | grep -v "^.*setup --verify"`
-Every hit that describes `odysseus setup` as configuring a host must be corrected or removed. The spec under `docs/` is a design record and stays as-is. Report what you found.
+Run: `grep -rn "setup" odysseus-cli/README.md odysseus-core/README.md`
+Every hit that describes an `odysseus setup` command must be corrected or removed — that command does not exist. The spec under `docs/` is a design record and stays as-is. Report what you found.
 
 - [ ] **Step 4: Commit**
 
@@ -752,11 +732,11 @@ git commit
 - **No repair.** Nothing is created or fixed, even when the fix is obvious. That is phase 3, and a diagnostic that sometimes mutates is one nobody can run safely on a live host.
 - **Caddy's directory is not checked**, per the spec: it does not exist until the first deploy starts Caddy.
 - **The `odysseus` network is not checked.** `JobDeploy` and `Caddy::Client` both create it now, so its absence on a fresh host is not a fault.
-- **No `setup.connect_as` handling.** That key belongs to the bootstrap, which connects as a different identity; `--verify` deliberately connects as the deploy user.
+- **No `setup.connect_as` handling.** That key belongs to the bootstrap, which connects as a different identity; `doctor` deliberately connects as the deploy user.
 
 ## Definition of done
 
-- `odysseus-core` 619 examples / 0 failures, RuboCop clean; `odysseus-cli` 165 / 0, clean.
+- `odysseus-core` 619 examples / 0 failures, RuboCop clean; `odysseus-cli` 164 / 0, clean.
 - Every mutation in the tables above was run, failed the named example, and was reverted.
-- `odysseus setup --verify` run against a real host reports every check; run against a host whose deploy user lacks the docker group, it fails that check and exits non-zero.
-- Branch `feat/setup-verify` with three commits, not merged.
+- `odysseus doctor` run against a real host reports every check; run against a host whose deploy user lacks the docker group, it fails that check and exits non-zero.
+- Branch `feat/doctor` with three commits, not merged.

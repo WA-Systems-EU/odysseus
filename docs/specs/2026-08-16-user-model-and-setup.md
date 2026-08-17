@@ -131,7 +131,7 @@ can reach it. Odysseus deploys to hosts; it does not manage them.
 So `setup` has two halves with different lifespans, and they should be allowed
 to grow differently.
 
-`setup --verify` is the durable half. It answers "is this host actually usable
+`odysseus doctor` is the durable half. It answers "is this host actually usable
 by odysseus as the user my config names?", which is worth asking on every host
 however it was prepared — including one built by tofu, where it serves as the
 acceptance test for that configuration. It should learn more checks over time.
@@ -204,13 +204,16 @@ passwordless sudo; create a user with no installable public key; change an
 existing user's shell, home or password; delete anything; touch the firewall,
 swap, `sshd_config`, or unattended-upgrades.
 
-`odysseus setup --verify` runs the same checks read-only, as `ssh.user`:
+`odysseus doctor` runs these checks read-only, as `ssh.user`:
 distro, docker reachable, group membership, state directory writable,
 deploy-log location. Caddy's directory is not on this list: since step 6 no
 longer pre-creates it, it does not exist until the first deploy starts
 Caddy, and checking for it right after setup would report a healthy host
-that has not deployed yet as broken. It ships as its own mode rather than
-being chosen instead of the installer.
+that has not deployed yet as broken. It is **its own command, not a mode of `setup`** (decided
+2026-08-17): the two have different lifespans, and naming the durable one after
+the disposable one would mean someone who provisions with tofu and never runs
+the bootstrap still reaching for a command called `setup`. It also lets the
+bootstrap be deprecated later without taking the diagnostic with it.
 
 ## Host state
 
@@ -276,7 +279,7 @@ service, rather than being the first exercise of an automated path.
 Related, and worth fixing in the same phase: `record_deploy` rescues
 `StandardError` and only warns (`executor.rb:343-350`). A permissions mistake
 therefore erodes rollback history invisibly, one deploy at a time.
-`setup --verify` checking log-directory writability is what keeps that a
+`odysseus doctor` checking log-directory writability is what keeps that a
 one-time event.
 
 ## Phasing
@@ -288,8 +291,8 @@ are deployed with it between releases.
    env directory and deploy log follow; the fallback read. Root installs are
    bit-for-bit unchanged. Independently useful: non-root deploys work on a
    host you configure by hand.
-2. **`setup --verify`.** Read-only diagnosis. Most of the surprise removed for
-   a fraction of the work.
+2. **`odysseus doctor`.** Read-only diagnosis. Most of the surprise removed for
+   a fraction of the work, and the half that lasts.
 3. **`setup` bootstrap**, without the Docker install: config block, sudo
    probe, user, group, keys, directories, log migration, self-test. A host
    without Docker is refused plainly.
@@ -317,7 +320,7 @@ are deployed with it between releases.
   mapped to a readable message (`ssh.rb:150`); setup names the *bootstrap*
   identity so the reader fixes the right key.
 - **The deploy user losing docker group membership.** Every deploy fails on
-  the socket. `setup --verify` is the diagnosis. Note `usermod -aG` affects
+  the socket. `odysseus doctor` is the diagnosis. Note `usermod -aG` affects
   only new sessions — harmless here, since every deploy opens a fresh one, but
   the self-test must use a fresh connection or it tests the wrong thing.
 - **Tailscale's red herring.** `use_tailscale: true` is hardcoded
