@@ -58,9 +58,42 @@ ssh:
 2. Build and deploy:
 
 ```bash
-# Build, distribute, and deploy in one command
-odysseus deploy --image v1.0.0 --build
+# From a git repository with everything committed — the version is the commit
+odysseus deploy --build
+
+# Anywhere else, name the version yourself
+odysseus deploy --build --image v1.0.0
 ```
+
+Both work. They are not equivalent — see [Naming the
+version](#naming-the-version) for what the second one costs you.
+
+### Naming the version
+
+Every deploy is tagged with a version, and there are two ways to get one.
+
+**From a git commit — the proper way.** Run `deploy` in a git repository with
+nothing uncommitted and omit `--image`. Odysseus tags the image with the commit
+SHA and **refuses to deploy while the working tree is dirty**, which is the
+point: the tag then provably identifies the code that is running. It records the
+commit and your identity in each host's deploy log, so `odysseus rollback --list`
+can tell you which commit a version was and who shipped it.
+
+**With `--image TAG` — quick and dirty.** No git repository is needed, so it
+works anywhere, and it is the right tool for trying something out or deploying
+an image you built elsewhere. What you give up:
+
+- **No commit is recorded.** `rollback --list` shows the version but cannot tell
+  you what code it was, because an arbitrary tag has no commit it honestly
+  identifies.
+- **Nothing stops you reusing a tag.** The tag *is* the version's identity, so
+  deploying twice as `v1.0.0` leaves two entries in the deploy log that
+  odysseus cannot tell apart — and rollback and image retention cannot either.
+  This fails silently: you get a history that looks fine and does not say which
+  image is on the host.
+
+Use `--image` to get started or to test. Use a git repository for anything you
+might later need to roll back or account for.
 
 The `--build` flag automatically chooses how to distribute the image:
 - **Without `registry` config** → uses [pussh](https://github.com/psviderski/unregistry) to transfer images directly via SSH
@@ -78,7 +111,7 @@ odysseus deploy [options]
 
 Options:
 - `--config FILE` - Path to deploy.yml (default: deploy.yml)
-- `--image TAG` - Docker image tag (default: the git commit being deployed; required outside a clean git repository)
+- `--image TAG` - Docker image tag (default: the git commit being deployed; required outside a clean git repository). See [Naming the version](#naming-the-version) — it is the quick way, not the equivalent way.
 - `--build` - Build and distribute image before deploying
 - `--dry-run` - Show what would be deployed without doing it
 - `-v, --verbose` - Show SSH commands being executed
@@ -107,7 +140,7 @@ odysseus build [options]
 
 Options:
 - `--config FILE` - Path to deploy.yml (default: deploy.yml)
-- `--image TAG` - Docker image tag (default: the git commit being deployed; required outside a clean git repository)
+- `--image TAG` - Docker image tag (default: the git commit being deployed; required outside a clean git repository). See [Naming the version](#naming-the-version) — it is the quick way, not the equivalent way.
 - `--push` - Push image to registry after build
 - `--context PATH` - Build context path (default: . relative to deploy.yml)
 - `-v, --verbose` - Show build commands being executed
@@ -137,7 +170,7 @@ odysseus pussh [options]
 
 Options:
 - `--config FILE` - Path to deploy.yml (default: deploy.yml)
-- `--image TAG` - Docker image tag (default: the git commit being deployed; required outside a clean git repository)
+- `--image TAG` - Docker image tag (default: the git commit being deployed; required outside a clean git repository). See [Naming the version](#naming-the-version) — it is the quick way, not the equivalent way.
 - `--build` - Build image before pushing
 - `-v, --verbose` - Show commands being executed
 
