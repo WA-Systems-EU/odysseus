@@ -8,25 +8,41 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 ## [Unreleased]
 
 ### Added
-- `Odysseus::Setup::Escalation`, `Odysseus::Setup::PublicKey` and
-  `Odysseus::Setup::Preparer`, the classes behind `odysseus setup`
-  (odysseus-cli). `Escalation` gets root on the target host via passwordless
-  sudo, or none at all when connected as root, and refuses up front —
-  before anything is touched — if passwordless sudo isn't available, since
-  a password prompt can't be answered. `PublicKey` resolves which key(s) to
-  install, entirely on the local machine before any host is touched: from
-  `--key`, or from each `ssh.keys` entry's `.pub` sibling, deriving one via
-  `ssh-keygen -y` only when that sibling is empty or missing; a key that
-  doesn't resolve, or a sibling with content that doesn't validate, refuses
-  by name rather than silently substituting a different key. `Preparer`
-  runs the actual sequence against a host: creates the deploy user and its
-  home, adds it to the `docker` group, installs the resolved key(s),
-  creates the state directory, and finishes by opening a second connection
-  as that new user to prove Docker and the state directory both work
-  before reporting success. Docker itself is not installed by this
-  version — a host whose Docker daemon does not answer is refused, naming
-  that it may not be installed or may simply be stopped, since `docker
-  info` cannot tell the two apart.
+- `Odysseus::Setup::Escalation`, `Odysseus::Setup::PublicKey`,
+  `Odysseus::Setup::DockerApt` and `Odysseus::Setup::Preparer`, the classes
+  behind `odysseus setup` (odysseus-cli). `Escalation` gets root on the
+  target host via passwordless sudo, or none at all when connected as root,
+  and refuses up front — before anything is touched — if passwordless sudo
+  isn't available, since a password prompt can't be answered. `PublicKey`
+  resolves which key(s) to install, entirely on the local machine before
+  any host is touched: from `--key`, or from each `ssh.keys` entry's `.pub`
+  sibling, deriving one via `ssh-keygen -y` only when that sibling is empty
+  or missing; a key that doesn't resolve, or a sibling with content that
+  doesn't validate, refuses by name rather than silently substituting a
+  different key. `DockerApt` installs Docker from Docker's own official
+  apt repository, following Docker's published instructions for Ubuntu: it
+  installs `docker-ce docker-ce-cli containerd.io docker-buildx-plugin`
+  (Docker's instructions also install `docker-compose-plugin`, which is
+  deliberately left out — nothing in this codebase invokes `docker
+  compose`). The keyring and apt sources file are written whole on every
+  run, never appended, so an interrupted run leaves a stale file the next
+  run replaces rather than a corrupt one. apt runs non-interactively with a
+  300-second bounded wait for the dpkg lock, long enough to outlast
+  cloud-init and unattended-upgrades on a minutes-old host; a timeout names
+  the process holding the lock. It repairs no apt or dpkg state it did not
+  create. The GPG key's fingerprint is deliberately not pinned, matching
+  Docker's own instructions, which trust TLS rather than pin it — pinning
+  would turn Docker's key rotation into an outage for everyone using this
+  command. `Preparer` runs the actual sequence against a host: creates the
+  deploy user and its home, adds it to the `docker` group, installs the
+  resolved key(s), installs Docker via `DockerApt` if the host doesn't
+  already have it, creates the state directory, and finishes by opening a
+  second connection as that new user to prove Docker and the state
+  directory both work before reporting success. A host whose Docker daemon
+  still does not answer after the install is failed, naming that the host
+  may need a reboot or that the daemon may have failed to start — success
+  is decided by the daemon answering after the install runs, not by apt
+  exiting zero.
 
 ## [0.8.0] - 2026-08-17
 

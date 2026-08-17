@@ -284,10 +284,23 @@ substitute a different key for the one you named or the one on disk. Only
 an empty or whitespace-only `.pub` sibling falls through to deriving the
 key from its private half.
 
-**Docker's daemon must already be reachable.** `docker info` can't tell
-"not installed" from "installed but stopped", so this version refuses
-either case by naming what it saw, rather than installing or starting
-Docker itself. Ubuntu
+**Docker is installed if it isn't there.** If `docker info` doesn't answer,
+setup installs it from Docker's own official apt repository, following
+Docker's published instructions for Ubuntu — it does not distinguish "not
+installed" from "installed but stopped" going in, since neither leaves a
+usable daemon. The keyring and the apt sources file it writes are replaced
+whole on every run, never appended, so a run interrupted partway through
+leaves a stale file the next run overwrites rather than a corrupt one with
+the repository listed twice. apt itself runs non-interactively with a
+300-second wait for the dpkg lock — long enough to outlast cloud-init or
+unattended-upgrades on a host that's only minutes old — and a timeout
+names the process holding it rather than failing silently. The GPG key's
+fingerprint is deliberately not pinned: Docker's own instructions trust
+TLS rather than pin it, and pinning here would turn Docker's routine key
+rotation into an outage for everyone running this command. None of this
+repairs an apt or dpkg state setup didn't create — a host with a broken
+apt is reported, not fixed. Either way, success is decided by `docker
+info` answering after the install runs, not by apt exiting zero. Ubuntu
 24.04 and 26.04 are the only distros it knows; anything else is refused by
 name too — unlike `doctor`, which only warns on an unsupported distro,
 because a deploy just needs a working Docker daemon and doesn't care which
@@ -746,8 +759,9 @@ root connection, `$HOME/.odysseus/caddy` for any other user.
 A non-root `user` must already exist on the target host — with membership in
 the `docker` group and a writable home directory — and its key must be one of
 `keys` above. [`odysseus setup`](#setup) can create that user, add it to
-`docker`, and install the key for you; it does not install Docker itself,
-which still has to be there first.
+`docker`, install the key for you, and install Docker itself if the host
+doesn't have it. A host prepared by a provisioning tool instead of `setup`
+still needs Docker present.
 
 ### builder
 
@@ -819,7 +833,11 @@ removing it means `docker image rm` by hand on the host.
 
 ## Server Requirements
 
-Your target servers only need **Docker** installed. Odysseus automatically deploys and manages Caddy as a container (`odysseus-caddy`) - no manual Caddy installation required.
+Your target servers need a supported Ubuntu release (24.04 or 26.04) and SSH
+access; [`odysseus setup`](#setup) can install Docker itself, or a host
+prepared by a provisioning tool needs Docker present already. Odysseus
+automatically deploys and manages Caddy as a container (`odysseus-caddy`) -
+no manual Caddy installation required.
 
 ## How It Works
 

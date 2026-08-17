@@ -10,20 +10,20 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 ### Added
 - `odysseus setup`, which prepares every host in the config so odysseus can
   deploy to it as a non-root user: creates the user `ssh.user` names, adds
-  it to the `docker` group, installs your public key, and creates its
-  state directory. Connects as `--as USER`, default `ubuntu` — the user
-  Ubuntu's LTS cloud images ship with passwordless sudo already
-  configured; `--as root` needs no sudo. It reads no new configuration
-  keys: the user, keys and hosts all come from the existing `ssh.user`,
-  `ssh.keys` and `servers.*.hosts`, with `--key PATH` (repeatable) to
-  override the key source. It refuses a host whose Docker daemon does not
-  answer — `docker info` can't tell not-installed from installed-but-
-  stopped, so it names both possibilities rather than installing or
-  starting Docker itself — and refuses anything other than Ubuntu 24.04 or
-  26.04 by name. It reports
-  what it changed separately from what was already correct, and finishes
-  by reconnecting as the new user to prove the host actually works before
-  reporting success.
+  it to the `docker` group, installs your public key, installs Docker
+  itself if the host doesn't have it, and creates its state directory.
+  Connects as `--as USER`, default `ubuntu` — the user Ubuntu's LTS cloud
+  images ship with passwordless sudo already configured; `--as root` needs
+  no sudo. It reads no new configuration keys: the user, keys and hosts all
+  come from the existing `ssh.user`, `ssh.keys` and `servers.*.hosts`, with
+  `--key PATH` (repeatable) to override the key source. `setup` no longer
+  refuses a host without Docker — if `docker info` doesn't answer, it
+  installs Docker from Docker's own apt repository and checks again, and
+  only fails the step if the daemon still doesn't answer afterward — and it
+  still refuses anything other than Ubuntu 24.04 or 26.04 by name. It
+  reports what it changed separately from what was already correct, and
+  finishes by reconnecting as the new user to prove the host actually works
+  before reporting success.
 
 ## [0.8.0] - 2026-08-17
 
