@@ -24,10 +24,7 @@ module Odysseus
 
         executor = Odysseus::Deployer::Executor.new(config_file)
 
-        # #host_roles is private on Executor (odysseus-core), not public as
-        # planned — `send` reaches it without duplicating the host-resolution
-        # logic it already implements. See the task report for the write-up.
-        executor.send(:host_roles).each_key do |host|
+        executor.host_roles.each_key do |host|
           @ui.section host
           ssh = connect_to_server(host, config)
 

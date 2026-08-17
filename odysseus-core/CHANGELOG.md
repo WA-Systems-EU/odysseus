@@ -82,6 +82,11 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   empty — an empty file at the new location exits 0 and suppresses the
   fallback. Reads fall back to the old location; appends only ever go to the
   new one.
+- `Executor#host_roles` is public API now, not a private helper. It answers
+  the same question the CLI needs answered — which hosts does this config
+  target, and which roles does each serve — so `odysseus doctor` can visit
+  every host once, however many roles it serves, without duplicating the
+  host-resolution logic this method already implements.
 - Nothing changes for a root install.
 
 ## [0.7.0] - 2026-08-16

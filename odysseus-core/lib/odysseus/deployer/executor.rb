@@ -285,6 +285,28 @@ module Odysseus
         dependency_manager.boot_all
       end
 
+      # Every configured host mapped to the roles it serves, each in config
+      # order. A host serving two roles (e.g. web and cron on the same box)
+      # gets both, in the order its roles are declared in deploy.yml — the
+      # order #version_survey depends on to know which role's containers to
+      # look for first.
+      #
+      # Public API, not just an internal helper: the CLI asks this exact
+      # question too — which hosts does this config target, and which roles
+      # on each — to visit every host once regardless of how many roles it
+      # serves. `odysseus doctor` depends on it.
+      #
+      # @return [Hash{String => Array<Symbol>}]
+      def host_roles
+        roles_by_host = {}
+
+        @config[:servers].each do |role, role_config|
+          resolve_hosts(role_config).each { |host| (roles_by_host[host] ||= []) << role }
+        end
+
+        roles_by_host
+      end
+
       private
 
       # Dependency verbs are a distinct concern from deploy/rollback; see
@@ -415,23 +437,6 @@ module Odysseus
 
       def collect_all_hosts
         host_roles.keys
-      end
-
-      # Every configured host mapped to the roles it serves, each in config
-      # order. A host serving two roles (e.g. web and cron on the same box)
-      # gets both, in the order its roles are declared in deploy.yml — the
-      # order #version_survey depends on to know which role's containers to
-      # look for first.
-      #
-      # @return [Hash{String => Array<Symbol>}]
-      def host_roles
-        roles_by_host = {}
-
-        @config[:servers].each do |role, role_config|
-          resolve_hosts(role_config).each { |host| (roles_by_host[host] ||= []) << role }
-        end
-
-        roles_by_host
       end
 
       # Resolve hosts for a role using the appropriate provider

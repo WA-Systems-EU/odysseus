@@ -455,6 +455,24 @@ RSpec.describe Odysseus::Deployer::Executor do
       end
     end
 
+    describe '#host_roles' do
+      # respond_to? alone would also pass by accident if some other change
+      # made this true without anyone deciding it should be — the return
+      # value below is what actually grounds "this is public API" in
+      # behaviour a caller (odysseus doctor) depends on.
+      it 'is public, so callers outside Executor can ask which hosts a config targets' do
+        expect(multihost).to respond_to(:host_roles)
+      end
+
+      it 'maps every host to the roles it serves, in config order, without listing a shared host twice' do
+        expect(multihost.host_roles).to eq(
+          'web1.example.com' => %i[web cron],
+          'web2.example.com' => %i[web],
+          'jobs1.example.com' => %i[jobs]
+        )
+      end
+    end
+
     describe '#rollback_plan' do
       it 'plans against every host, not just the first' do
         plan = multihost.rollback_plan
