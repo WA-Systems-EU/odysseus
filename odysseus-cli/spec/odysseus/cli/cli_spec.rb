@@ -980,7 +980,12 @@ RSpec.describe Odysseus::CLI::CLI do
       expect(hosts).to eq(hosts.uniq) # each host visited once, not once per role
     end
 
-    it 'closes every connection it opens, even when a check fails' do
+    # Renamed from 'closes every connection it opens, even when a check
+    # fails': a :fail Result is a value HostVerifier returns, not a raise, so
+    # this pins only the ordinary sequential path through the begin/ensure —
+    # it says nothing about what happens when the connection itself dies
+    # mid-survey. The context below covers that.
+    it 'closes the connection after a check reports a failing result' do
       ssh = instance_double(Odysseus::Deployer::SSH, close: nil, user: 'odysseus')
       allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
       allow(Odysseus::HostVerifier).to receive(:new)
@@ -993,6 +998,63 @@ RSpec.describe Odysseus::CLI::CLI do
       end
 
       expect(ssh).to have_received(:close).at_least(:once)
+    end
+
+    # #verify itself can raise rather than return a :fail Result: SSH#execute
+    # raises on a nonzero exit, and net-ssh raises IOError, Net::SSH::Disconnect,
+    # Errno::EPIPE or ECONNRESET when the connection drops mid-check — none of
+    # them Odysseus::Error. doctor's whole purpose is surveying every host, so
+    # one host dying this way must not abort the rest of the run.
+    context "when a host's check raises instead of returning a result" do
+      let(:sshes) { [] }
+
+      before do
+        allow(Odysseus::Deployer::SSH).to receive(:new) do
+          instance_double(Odysseus::Deployer::SSH, close: nil, user: 'odysseus').tap { |ssh| sshes << ssh }
+        end
+
+        raising_verifier = instance_double(Odysseus::HostVerifier)
+        allow(raising_verifier).to receive(:verify).and_raise(IOError, 'connection reset')
+        ok_verifier = instance_double(Odysseus::HostVerifier, verify: [ok])
+
+        seen = 0
+        allow(Odysseus::HostVerifier).to receive(:new) do
+          seen += 1
+          seen == 1 ? raising_verifier : ok_verifier
+        end
+      end
+
+      def run
+        output_of do
+          cli.doctor(config: fixture_path('deploy.yml'))
+        rescue SystemExit
+          nil
+        end
+      end
+
+      it 'still visits the other host rather than stopping the survey' do
+        run
+
+        expect(sshes.size).to eq(2)
+      end
+
+      it 'closes the connection to the host whose check raised' do
+        run
+
+        expect(sshes.first).to have_received(:close)
+      end
+
+      it "reports the error's class and message, so the reader can tell it from an ordinary failing check" do
+        output = run
+
+        expect(output).to include('IOError')
+        expect(output).to include('connection reset')
+      end
+
+      it 'exits non-zero' do
+        expect { output_of { cli.doctor(config: fixture_path('deploy.yml')) } }
+          .to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
+      end
     end
   end
 

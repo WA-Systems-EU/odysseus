@@ -215,7 +215,7 @@ RSpec.describe 'bin/odysseus' do
       # Reaches the command and fails on the missing config, rather than
       # printing the global usage banner or raising NoMethodError.
       expect(stdout).not_to include('Usage: odysseus <command> [options]')
-      expect(stderr).not_to match(/NoMethodError/)
+      expect(stderr).not_to match(/undefined method|NoMethodError/)
       expect(status.exitstatus).not_to eq(0)
     end
 
@@ -236,7 +236,7 @@ RSpec.describe 'bin/odysseus' do
   # dispatched to something that is not there.
   describe 'every command the help lists' do
     %w[deploy rollback build pussh status containers logs cleanup validate
-       dependency app secrets version].each do |command|
+       dependency app secrets version doctor].each do |command|
       it "#{command} dispatches" do
         stdout, stderr, = run_cli(command)
 
