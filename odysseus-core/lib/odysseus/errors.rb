@@ -28,4 +28,6 @@ module Odysseus
   class GeneratorError < Error; end
   class DockerComposeGenerationError < GeneratorError; end
   class CaddyGenerationError < GeneratorError; end
+
+  class SetupError < Error; end
 end
