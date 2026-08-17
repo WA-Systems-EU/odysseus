@@ -1161,8 +1161,11 @@ RSpec.describe Odysseus::CLI::CLI do
 
       output_of { run_setup([ok, changed]) }
 
-      expect(ui).to have_received(:step_info).with(a_string_matching('created odysseus')).at_least(:once)
-      expect(ui).to have_received(:step_ok).with(a_string_matching('docker 29.1.3')).at_least(:once)
+      # Exactly twice, not at_least(:once): the config has two hosts and each
+      # renders the whole result list, so a regression that rendered :changed
+      # for only one of them would satisfy a looser cardinality.
+      expect(ui).to have_received(:step_info).with(a_string_matching('created odysseus')).exactly(2).times
+      expect(ui).to have_received(:step_ok).with(a_string_matching('docker 29.1.3')).exactly(2).times
       expect(ui).not_to have_received(:step_ok).with(a_string_matching('created odysseus'))
     end
 
