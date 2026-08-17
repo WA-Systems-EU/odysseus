@@ -106,6 +106,19 @@ RSpec.describe Odysseus::Setup::Preparer do
     results.find { |r| r.step == step } or raise "no result for #{step.inspect}"
   end
 
+  # True if `cmd` is a chown whose target -- the last whitespace-delimited
+  # token, which is where every chown call in preparer.rb puts its path --
+  # canonicalizes to the filesystem root, under any spelling ("/", "//",
+  # "/.", "/.."), not only the literal string "/". Mirrors the production
+  # canonicalization exactly (squeeze leading slashes, then expand) so this
+  # check can only be as strict as the guard it's verifying.
+  def chowns_root?(cmd)
+    return false unless cmd.include?('chown')
+
+    target = cmd.split.last
+    File.expand_path(target.sub(%r{\A/+}, '/')) == '/'
+  end
+
   describe 'a host that is already prepared' do
     it 'changes nothing and says so' do
       preparer, = build(answers: healthy)
@@ -292,7 +305,47 @@ RSpec.describe Odysseus::Setup::Preparer do
       results = preparer.prepare
 
       expect(result_for(results, :user).status).to eq(:fail)
-      expect(commands).to all(satisfy { |cmd| !(cmd.include?('chown') && cmd.end_with?(' /')) })
+      # A path-equivalence check, not a literal `end_with?(' /')` string
+      # match: the literal match only ever caught the single spelling "/"
+      # and would have let //, /. and /.. -- the near-misses below -- issue
+      # their chown unnoticed.
+      expect(commands).to all(satisfy { |cmd| !chowns_root?(cmd) })
+    end
+
+    # `.start_with?('/') && != '/'` rejected only the literal string "/".
+    # A real host's getent can report the filesystem root under other
+    # spellings just as easily, and each of these reached
+    # verify_home_ownership's chown unrejected before this guard.
+    it 'refuses //, /. and /.. -- other spellings of the filesystem root -- issuing no chown that names any of them' do
+      %w[// /. /..].each do |root_spelling|
+        answers = healthy.merge(
+          /getent passwd/ => "odysseus:x:1000:1000::#{root_spelling}:/bin/bash\n",
+          /stat -c/ => "root root\n"
+        )
+        preparer, commands = build(answers: answers)
+
+        result = result_for(preparer.prepare, :user)
+
+        expect(result.status).to eq(:fail), "#{root_spelling.inspect} did not refuse"
+        expect(commands).to all(satisfy { |cmd| !chowns_root?(cmd) }), "#{root_spelling.inspect} let a chown through: #{commands.inspect}"
+      end
+    end
+
+    # The flip side of refusing root-equivalent spellings: a legitimate
+    # custom home that merely happens to be written with a doubled leading
+    # slash must still work, and every downstream path must be built from
+    # the canonical form -- not the raw, cosmetically-doubled one -- so a
+    # second run against the same host doesn't disagree with the first
+    # about which path it manages.
+    it 'accepts //srv/deploy, normalising it to /srv/deploy before any path is built from it' do
+      answers = healthy(user: 'deploy', home: '//srv/deploy').merge(/grep -qxF/ => "absent\n")
+      preparer, commands = build(answers: answers, user: 'deploy')
+
+      preparer.prepare
+
+      expect(commands).to include(a_string_matching(%r{mkdir -p .*/srv/deploy/\.ssh\z}))
+      expect(commands).to include(a_string_matching(%r{chown -R deploy:deploy .*/srv/deploy/\.ssh\z}))
+      expect(commands).to all(satisfy { |cmd| !cmd.include?('//srv/deploy') })
     end
 
     it 'refuses a home that does not start with /' do

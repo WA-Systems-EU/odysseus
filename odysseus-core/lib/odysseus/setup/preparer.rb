@@ -310,7 +310,22 @@ module Odysseus
       # unresolved home fails the step that needed it, by name, instead.
       def resolve_home_dir
         candidate = @escalation.run("getent passwd #{shell_user}").to_s.strip.split(':')[5].to_s.strip
-        return candidate if candidate.start_with?('/') && candidate != '/'
+
+        if candidate.start_with?('/')
+          # Squeeze BEFORE expanding, not after: POSIX makes a path that
+          # starts with exactly two slashes implementation-defined, so
+          # File.expand_path leaves "//" as "//" rather than folding it to
+          # "/" -- expand_path alone would still accept the very spelling
+          # that reached verify_home_ownership's `chown` unrejected. Once
+          # collapsed to a single leading slash, expand_path also resolves
+          # "/." and "/.." (both the filesystem root by another spelling)
+          # down to "/", where the check below catches them too. This is
+          # pure string manipulation on an already-absolute path -- no
+          # symlink resolution, nothing touches the machine running
+          # odysseus, only the string describing a path on the remote host.
+          canonical = File.expand_path(candidate.sub(%r{\A/+}, '/'))
+          return canonical unless canonical == '/'
+        end
 
         raise Odysseus::SetupError,
               "could not resolve a home directory for #{@user}: getent passwd reported " \
