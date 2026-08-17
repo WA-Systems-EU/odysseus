@@ -108,14 +108,24 @@ module Odysseus
 
       # Repairs ownership, and only ownership: this never touches the shell,
       # the password, or anything else about a user odysseus did not create.
+      #
+      # The user existing does not guarantee the home does: useradd normally
+      # creates both together, but a user made some other way, or one whose
+      # home was removed after the fact, can exist without one. `chown` on a
+      # path that isn't there raises rather than repairing anything, so the
+      # directory is created first -- a no-op when it already exists -- which
+      # is the actual "half-created-user recovery" the brief names, not just
+      # the ownership half of it.
       def verify_home_ownership
+        @escalation.run("mkdir -p #{Shellwords.escape(home_dir)}") unless dir_present?(home_dir)
         owner, group = @escalation.run("stat -c '%U %G' #{Shellwords.escape(home_dir)} 2>/dev/null || true").to_s.split
 
         if owner == @user && group == @user
           Result.new(step: :user, status: :ok, detail: "#{@user} exists, home owned correctly")
         else
           @escalation.run("chown #{shell_user}:#{shell_user} #{Shellwords.escape(home_dir)}")
-          Result.new(step: :user, status: :changed, detail: "repaired ownership of #{home_dir} (was #{owner} #{group})")
+          detail = "repaired #{home_dir} (was #{owner || 'missing'} #{group || 'missing'})"
+          Result.new(step: :user, status: :changed, detail: detail)
         end
       end
 
@@ -140,7 +150,7 @@ module Odysseus
 
         @escalation.run("mkdir -p #{Shellwords.escape(ssh_dir)}")
         @escalation.run("touch #{Shellwords.escape(authorized_keys)}")
-        missing.each { |line| @escalation.run("echo #{Shellwords.escape(line)} >>#{Shellwords.escape(authorized_keys)}") }
+        missing.each { |line| append_key(line) }
         # 700/600 are reapplied every time a key is appended, so a directory
         # left loose by anything else is corrected as a side effect — sshd
         # ignores both silently, with no error worth finding.
@@ -149,6 +159,22 @@ module Odysseus
         @escalation.run("chown -R #{shell_user}:#{shell_user} #{Shellwords.escape(ssh_dir)}")
 
         Result.new(step: :keys, status: :changed, detail: "added #{missing.size} key(s)")
+      end
+
+      # A `>>` redirect is set up by the CONNECTION's own shell before sudo
+      # ever runs -- sudo only elevates the command it's given, not the
+      # shell that's about to open a file for it. `sudo -n echo line >>file`
+      # therefore tries to open `file` as the *bootstrap* identity, which
+      # cannot write into another user's authorized_keys and fails outright
+      # under the documented default of --as ubuntu. Piping into `tee -a`
+      # instead keeps the open() inside the process that's actually
+      # escalated, which is the standard idiom for exactly this reason.
+      # Nothing here needs escalation at all under --as root, so the sudo
+      # prefix is applied to the writer alone, and only when it's needed.
+      def append_key(line)
+        writer = "tee -a #{Shellwords.escape(authorized_keys)}"
+        writer = "sudo -n #{writer}" if @escalation.sudo?
+        @ssh.execute("printf '%s\n' #{Shellwords.escape(line)} | #{writer} >/dev/null")
       end
 
       def key_present?(line)

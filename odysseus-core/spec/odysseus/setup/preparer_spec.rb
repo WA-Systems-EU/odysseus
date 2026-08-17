@@ -1,12 +1,19 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
+require 'shellwords'
 
 RSpec.describe Odysseus::Setup::Preparer do
   # Commands are recorded so the specs can assert what was actually sent, and
   # an unanticipated command raises rather than silently answering ''. This
   # project has repeatedly shipped bugs where a doubled connection cheerfully
   # answered a command that could never work on a real host.
+  #
+  # An answer that is itself an Exception is raised instead of returned, so
+  # examples can simulate a specific command failing (`sudo -n true` for a
+  # denied escalation, say) without every other command on the same
+  # connection needing to fail too.
+  #
   # @param fresh_answers [Hash, nil] answers for the self-test's own, separate
   #   connection; defaults to `answers` so most examples don't need to think
   #   about it.
@@ -19,15 +26,19 @@ RSpec.describe Odysseus::Setup::Preparer do
   def build(answers:, user: 'odysseus', as: 'ubuntu', keys: ['ssh-ed25519 AAAAtest test@example'],
             fresh_answers: nil, fresh_error: nil)
     commands = []
-    ssh = instance_double(Odysseus::Deployer::SSH, user: user, host: 'target.example', port: 22)
+    # Port is deliberately not SSH's default (22): a self-test that hardcoded
+    # a port instead of reading it from the bootstrap connection would still
+    # pass a test fixed at 22, but not one fixed here.
+    ssh = instance_double(Odysseus::Deployer::SSH, user: user, host: 'target.example', port: 2201)
     allow(ssh).to receive(:execute) do |cmd|
       commands << cmd
-      next "/home/#{user}\n" if cmd == 'echo $HOME'
-
       pattern = answers.keys.find { |p| cmd.match?(p) }
       raise "spec did not anticipate: #{cmd}" unless pattern
 
-      answers[pattern]
+      answer = answers[pattern]
+      raise answer if answer.is_a?(Exception)
+
+      answer
     end
     allow(ssh).to receive(:upload_string)
 
@@ -80,7 +91,7 @@ RSpec.describe Odysseus::Setup::Preparer do
       # The mutating commands themselves: their output is never read, only
       # whether they ran at all, which the `commands` array already answers.
       /\b(useradd|usermod|mkdir|touch|chown|chmod)\b/ => '',
-      />>/ => ''
+      /tee -a/ => ''
     }
   end
 
@@ -103,7 +114,12 @@ RSpec.describe Odysseus::Setup::Preparer do
       preparer.prepare
 
       expect(commands).to all(satisfy do |cmd|
-        !cmd.match?(/\b(useradd|usermod|chown|chmod|mkdir|tee|install)\b/)
+        !cmd.match?(/\b(useradd|usermod|chown|chmod|mkdir|install)\b/) &&
+          # tee itself isn't what must never happen -- overwriting the file
+          # is. `tee -a` appends, so it's the only form allowed; a healthy
+          # host issues none of this at all, but the property this pins is
+          # "never overwrites", not "never uses tee".
+          (!cmd.include?('tee') || cmd.include?('tee -a'))
       end)
     end
 
@@ -112,6 +128,22 @@ RSpec.describe Odysseus::Setup::Preparer do
 
       expect(preparer.prepare.map(&:step))
         .to eq(%i[escalation distro docker user group keys state_dir self_test])
+    end
+  end
+
+  describe 'the escalation gate' do
+    # Nothing before this point has touched the host, so a denied escalation
+    # must stop the whole sequence rather than let later steps try their own
+    # sudo calls and fail in a more confusing way one at a time.
+    it 'stops immediately when passwordless sudo is not available' do
+      answers = healthy.merge(/sudo -n true/ => Odysseus::SSHCommandError.new('Permission denied'))
+      preparer, commands = build(answers: answers)
+
+      results = preparer.prepare
+
+      expect(results.map(&:step)).to eq([:escalation])
+      expect(result_for(results, :escalation).status).to eq(:fail)
+      expect(commands).to eq(['sudo -n true'])
     end
   end
 
@@ -166,6 +198,22 @@ RSpec.describe Odysseus::Setup::Preparer do
       expect(result_for(preparer.prepare, :user).status).to eq(:ok)
       expect(commands).to all(satisfy { |cmd| !cmd.match?(/useradd/) })
     end
+
+    # The half-created-user recovery the brief names: a user that exists but
+    # whose home does not (made some other way, or emptied out afterward).
+    # `chown` on a path that isn't there fails outright, so this must create
+    # the home rather than raise trying to fix its ownership.
+    it 'creates a missing home instead of raising when the user exists without one' do
+      answers = healthy.merge(/test -d/ => "absent\n", /stat -c/ => "\n")
+      preparer, commands = build(answers: answers)
+
+      results = nil
+      expect { results = preparer.prepare }.not_to raise_error
+
+      expect(result_for(results, :user).status).to eq(:changed)
+      expect(commands).to include(a_string_matching(%r{mkdir -p .*/home/odysseus\z}))
+      expect(commands).to include(a_string_matching(%r{chown odysseus:odysseus .*/home/odysseus\z}))
+    end
   end
 
   describe 'the docker group' do
@@ -192,15 +240,15 @@ RSpec.describe Odysseus::Setup::Preparer do
       preparer, commands = build(answers: answers)
 
       expect(result_for(preparer.prepare, :keys).status).to eq(:changed)
-      expect(commands).to include(a_string_matching(/>>/))
-      expect(commands).to all(satisfy { |cmd| !cmd.match?(/authorized_keys'?\s*$/) || !cmd.include?('> ') })
+      expect(commands).to include(a_string_matching(/tee -a/))
+      expect(commands).to all(satisfy { |cmd| !cmd.include?('tee') || cmd.include?('tee -a') })
     end
 
     it 'does not append a key that is already present' do
       preparer, commands = build(answers: healthy)
 
       expect(result_for(preparer.prepare, :keys).status).to eq(:ok)
-      expect(commands).to all(satisfy { |cmd| !cmd.include?('>>') })
+      expect(commands).to all(satisfy { |cmd| !cmd.include?('tee') })
     end
 
     # sshd silently ignores a loose ~/.ssh or authorized_keys, with no error
@@ -215,6 +263,85 @@ RSpec.describe Odysseus::Setup::Preparer do
       expect(commands).to include(a_string_matching(/chmod 600 .*authorized_keys/))
       expect(commands).to include(a_string_matching(/chown .*odysseus.*\.ssh/))
     end
+
+    # The append goes through the connection directly (not escalation.run),
+    # so only its writer -- `tee`, not `printf` -- gets a sudo prefix; a
+    # `>>` redirect would be opened by the bootstrap identity's own shell
+    # before sudo ever ran, which is exactly the bug this pins against a
+    # regression of.
+    it 'elevates only the write into authorized_keys, not the whole append pipeline' do
+      answers = healthy.merge(/grep -qxF/ => "absent\n")
+      preparer, commands = build(answers: answers, as: 'ubuntu')
+
+      preparer.prepare
+
+      append = commands.find { |cmd| cmd.include?('tee -a') }
+      expect(append).to match(/\Aprintf /)
+      expect(append).to include('| sudo -n tee -a')
+    end
+
+    it 'does not sudo the append under --as root, since the connection is already root' do
+      answers = healthy.merge(/grep -qxF/ => "absent\n")
+      preparer, commands = build(answers: answers, as: 'root')
+
+      preparer.prepare
+
+      append = commands.find { |cmd| cmd.include?('tee -a') }
+      expect(append).not_to include('sudo')
+    end
+
+    # Escaping is the whole reason this repo requires Shellwords.escape at
+    # every call site: a live bug elsewhere (docker/client.rb's unescaped
+    # `-v` values) came from exactly this omission. Nothing here would
+    # notice if grep or the append stopped escaping, so both are pinned
+    # directly against a key line built to break an unescaped shell.
+    it 'escapes a key line containing shell metacharacters before it ever reaches a shell' do
+      malicious_key = 'ssh-ed25519 AAAAtest evil; rm -rf / #pwned'
+      answers = healthy.merge(/grep -qxF/ => "absent\n")
+      preparer, commands = build(answers: answers, keys: [malicious_key])
+
+      preparer.prepare
+
+      escaped = Shellwords.escape(malicious_key)
+      expect(commands).to include(a_string_including(escaped))
+      # The raw line, unescaped, must never appear as a contiguous
+      # substring of any command -- escaping inserts backslashes between
+      # exactly the characters that would otherwise make it one.
+      expect(commands).to all(satisfy { |cmd| !cmd.include?(malicious_key) })
+    end
+  end
+
+  describe 'escaping a hostile username' do
+    # The username becomes part of every path and several command
+    # arguments across every step, not just the keys step -- a single
+    # example driving the whole sequence checks all of them at once.
+    it 'never lets a metacharacter in the deploy user reach a shell unescaped' do
+      malicious_user = 'bad;rm -rf /'
+      preparer, commands = build(answers: healthy, user: malicious_user)
+
+      preparer.prepare
+
+      expect(commands).not_to be_empty
+      expect(commands).to all(satisfy { |cmd| !cmd.include?(malicious_user) })
+    end
+  end
+
+  describe 'the state directory' do
+    it 'creates and owns a missing state directory' do
+      answers = healthy.merge(/test -d/ => "absent\n")
+      preparer, commands = build(answers: answers)
+
+      expect(result_for(preparer.prepare, :state_dir).status).to eq(:changed)
+      expect(commands).to include(a_string_matching(%r{mkdir -p .*/\.odysseus}))
+      expect(commands).to include(a_string_matching(%r{chown odysseus:odysseus .*/\.odysseus}))
+    end
+
+    it 'leaves an already-owned state directory alone' do
+      preparer, commands = build(answers: healthy)
+
+      expect(result_for(preparer.prepare, :state_dir).status).to eq(:ok)
+      expect(commands).to all(satisfy { |cmd| !cmd.match?(%r{mkdir -p .*/\.odysseus}) })
+    end
   end
 
   describe 'the self-test' do
@@ -226,11 +353,25 @@ RSpec.describe Odysseus::Setup::Preparer do
       expect(result_for(preparer.prepare, :self_test).status).to eq(:ok)
     end
 
-    it 'fails when the new user cannot reach docker' do
+    it 'fails when the writability check comes back negative' do
       answers = healthy.merge(/test -d/ => "absent\n")
       preparer, = build(answers: answers)
 
       expect(result_for(preparer.prepare, :self_test).status).to eq(:fail)
+    end
+
+    # Distinct from the writability example above: docker and the directory
+    # check are two independent legs, both required for :ok. Failing only
+    # via the directory check (as the example above does) would never
+    # notice docker's result being ignored.
+    it 'fails specifically because docker did not answer, independently of the directory check' do
+      fresh_answers = healthy.merge(/docker info/ => "command not found\n")
+      preparer, = build(answers: healthy, fresh_answers: fresh_answers)
+
+      result = result_for(preparer.prepare, :self_test)
+
+      expect(result.status).to eq(:fail)
+      expect(result.detail).to match(/docker/i)
     end
 
     # Reusing the bootstrap connection would only prove the bootstrap
@@ -238,13 +379,21 @@ RSpec.describe Odysseus::Setup::Preparer do
     # privileged one. --as ubuntu can read a docker socket the deploy user
     # cannot yet, and vice versa, so nothing short of logging in as the
     # deploy user proves what this step claims to prove.
-    it 'opens the second connection as the deploy user, not the bootstrap identity, with Tailscale off' do
+    it 'opens the second connection as the deploy user, against the bootstrap host and port, ' \
+       'with configured keys and Tailscale off' do
       preparer, = build(answers: healthy, user: 'odysseus', as: 'ubuntu')
 
       preparer.prepare
 
-      expect(Odysseus::Deployer::SSH).to have_received(:new)
-        .with(hash_including(user: 'odysseus', host: 'target.example', use_tailscale: false))
+      expect(Odysseus::Deployer::SSH).to have_received(:new).with(
+        hash_including(
+          user: 'odysseus',
+          host: 'target.example',
+          port: 2201,
+          keys: ['id_ed25519'],
+          use_tailscale: false
+        )
+      )
     end
 
     it 'runs its checks over the fresh connection, never the bootstrap one' do
