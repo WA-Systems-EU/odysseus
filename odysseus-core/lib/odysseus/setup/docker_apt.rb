@@ -33,9 +33,15 @@ module Odysseus
       # error rather than a session that never returns.
       LOCK_TIMEOUT = 300
 
-      PACKAGES = %w[
-        docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-      ].freeze
+      # Deliberately short of Docker's published instructions, which also
+      # install docker-compose-plugin: nothing in this codebase invokes
+      # `docker compose`, odysseus runs containers through `docker run` /
+      # `docker create` (odysseus-core/lib/odysseus/docker/client.rb). Do not
+      # add it back on the strength of Docker's docs alone -- `setup` installs
+      # only what odysseus actually uses. docker-buildx-plugin stays: it is
+      # genuinely reachable, via `docker buildx build` for the `:remote`
+      # multiarch strategy (odysseus-core/lib/odysseus/builder/client.rb:216).
+      PACKAGES = %w[docker-ce docker-ce-cli containerd.io docker-buildx-plugin].freeze
 
       # @param ssh [Odysseus::Deployer::SSH] connection as the bootstrap identity
       # @param escalation [Odysseus::Setup::Escalation] how root is reached
@@ -108,7 +114,11 @@ module Odysseus
       # Best-effort attribution, never a second failure: if fuser or ps is
       # missing the message simply says less.
       def lock_holder_note
-        pid = @escalation.run("fuser #{LOCK_FILE} 2>/dev/null | tr -d ' '").to_s.strip
+        # fuser can report more than one holder as space-separated PIDs on
+        # one line. `tr -d ' '` would glue them into one fabricated number --
+        # "1234 5678" becoming "12345678" -- so take the first token instead
+        # of deleting every space.
+        pid = @escalation.run("fuser #{LOCK_FILE} 2>/dev/null").to_s.strip.split.first.to_s
         return '' if pid.empty?
 
         name = @escalation.run("ps -o comm= -p #{Shellwords.escape(pid)} 2>/dev/null || true").to_s.strip

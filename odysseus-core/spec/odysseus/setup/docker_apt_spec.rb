@@ -105,9 +105,21 @@ RSpec.describe Odysseus::Setup::DockerApt do
     apt.install!
 
     install = commands.find { |c| c.include?('apt-get') && c.include?('docker-ce') }
-    %w[docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin].each do |pkg|
+    %w[docker-ce docker-ce-cli containerd.io docker-buildx-plugin].each do |pkg|
       expect(install).to include(pkg)
     end
+  end
+
+  # docker-compose-plugin is deliberately absent: nothing in this codebase
+  # invokes `docker compose`, so installing it would put unused software on
+  # the operator's host. See the comment on PACKAGES.
+  it 'does not install docker-compose-plugin, which nothing here invokes' do
+    apt, commands = build(answers: healthy)
+
+    apt.install!
+
+    install = commands.find { |c| c.include?('apt-get') && c.include?('docker-ce') }
+    expect(install).not_to include('docker-compose-plugin')
   end
 
   it 'refreshes the package lists after adding the repository, not only before' do
@@ -137,6 +149,26 @@ RSpec.describe Odysseus::Setup::DockerApt do
 
     expect { apt.install! }
       .to raise_error(Odysseus::SetupError, /unattended-upgrade.*1234/m)
+  end
+
+  # fuser can report more than one lock holder as space-separated PIDs on one
+  # line. Deleting every space (`tr -d ' '`) would glue "1234 5678" into the
+  # fabricated PID 12345678, which `ps -p` then fails to find -- a fabricated
+  # number in a diagnostic is worse than no number, so this asserts the
+  # negative: that fabricated PID must appear nowhere in the error.
+  it 'names only the first PID when fuser reports more than one lock holder' do
+    answers = {
+      /apt-get .*install -y docker-ce/ =>
+        Odysseus::SSHCommandError.new('exit status 100: Could not get lock'),
+      /fuser/ => "1234 5678\n",
+      /ps -o comm=/ => "unattended-upgrade\n"
+    }.merge(healthy)
+    apt, = build(answers: answers)
+
+    expect { apt.install! }.to raise_error(Odysseus::SetupError) do |error|
+      expect(error.message).to include('1234')
+      expect(error.message).not_to include('12345678')
+    end
   end
 
   # A "never do this" guard rather than a mutation target: nothing in the
