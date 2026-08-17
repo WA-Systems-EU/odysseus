@@ -44,7 +44,7 @@ module Odysseus
         return results if results.last.status == :fail
 
         %i[distro docker user group keys state_dir self_test].each do |step|
-          result = send(:"#{step}_step")
+          result = run_step(step)
           results << result
           break if result.status == :fail
         end
@@ -53,6 +53,20 @@ module Odysseus
       end
 
       private
+
+      # Any step from :user onward can raise Odysseus::SetupError now:
+      # #resolve_home_dir refuses to guess an unresolved home rather than
+      # silently building a path out of it (see #home_dir). That refusal
+      # needs to be attributed to the step that hit it, the same way
+      # escalation_step already converts its own SetupError into a Result
+      # rather than letting a raise crash #prepare outright -- this is that
+      # same conversion, applied once here instead of duplicated in every
+      # step that touches home_dir.
+      def run_step(step)
+        send(:"#{step}_step")
+      rescue Odysseus::SetupError => e
+        Result.new(step: step, status: :fail, detail: e.message)
+      end
 
       def escalation_step
         @escalation.probe!
@@ -271,7 +285,37 @@ module Odysseus
       # exist, and memoize it: a second call must not re-ask a question
       # that cannot have changed mid-run.
       def home_dir
-        @home_dir ||= @escalation.run("getent passwd #{shell_user} | cut -d: -f6").to_s.strip
+        @home_dir ||= resolve_home_dir
+      end
+
+      # No pipe: a pipeline's exit status is its LAST command's, so
+      # `getent passwd <user> | cut -d: -f6` used to exit 0 with empty
+      # output no matter how badly getent itself failed -- the third
+      # instance on this branch of the exit status being observed not
+      # being the one that mattered. getent's own exit status decides now,
+      # via @escalation.run's ordinary raise-on-failure; field 6 is split
+      # out in Ruby instead of by a second process.
+      #
+      # The result is validated before it is ever used to build a path.
+      # File.join("", ".ssh") is "/.ssh" -- a blank answer would let
+      # keys_step and state_dir_step succeed at the filesystem root while
+      # /home/<user> is never touched, reporting a host ready when
+      # authorized_keys was never written there. An answer of exactly "/"
+      # is worse: verify_home_ownership would find it "owned wrong" and
+      # `chown` it straight to the deploy user, seizing a directory setup
+      # never created -- the same invariant Finding 1 exists to protect,
+      # lost the moment an arbitrary passwd field replaced the old,
+      # effectively sandboxed /home/<user> join. There is no safe
+      # fallback to substitute: a guess is what caused this, so an
+      # unresolved home fails the step that needed it, by name, instead.
+      def resolve_home_dir
+        candidate = @escalation.run("getent passwd #{shell_user}").to_s.strip.split(':')[5].to_s.strip
+        return candidate if candidate.start_with?('/') && candidate != '/'
+
+        raise Odysseus::SetupError,
+              "could not resolve a home directory for #{@user}: getent passwd reported " \
+              "#{candidate.empty? ? 'nothing usable' : candidate.inspect} for it. Refusing " \
+              'to guess /home/<user> in its place.'
       end
 
       def ssh_dir

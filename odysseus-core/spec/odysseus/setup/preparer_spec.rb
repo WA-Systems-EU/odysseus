@@ -78,13 +78,19 @@ RSpec.describe Odysseus::Setup::Preparer do
 
   # A host that is already fully prepared: every step should report :ok, and
   # nothing should be changed.
+  #
+  # `getent passwd`'s answer is a real, full passwd line (7 colon-delimited
+  # fields) since home_dir now splits field 6 out itself, in Ruby, rather
+  # than trusting a `| cut -d: -f6` in the command sent -- a fixture that
+  # answered with the bare home path, as it used to, would silently stop
+  # exercising that split at all.
   def healthy(user: 'odysseus', home: "/home/#{user}")
     {
       /os-release/ => ubuntu_os_release,
       /sudo -n true/ => "\n",
       /docker info/ => "29.1.3\n",
       /id -u/ => "1000\n",
-      /getent passwd/ => "#{home}\n",
+      /getent passwd/ => "#{user}:x:1000:1000::#{home}:/bin/bash\n",
       /stat -c/ => "#{user} #{user}\n",
       /id -nG/ => "#{user} docker\n",
       /grep -qxF/ => "present\n",
@@ -245,6 +251,71 @@ RSpec.describe Odysseus::Setup::Preparer do
       expect(commands).to include(a_string_matching(%r{chown -R deploy:deploy .*/srv/deploy/\.ssh\z}))
       expect(result_for(results, :state_dir).detail).to include('/srv/deploy/.odysseus')
       expect(commands).to all(satisfy { |cmd| !cmd.include?('/home/deploy') })
+    end
+  end
+
+  describe 'resolving the home directory' do
+    # The freshest, most common case: a brand-new host, a user this class
+    # just created with useradd -m. If getent still can't report a home for
+    # it, home_dir must refuse rather than let File.join("", ".ssh")
+    # silently become "/.ssh" -- the false-success case the re-review
+    # rated Critical, since keys_step and state_dir_step would otherwise
+    # succeed at the filesystem root while /home/<user> was never touched.
+    # /grep -qxF/ and /test -d/ are both overridden to "absent" so that,
+    # under the bug this guards, keys_step and state_dir_step would
+    # actually try to create something at "/" -- against the unmodified
+    # healthy fixture, both already report :ok/:changed independent of
+    # path, which would let this example pass whether or not the guard
+    # exists at all.
+    it 'fails loudly for a freshly created user when getent reports no home, rather than using /' do
+      answers = healthy.merge(/id -u/ => nil, /getent passwd/ => "\n", /grep -qxF/ => "absent\n", /test -d/ => "absent\n")
+      preparer, commands = build(answers: answers)
+
+      results = preparer.prepare
+
+      expect(result_for(results, :user).status).to eq(:fail)
+      expect(result_for(results, :user).detail).to match(/could not resolve/)
+      expect(commands).to all(satisfy { |cmd| !cmd.include?('/.ssh') && !cmd.include?('/.odysseus') })
+    end
+
+    # Before your change, /home/<user> sandboxed a wrongly-owned home; an
+    # arbitrary passwd field used unvalidated removes that sandbox. A home
+    # of exactly "/" would otherwise be judged "owned wrong" (stat -c
+    # answers root root here, standing in for a real host's /) and
+    # repaired by chowning the filesystem root to the deploy user --
+    # seizing a directory setup never created, the same invariant Finding
+    # 1 was raised to enforce.
+    it 'refuses a home of exactly /, rather than chowning the filesystem root' do
+      answers = healthy.merge(/getent passwd/ => "odysseus:x:1000:1000::/:/bin/bash\n", /stat -c/ => "root root\n")
+      preparer, commands = build(answers: answers)
+
+      results = preparer.prepare
+
+      expect(result_for(results, :user).status).to eq(:fail)
+      expect(commands).to all(satisfy { |cmd| !(cmd.include?('chown') && cmd.end_with?(' /')) })
+    end
+
+    it 'refuses a home that does not start with /' do
+      answers = healthy.merge(/getent passwd/ => "odysseus:x:1000:1000::srv/deploy:/bin/bash\n")
+      preparer, = build(answers: answers)
+
+      result = result_for(preparer.prepare, :user)
+
+      expect(result.status).to eq(:fail)
+      expect(result.detail).to match(/could not resolve/)
+    end
+
+    # This is the third instance on this branch of the exit status being
+    # observed not being the one that mattered: `getent passwd X | cut -d:
+    # -f6` exited 0 (cut's status) no matter how badly getent failed. With
+    # the pipe gone, a failed getent now raises through Escalation#run
+    # instead of being silently swallowed as an empty home.
+    it "surfaces a failed getent, with the pipe gone from the command it's sent" do
+      answers = healthy.merge(/getent passwd/ => Odysseus::SSHCommandError.new('no such user'))
+      preparer, commands = build(answers: answers)
+
+      expect { preparer.prepare }.to raise_error(Odysseus::SSHCommandError)
+      expect(commands.last).not_to include('|')
     end
   end
 
