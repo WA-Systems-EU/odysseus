@@ -84,10 +84,76 @@ RSpec.describe Odysseus::Setup::PublicKey do
       expect(lines.size).to eq(1)
     end
 
+    # Explicit rather than via keys:, so this can't be rescued by falling
+    # through to deriving from the private key -- it isolates the stripping
+    # done while validating a file's content, not stripping done elsewhere.
     it 'strips trailing newlines, so a line can be appended safely' do
-      lines = described_class.resolve(keys: [private_key])
+      lines = described_class.resolve(keys: [private_key], explicit: [public_key])
 
       expect(lines.first).not_to end_with("\n")
+    end
+
+    # The failure mode this guards against: a private key is PEM, not an
+    # authorized_keys line. Passed through unvalidated, it would land whole
+    # -- headers, base64 body, footer -- on a remote host's authorized_keys.
+    it 'refuses when --key points at a private key, rather than treating its content as a line' do
+      expect { described_class.resolve(keys: [private_key], explicit: [private_key]) }
+        .to raise_error(Odysseus::SetupError, /#{Regexp.escape(private_key)}/)
+    end
+
+    # One invalid --key path must not be silently dropped in favour of a
+    # valid one given alongside it -- the operator asked for both, and
+    # believing an unauthorised key is installed is worse than a refusal.
+    it 'refuses when one of several --key paths is invalid, rather than silently dropping it' do
+      other_valid = File.join(@dir, 'other.pub')
+      File.write(other_valid, "ssh-ed25519 AAAAvalid valid@example\n")
+
+      expect { described_class.resolve(keys: [], explicit: [other_valid, private_key]) }
+        .to raise_error(Odysseus::SetupError, /#{Regexp.escape(private_key)}/)
+    end
+
+    it 'validates each key in a .pub containing several, yielding one line per key' do
+      second_private = File.join(@dir, 'id_second')
+      system('ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C', 'second@example',
+             '-f', second_private, out: File::NULL, err: File::NULL)
+      second_line = File.read("#{second_private}.pub").strip
+      File.write(public_key, "#{File.read(public_key).strip}\n#{second_line}\n")
+
+      lines = described_class.resolve(keys: [private_key])
+
+      expect(lines.size).to eq(2)
+      expect(lines).to all(start_with('ssh-ed25519 '))
+    end
+
+    # An empty sibling must not read as "resolved to nothing" -- there is
+    # still a usable key one step away, at the private key it sits beside.
+    it 'derives when the .pub sibling is empty, rather than dropping a resolvable key' do
+      File.write(public_key, '')
+
+      lines = described_class.resolve(keys: [private_key])
+
+      expect(lines.size).to eq(1)
+      expect(lines.first).to start_with('ssh-ed25519 ')
+    end
+
+    it 'derives when the .pub sibling contains no valid key content' do
+      File.write(public_key, "this is not a key\n")
+
+      lines = described_class.resolve(keys: [private_key])
+
+      expect(lines.size).to eq(1)
+      expect(lines.first).to start_with('ssh-ed25519 ')
+      expect(lines.first).not_to include('not a key')
+    end
+
+    # Guards the validation fix from over-correcting: a comment is free text,
+    # not a second key field, and must survive even when it has spaces in it.
+    it 'keeps a comment containing spaces intact' do
+      File.write(public_key, "ssh-ed25519 AAAAcomment key with spaces in the comment\n")
+
+      lines = described_class.resolve(keys: [private_key])
+
+      expect(lines).to eq(['ssh-ed25519 AAAAcomment key with spaces in the comment'])
     end
   end
 end
