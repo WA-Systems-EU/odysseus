@@ -330,6 +330,25 @@ Smaller findings worth fixing but not blocking anything.
       Needs its own design pass: decide the removal from containers rather than
       routes, and let a failed stop or remove be reported rather than
       swallowed.
+- [ ] **A restarted Caddy loses every route until each service is redeployed.**
+      The container runs `caddy run --config /etc/caddy/Caddyfile` with no
+      `--resume`, and odysseus adds routes through the admin API at runtime — so
+      they live only in Caddy's memory. Confirmed on dedalus-prototypes
+      2026-08-17: the mounted `/data` holds `certificates`, `instance.uuid` and
+      `locks`, and **no `autosave.json`**. Certificates therefore survive a
+      restart; routes do not.
+      `--restart unless-stopped` means a host reboot restarts the container and
+      re-runs that command, so this is not hypothetical: on a host with seven
+      services, all seven stay unreachable until seven separate deploys run. The
+      sibling entry about `ensure_running` recreating a stopped Caddy has the
+      same consequence, and so does anything that restarts the daemon.
+      Options: start Caddy with `--resume` so it reloads the autosaved config
+      (needs checking that odysseus's API calls actually trigger an autosave —
+      the missing file suggests they may not); or write a real Caddyfile / JSON
+      config to the mounted volume so the routes are declarative rather than
+      runtime state; or have odysseus reconcile all known services' routes on
+      any deploy rather than only the one being deployed. The last is the
+      smallest change and the least complete.
 - [ ] **Every service on a host shares one flat network, so every app can reach
       every other service's database.** Everything is started with
       `--network odysseus` and nothing else, and Docker's embedded DNS resolves

@@ -71,6 +71,11 @@ ssh:
 Deploy:
 
 ```bash
+# From a git repository with everything committed — the version is the commit
+odysseus deploy --build
+
+# Anywhere else, name the version yourself (see odysseus-cli/README.md,
+# "Naming the version", for what this costs)
 odysseus deploy --build --image v1.0.0
 ```
 

@@ -14,7 +14,7 @@
 
 - Ruby `>= 3.2.0` (gemspec floor); developed against 4.0.6.
 - **Root installs must be bit-for-bit unchanged.** A config with `ssh.user: root` — or none — must produce the exact same remote paths and the exact same number of SSH round trips as today. This is the whole back-compat story.
-- **Caddy's directory does not move.** `/var/lib/odysseus/caddy` (`caddy/client.rb:40,51`) is the Let's Encrypt certificate store, root-owned and written by the container. It stays fixed for every user.
+- **Caddy's directory does not move.** `/var/lib/odysseus/caddy` is the Let's Encrypt certificate store, root-owned and written by the container. It stays fixed for every user. — **Reversed 2026-08-17**, after a real deploy failed: a non-root user cannot create that parent, so no non-root web deploy could succeed. It now derives from the deploy user like everything else, with root still resolving to the old path. See the spec's correction note.
 - Every spec must be verified against a deliberate mutation of the code under test (`CONTRIBUTING.md`). A spec that passes under its own mutation is not a spec.
 - **Do not edit `.rubocop_todo.yml`** in either gem — they are debt snapshots.
 - Both suites and RuboCop stay green. Baselines: odysseus-core 559 examples / 0 failures / 73 files clean; odysseus-cli 155 / 0 / 13 files clean.
@@ -572,7 +572,7 @@ Under a new `## [Unreleased]` heading in `odysseus-core/CHANGELOG.md`, with an `
 
 - Host state now depends on the SSH user: root keeps `/var/lib/odysseus` exactly as before; any other user gets `$HOME/.odysseus`.
 - Non-root deploys previously could not work at all — the env directory `chmod` fails for a non-owner — so this is the change that makes them possible on a host you have configured yourself.
-- Caddy's certificate directory does not move.
+- Caddy's certificate directory does not move. (**Reversed 2026-08-17** — see above.)
 - A host that deployed as root and later moves to a deploy user keeps its rollback history: reads fall back to the old location, appends go to the new one.
 - Nothing changes for a root install.
 
