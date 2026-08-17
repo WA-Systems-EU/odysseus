@@ -33,10 +33,10 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   create. The GPG key's fingerprint is deliberately not pinned, matching
   Docker's own instructions, which trust TLS rather than pin it — pinning
   would turn Docker's key rotation into an outage for everyone using this
-  command. `Preparer` runs the actual sequence against a host: creates the
+  command. `Preparer` runs the actual sequence against a host: installs
+  Docker via `DockerApt` if the host doesn't already have it, creates the
   deploy user and its home, adds it to the `docker` group, installs the
-  resolved key(s), installs Docker via `DockerApt` if the host doesn't
-  already have it, creates the state directory, and finishes by opening a
+  resolved key(s), creates the state directory, and finishes by opening a
   second connection as that new user to prove Docker and the state
   directory both work before reporting success. A host whose Docker daemon
   still does not answer after the install is failed, naming that the host

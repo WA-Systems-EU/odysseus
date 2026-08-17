@@ -362,11 +362,12 @@ for it would report a correctly configured, not-yet-deployed host as broken.
 **What it's for.** Preparing servers at scale — users, Docker, firewall
 ports, everything declaratively and repeatably — belongs to OpenTofu,
 Terraform or an equivalent tool, not to odysseus. [`setup`](#setup) does a
-deliberately narrow slice of that for one host, to get a trial going; it
-opens no ports, and it is not a provisioning tool. `doctor` answers whether
-a host is actually usable by odysseus as the user your config names, which
-is worth asking however the host was prepared, and can serve as the
-acceptance test for a tofu-built one.
+deliberately narrow slice of that: a trial-scale bootstrap to get going, not
+the declarative provisioning at scale a tool like that is for; it opens no
+ports, and it is not a provisioning tool. `doctor` answers whether a host is
+actually usable by odysseus as the user your config names, which is worth
+asking however the host was prepared, and can serve as the acceptance test
+for a tofu-built one.
 
 ### rollback
 
@@ -834,9 +835,11 @@ removing it means `docker image rm` by hand on the host.
 
 ## Server Requirements
 
-Your target servers need a supported Ubuntu release (24.04 or 26.04) and SSH
-access; [`odysseus setup`](#setup) can install Docker itself, or a host
-prepared by a provisioning tool needs Docker present already. Odysseus
+A host odysseus **deploys** to needs a working Docker daemon and SSH access —
+deploys never gate on distro. [`odysseus setup`](#setup), the optional
+bootstrap for a fresh host, is what requires a supported Ubuntu release
+(24.04 or 26.04); a host prepared some other way — by hand, or by a
+provisioning tool — just needs Docker present already. Odysseus
 automatically deploys and manages Caddy as a container (`odysseus-caddy`) -
 no manual Caddy installation required.
 

@@ -38,9 +38,17 @@ module Odysseus
       # `docker compose`, odysseus runs containers through `docker run` /
       # `docker create` (odysseus-core/lib/odysseus/docker/client.rb). Do not
       # add it back on the strength of Docker's docs alone -- `setup` installs
-      # only what odysseus actually uses. docker-buildx-plugin stays: it is
-      # genuinely reachable, via `docker buildx build` for the `:remote`
-      # multiarch strategy (odysseus-core/lib/odysseus/builder/client.rb:216).
+      # only what odysseus actually uses. docker-buildx-plugin stays: `docker
+      # buildx build` (odysseus-core/lib/odysseus/builder/client.rb:216) runs
+      # on the operator's own machine for the `:local` strategy, or on
+      # `builder.host` over SSH for `:remote` -- never on a deploy target as
+      # such, and setup's hosts come only from `servers.*`
+      # (odysseus-core/lib/odysseus/deployer/executor.rb:300-308). So on a
+      # host setup prepares, buildx is only reachable where `builder.host`
+      # happens to name one of those deploy hosts with multiarch on -- a
+      # coincidence plausible precisely in setup's single-host-trial niche,
+      # and worth keeping regardless: a modern `docker build` without the
+      # plugin falls back to Docker's deprecated legacy builder.
       PACKAGES = %w[docker-ce docker-ce-cli containerd.io docker-buildx-plugin].freeze
 
       # @param ssh [Odysseus::Deployer::SSH] connection as the bootstrap identity
