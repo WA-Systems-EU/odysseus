@@ -315,6 +315,21 @@ Smaller findings worth fixing but not blocking anything.
       domain, which is normal practice. Note an app must permit its public
       hostname regardless; this fix removes the impossible half of the problem,
       not both halves.
+- [ ] **`odysseus cleanup` can destroy the shared proxy, quietly.**
+      `cli.rb:609-620` stops and force-removes `odysseus-caddy` when it decides
+      no services remain — and it decides that from **Caddy's own route list**,
+      not from the containers actually on the host. A service whose route was
+      never added (a deploy that failed before attaching, say) does not count,
+      so the list can read empty while real services are still running. Caddy
+      serves every service on a host, so getting this wrong is an outage for
+      all of them, not just the one being cleaned up.
+      Both the `stop` and the `remove` are wrapped in `rescue StandardError;
+      nil`, so a partial failure leaves a stopped-but-present container and
+      reports success. Until the sibling fix landed, that state then blocked
+      every subsequent deploy with a name conflict.
+      Needs its own design pass: decide the removal from containers rather than
+      routes, and let a failed stop or remove be reported rather than
+      swallowed.
 - [ ] **`env.secret` with no `secrets_file:` fails silently.**
       `Secrets::Loader#configured?` is just `!config[:secrets_file].nil?`, so a
       config that names secrets but no file skips the encrypted file entirely
