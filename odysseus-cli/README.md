@@ -284,8 +284,10 @@ substitute a different key for the one you named or the one on disk. Only
 an empty or whitespace-only `.pub` sibling falls through to deriving the
 key from its private half.
 
-**Docker must already be installed.** This version refuses a host without
-it, naming what's missing, rather than installing Docker itself. Ubuntu
+**Docker's daemon must already be reachable.** `docker info` can't tell
+"not installed" from "installed but stopped", so this version refuses
+either case by naming what it saw, rather than installing or starting
+Docker itself. Ubuntu
 24.04 and 26.04 are the only distros it knows; anything else is refused by
 name too — unlike `doctor`, which only warns on an unsupported distro,
 because a deploy just needs a working Docker daemon and doesn't care which

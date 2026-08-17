@@ -24,7 +24,9 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   creates the state directory, and finishes by opening a second connection
   as that new user to prove Docker and the state directory both work
   before reporting success. Docker itself is not installed by this
-  version — a host without it is refused, naming what's missing.
+  version — a host whose Docker daemon does not answer is refused, naming
+  that it may not be installed or may simply be stopped, since `docker
+  info` cannot tell the two apart.
 
 ## [0.8.0] - 2026-08-17
 

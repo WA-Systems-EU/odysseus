@@ -88,7 +88,9 @@ module Odysseus
         else
           Result.new(
             step: :docker, status: :fail,
-            detail: "docker is required and does not appear to be installed: #{output.lines.first.to_s.strip}"
+            detail: 'docker is required, and its daemon did not answer -- it may not be ' \
+                    'installed, or it may be installed with the daemon stopped: ' \
+                    "#{output.lines.first.to_s.strip}"
           )
         end
       end
@@ -152,8 +154,11 @@ module Odysseus
         @escalation.run("touch #{Shellwords.escape(authorized_keys)}")
         missing.each { |line| append_key(line) }
         # 700/600 are reapplied every time a key is appended, so a directory
-        # left loose by anything else is corrected as a side effect — sshd
-        # ignores both silently, with no error worth finding.
+        # left loose is corrected as a side effect of appending a key — sshd
+        # ignores both silently, with no error worth finding. Only a side
+        # effect, though: this step early-returns above when every key is
+        # already present, so a pre-existing world-writable ~/.ssh on an
+        # otherwise fully up-to-date host is never revisited or repaired.
         @escalation.run("chmod 700 #{Shellwords.escape(ssh_dir)}")
         @escalation.run("chmod 600 #{Shellwords.escape(authorized_keys)}")
         @escalation.run("chown -R #{shell_user}:#{shell_user} #{Shellwords.escape(ssh_dir)}")
