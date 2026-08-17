@@ -1098,6 +1098,7 @@ RSpec.describe Odysseus::CLI::CLI do
 
     let(:ok)      { Odysseus::Setup::Preparer::Result.new(step: :docker, status: :ok, detail: 'docker 29.1.3') }
     let(:changed) { Odysseus::Setup::Preparer::Result.new(step: :user, status: :changed, detail: 'created odysseus') }
+    let(:warn)    { Odysseus::Setup::Preparer::Result.new(step: :distro, status: :warn, detail: 'debian 12 — deploys work here') }
     let(:bad)     { Odysseus::Setup::Preparer::Result.new(step: :distro, status: :fail, detail: 'debian 12') }
 
     def run_setup(results, options = {})
@@ -1119,11 +1120,50 @@ RSpec.describe Odysseus::CLI::CLI do
         .to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
     end
 
-    it 'shows what it changed distinctly from what was already correct' do
-      output = output_of { run_setup([ok, changed]) }
+    # `escalate`'s rank table (setup_commands.rb) has no coverage above this
+    # point for :warn at all. Mirrors doctor's analogous pair (cli_spec.rb,
+    # `#doctor`) for the same reason: a rank-swap mutation of
+    # `{ ok: 0, changed: 0, warn: 1, fail: 2 }` to `warn: 2, fail: 1` passes
+    # each ordering alone, because both examples below only ever compare a
+    # status against :ok (order value 0), which the swap leaves unchanged.
+    # Only seeing both a :warn-then-:fail survey and a :fail-then-:warn
+    # survey forces the comparison between :warn and :fail itself.
+    it 'exits zero when the worst result is a warning' do
+      expect { output_of { run_setup([ok, warn]) } }.not_to raise_error
+    end
 
-      expect(output).to include('created odysseus')
-      expect(output).to include('docker 29.1.3')
+    it 'exits non-zero when a warning is followed by a failure' do
+      expect { output_of { run_setup([warn, bad]) } }
+        .to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
+    end
+
+    # The reverse order is also realistic: worst carries across hosts, so one
+    # host's fail can be followed by a later host's distro warning. This pins
+    # that a recorded failure is never downgraded by a later warning.
+    it 'exits non-zero when a failure is followed by a warning' do
+      expect { output_of { run_setup([bad, warn]) } }
+        .to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
+    end
+
+    # Asserts on the UI calls rather than on substring presence in the
+    # rendered output: `render_result`'s :changed branch calling
+    # @ui.step_ok instead of @ui.step_info would still put
+    # 'created odysseus' in stdout (step_ok prints the same message text,
+    # just with a different icon/color), so a substring-only assertion
+    # passes under that mutation. Spying on the CLI's real UI instance
+    # (rather than stubbing it, which would need its own render assertions
+    # duplicated per icon) lets the example assert directly that :changed
+    # was routed to step_info and never to step_ok.
+    it 'shows what it changed distinctly from what was already correct' do
+      ui = cli.instance_variable_get(:@ui)
+      allow(ui).to receive(:step_info).and_call_original
+      allow(ui).to receive(:step_ok).and_call_original
+
+      output_of { run_setup([ok, changed]) }
+
+      expect(ui).to have_received(:step_info).with(a_string_matching('created odysseus')).at_least(:once)
+      expect(ui).to have_received(:step_ok).with(a_string_matching('docker 29.1.3')).at_least(:once)
+      expect(ui).not_to have_received(:step_ok).with(a_string_matching('created odysseus'))
     end
 
     # The default is the Ubuntu cloud image's user, so a stock image works
@@ -1225,14 +1265,25 @@ RSpec.describe Odysseus::CLI::CLI do
         end
       end
 
+      error = nil
       output = output_of do
         cli.setup(config: fixture_path('deploy.yml'))
-      rescue SystemExit
-        nil
+      rescue SystemExit => e
+        error = e
       end
 
       expect(hosts.size).to eq(2)
       expect(output).to include('IOError')
+
+      # setup_commands.rb's per-host rescue escalates `worst` to :fail before
+      # rendering the error -- a raising host is reported through
+      # render_result, but that alone does not touch the exit code. Deleting
+      # that escalation line leaves the IOError still printed above while
+      # `worst` never leaves :ok, so the run would exit zero. An operator
+      # scripting around this command needs a raise to look exactly like a
+      # reported :fail step, not silently succeed.
+      expect(error).to be_a(SystemExit)
+      expect(error.status).not_to eq(0)
     end
   end
 
