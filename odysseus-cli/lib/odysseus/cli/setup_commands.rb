@@ -31,6 +31,7 @@ module Odysseus
         config = load_config(config_file)
         identity = options[:as] || DEFAULT_IDENTITY
 
+        refuse_root_deploy_user!(config)
         keys = Odysseus::Setup::PublicKey.resolve(keys: config[:ssh][:keys], explicit: Array(options[:key]))
 
         @ui.header 'Odysseus Setup'
@@ -85,6 +86,29 @@ module Odysseus
       end
 
       private
+
+      # `ssh.user: root` is not a case setup half-supports -- it is refused
+      # by name, before the key is even resolved. Deploying as root already
+      # works today with no setup at all (root needs no user, no group, no
+      # authorized_keys of its own), so every step setup would otherwise run
+      # is either a no-op mistaken for progress or, worse, a mutation of
+      # root's own account (`usermod -aG docker root`) that the command's
+      # "it never modifies root's configuration" promise forbids outright.
+      # Refusing here, rather than growing setup a root-flavoured code path,
+      # is the point: this command's job ends at getting one non-root user
+      # ready, not at supporting every identity a deploy could use.
+      #
+      # `ssh.user` (the identity being created) and `--as` (the bootstrap
+      # identity connected as, which defaults to ubuntu and may legitimately
+      # be root) name different things; only the former is refused here.
+      def refuse_root_deploy_user!(config)
+        return unless config[:ssh][:user] == 'root'
+
+        raise Odysseus::SetupError,
+              '`ssh.user` is `root`: setup exists to enable non-root deploys, root needs no ' \
+              'preparation, and deploying as root already works with no setup at all. Change ' \
+              '`ssh.user` in deploy.yml to the non-root user you want to deploy as.'
+      end
 
       # :changed renders distinctly from :ok (step_info's copper arrow, not
       # step_ok's mint check) so a re-run visibly reports what it did versus

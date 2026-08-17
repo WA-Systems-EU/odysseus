@@ -1101,6 +1101,10 @@ RSpec.describe Odysseus::CLI::CLI do
     let(:warn)    { Odysseus::Setup::Preparer::Result.new(step: :distro, status: :warn, detail: 'debian 12 — deploys work here') }
     let(:bad)     { Odysseus::Setup::Preparer::Result.new(step: :distro, status: :fail, detail: 'debian 12') }
 
+    # worker-only.yml, not deploy.yml: its ssh.user is 'deploy', not 'root'.
+    # deploy.yml is deliberately root, for the refusal examples below --
+    # every other example here exercises what happens once that gate is
+    # past, so it needs a config the gate lets through.
     def run_setup(results, options = {})
       ssh = instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu')
       allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
@@ -1108,7 +1112,7 @@ RSpec.describe Odysseus::CLI::CLI do
       allow(Odysseus::Setup::Preparer).to receive(:new)
         .and_return(instance_double(Odysseus::Setup::Preparer, prepare: results))
 
-      cli.setup({ config: fixture_path('deploy.yml') }.merge(options))
+      cli.setup({ config: fixture_path('worker-only.yml') }.merge(options))
     end
 
     it 'exits zero when every step is ok or changed' do
@@ -1181,11 +1185,15 @@ RSpec.describe Odysseus::CLI::CLI do
       allow(Odysseus::Setup::Preparer).to receive(:new)
         .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
 
-      output_of { cli.setup(config: fixture_path('deploy.yml')) }
+      output_of { cli.setup(config: fixture_path('worker-only.yml')) }
 
       expect(users.uniq).to eq(['ubuntu'])
     end
 
+    # --as root (the bootstrap identity connected as) is legitimate and
+    # unrelated to ssh.user (the identity being created, refused below when
+    # it's root) -- worker-only.yml's ssh.user is 'deploy', so this exercises
+    # --as without tripping that gate.
     it 'connects as the identity --as names' do
       users = []
       allow(Odysseus::Deployer::SSH).to receive(:new) do |args|
@@ -1196,7 +1204,7 @@ RSpec.describe Odysseus::CLI::CLI do
       allow(Odysseus::Setup::Preparer).to receive(:new)
         .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
 
-      output_of { cli.setup(config: fixture_path('deploy.yml'), as: 'root') }
+      output_of { cli.setup(config: fixture_path('worker-only.yml'), as: 'root') }
 
       expect(users.uniq).to eq(['root'])
     end
@@ -1208,7 +1216,7 @@ RSpec.describe Odysseus::CLI::CLI do
         .and_raise(Odysseus::SetupError, 'Found no public key to install')
       expect(Odysseus::Deployer::SSH).not_to receive(:new)
 
-      expect { output_of { cli.setup(config: fixture_path('deploy.yml')) } }.to raise_error(SystemExit)
+      expect { output_of { cli.setup(config: fixture_path('worker-only.yml')) } }.to raise_error(SystemExit)
     end
 
     it 'prepares every host in the config, not only the first' do
@@ -1221,7 +1229,7 @@ RSpec.describe Odysseus::CLI::CLI do
       allow(Odysseus::Setup::Preparer).to receive(:new)
         .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
 
-      output_of { cli.setup(config: fixture_path('deploy.yml')) }
+      output_of { cli.setup(config: fixture_path('worker-only.yml')) }
 
       expect(hosts).to contain_exactly('web1.example.com', 'worker1.example.com')
     end
@@ -1236,7 +1244,7 @@ RSpec.describe Odysseus::CLI::CLI do
         .at_least(:once)
         .and_return(instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu'))
 
-      output_of { cli.setup(config: fixture_path('deploy.yml')) }
+      output_of { cli.setup(config: fixture_path('worker-only.yml')) }
     end
 
     it 'closes every connection it opens, even when a step fails' do
@@ -1247,7 +1255,7 @@ RSpec.describe Odysseus::CLI::CLI do
         .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [bad]))
 
       output_of do
-        cli.setup(config: fixture_path('deploy.yml'))
+        cli.setup(config: fixture_path('worker-only.yml'))
       rescue SystemExit
         nil
       end
@@ -1270,7 +1278,7 @@ RSpec.describe Odysseus::CLI::CLI do
 
       error = nil
       output = output_of do
-        cli.setup(config: fixture_path('deploy.yml'))
+        cli.setup(config: fixture_path('worker-only.yml'))
       rescue SystemExit => e
         error = e
       end
@@ -1287,6 +1295,35 @@ RSpec.describe Odysseus::CLI::CLI do
       # reported :fail step, not silently succeed.
       expect(error).to be_a(SystemExit)
       expect(error.status).not_to eq(0)
+    end
+
+    # deploy.yml (unlike worker-only.yml, used everywhere else in this
+    # describe) has ssh.user: root -- exactly the config this refusal
+    # exists for. Before this fix, setup walked the whole sequence against
+    # such a config and reported success; these examples pin that it now
+    # refuses before a single connection opens.
+    describe 'ssh.user: root' do
+      it 'refuses before resolving keys or opening a connection' do
+        expect(Odysseus::Setup::PublicKey).not_to receive(:resolve)
+        expect(Odysseus::Deployer::SSH).not_to receive(:new)
+
+        expect { output_of { cli.setup(config: fixture_path('deploy.yml')) } }
+          .to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
+      end
+
+      it 'names ssh.user as the thing to change, and never mentions --as' do
+        output = output_of do
+          cli.setup(config: fixture_path('deploy.yml'))
+        rescue SystemExit
+          nil
+        end
+
+        expect(output).to include('ssh.user')
+        # --as (the bootstrap identity) and ssh.user (the identity being
+        # created) name different things; --as root is legitimate and must
+        # never be implicated by this message.
+        expect(output).not_to include('--as')
+      end
     end
   end
 
