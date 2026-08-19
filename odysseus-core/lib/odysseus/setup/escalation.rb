@@ -34,7 +34,15 @@ module Odysseus
         return unless sudo?
 
         @ssh.execute('sudo -n true')
-      rescue Odysseus::Error => e
+      # SSHCommandError only, deliberately: it is the one that means the
+      # command ran and sudo said no. Its sibling SSHConnectionError -- and
+      # everything else under Odysseus::Error -- means the host was never
+      # reached, and this is the FIRST command setup sends, so an unreachable
+      # host arrives here before anywhere else. Rescuing the shared ancestor
+      # told an operator whose DNS was wrong, or whose host was down, to go
+      # configure NOPASSWD sudo. A connection failure travels on untouched,
+      # to be reported against the connection by the caller that owns it.
+      rescue Odysseus::SSHCommandError => e
         raise Odysseus::SetupError,
               "#{@as} cannot escalate with passwordless sudo, which odysseus setup requires: " \
               "#{e.message.lines.first.to_s.strip}. Odysseus cannot answer a password prompt. " \

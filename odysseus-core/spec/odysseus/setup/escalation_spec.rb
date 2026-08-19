@@ -91,6 +91,35 @@ RSpec.describe Odysseus::Setup::Escalation do
         .to raise_error(Odysseus::SetupError, /deploy/)
     end
 
+    # The probe is the FIRST thing setup does, so it is also the first
+    # connection attempt -- which means an unreachable host surfaces here, as
+    # a connection error, not as anything sudo said. SSHConnectionError and
+    # SSHCommandError are siblings under SSHError, so a `rescue
+    # Odysseus::Error` here swallows both and tells an operator whose DNS is
+    # wrong to go configure NOPASSWD sudo. Only a command failure means sudo
+    # refused; a connection failure must travel on untouched, to be reported
+    # against the connection by the caller that owns that concern.
+    it 'lets an unreachable host stay a connection error rather than blaming sudo' do
+      ssh = instance_double(Odysseus::Deployer::SSH)
+      allow(ssh).to receive(:execute)
+        .and_raise(Odysseus::SSHConnectionError,
+                   "Could not resolve hostname 'target.example'. Check your DNS or /etc/hosts.")
+
+      expect { described_class.new(ssh: ssh, as: 'ubuntu').probe! }
+        .to raise_error(Odysseus::SSHConnectionError, /Could not resolve hostname/)
+    end
+
+    it 'does not mention sudo when the host could not be reached' do
+      ssh = instance_double(Odysseus::Deployer::SSH)
+      allow(ssh).to receive(:execute)
+        .and_raise(Odysseus::SSHConnectionError, 'Connection to target.example timed out.')
+
+      described_class.new(ssh: ssh, as: 'ubuntu').probe!
+    rescue Odysseus::Error => e
+      expect(e.message).not_to match(/sudo/i)
+      expect(e.message).not_to match(/NOPASSWD/)
+    end
+
     # The wrapper text alone (checked above) can't tell "sudo: command not
     # found" apart from "sudo: a password is required" — only the
     # underlying error's own detail can. Assert on that detail specifically
