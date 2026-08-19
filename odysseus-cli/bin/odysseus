@@ -298,7 +298,7 @@ def print_help
   puts '  cleanup <server>          Clean up old containers and images'
   puts '  validate                  Validate deploy.yml'
   puts '  doctor                    Check that hosts are ready to deploy to (changes nothing)'
-  puts '  setup                     Prepare hosts: create the deploy user, its group, key and state dir'
+  puts '  setup                     Prepare hosts: deploy user, docker group, key, state dir, Docker'
   puts '  dependency <subcommand>    Manage dependencies (db, redis, ...); alias: dep'
   puts '  app <subcommand>          Run commands in app containers'
   puts '  secrets <subcommand>      Manage encrypted secrets'
