@@ -7,6 +7,17 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Changed
+
+- `cleanup`'s documentation now describes what the command does. It was
+  "Clean up old containers and optionally prune images" in both the README and
+  `--help`; it stops and force-removes every container for the service on that
+  server -- every role and every dependency, databases included, not only old
+  ones and not sparing the container serving traffic -- then removes the
+  service's Caddy routes and, if no other service is left behind the proxy,
+  removes the shared `odysseus-caddy` container too. No behaviour changed. The
+  name still undersells it; see TODO.md.
+
 ## [0.9.0] - 2026-08-19
 
 ### Fixed

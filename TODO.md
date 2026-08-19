@@ -315,6 +315,18 @@ Smaller findings worth fixing but not blocking anything.
       domain, which is normal practice. Note an app must permit its public
       hostname regardless; this fix removes the impossible half of the problem,
       not both halves.
+- [ ] **`cleanup` is a destructive command with a reassuring name.** Separate
+      from the proxy bug below, and broader: it stops and force-removes EVERY
+      container for the service on that server — every role, every dependency
+      including databases, and the container currently serving traffic — not
+      only old ones. No confirmation, no dry-run. The 0.9.0 docs now say so
+      (README and --help both used to read "clean up old containers"), but
+      documentation is the weaker fix. Worth deciding: rename it (`teardown`?),
+      require confirmation when the running set is non-empty, add `--dry-run`,
+      or narrow the default to genuinely old containers with today's behaviour
+      behind a flag. Found by a doc-site accuracy pass that noticed the page
+      and the code disagreed.
+
 - [ ] **`odysseus cleanup` can destroy the shared proxy, quietly.**
       `cli.rb:609-620` stops and force-removes `odysseus-caddy` when it decides
       no services remain — and it decides that from **Caddy's own route list**,
@@ -425,3 +437,4 @@ Smaller findings worth fixing but not blocking anything.
       Odysseus::Error` does not catch, so the user gets a backtrace instead of a
       message. Pre-dates plugin loading (which merely moved which line raises).
       One shape check at the top of `Config::Parser#parse` fixes it.
+

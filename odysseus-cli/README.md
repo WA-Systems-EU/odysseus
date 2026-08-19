@@ -245,11 +245,25 @@ searched for and the roles this config has.
 
 ### cleanup
 
-Clean up old containers and optionally prune images.
+Tears the service down on one server. The name undersells it: this is not a
+sweep of stale containers, it is a removal.
 
 ```bash
 odysseus cleanup <server> [--prune-images]
 ```
+
+It stops and force-removes **every** container belonging to the service on that
+server — every role, and every dependency, including databases — not only the
+old ones and not excluding the container currently serving traffic. It then
+removes the service's Caddy routes, and if no other service is left behind the
+proxy it stops and removes the shared `odysseus-caddy` container as well, which
+serves every other app on that host.
+
+`--prune-images` additionally prunes dangling images.
+
+There is no confirmation prompt and nothing is backed up first. Volumes survive,
+so a dependency's data is still there for a later `dependency boot`, but the
+containers are gone.
 
 ### validate
 
