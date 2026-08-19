@@ -7,6 +7,8 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-19
+
 ### Fixed
 
 - `setup` names the `--as` flag when the bootstrap identity cannot
