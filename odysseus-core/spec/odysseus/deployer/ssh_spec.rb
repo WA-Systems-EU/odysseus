@@ -113,6 +113,23 @@ RSpec.describe Odysseus::Deployer::SSH do
           expect { ssh.execute('docker ps') }
             .to raise_error(Odysseus::SSHConnectionError, /dropped mid-command/)
         end
+
+        # The same four classes are raised by Net::SSH.start when a host
+        # accepts the TCP connection and then closes it -- a machine still
+        # booting, an sshd not yet up, or a name pointing at a host that is no
+        # longer there. Nothing has run at that point, so claiming the command
+        # "dropped mid-command" is a false statement about what happened, and
+        # it sends the reader looking for a flaky network instead of a host
+        # that never answered.
+        it "does not claim a #{raised.class} while opening was mid-command" do
+          allow(Net::SSH).to receive(:start).and_raise(raised)
+
+          expect { ssh.execute('docker ps') }
+            .to raise_error(Odysseus::SSHConnectionError) { |e|
+              expect(e.message).not_to match(/mid-command/)
+              expect(e.message).to match(/test-server/)
+            }
+        end
       end
     end
 

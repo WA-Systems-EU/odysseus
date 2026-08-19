@@ -152,6 +152,11 @@ module Odysseus
 
       def with_connection
         connect unless connected?
+        # Set only once the session is open, so the rescue below can tell a
+        # command that died from a connection that never carried one. Ruby
+        # leaves it nil when connect raises first, which is exactly the
+        # distinction needed.
+        open = true
         yield(@session)
       rescue Errno::ECONNREFUSED
         raise Odysseus::SSHConnectionError,
@@ -170,8 +175,24 @@ module Odysseus
         end
         raise Odysseus::SSHConnectionError, error_msg
       rescue IOError, Net::SSH::Disconnect, Errno::ECONNRESET, Errno::EPIPE => e
-        raise Odysseus::SSHConnectionError,
-              "Connection to #{@host} dropped mid-command rather than failing to open: #{e.message}"
+        # These four arrive from both directions and mean opposite things.
+        # Mid-command, the host took the work and then vanished. While
+        # opening, it accepted the TCP connection and hung up before a command
+        # existed -- a machine still booting, an sshd not up, or a name
+        # pointing at a host that is no longer there. Saying "dropped
+        # mid-command" for the second is a false claim about what happened,
+        # and it points the reader at a flaky network instead of a host that
+        # never answered.
+        raise Odysseus::SSHConnectionError, drop_message(open, e)
+      end
+
+      # @param open [Boolean, nil] whether the session was established
+      def drop_message(open, error)
+        return "Connection to #{@host} dropped mid-command rather than failing to open: #{error.message}" if open
+
+        "#{@host} accepted the connection and then closed it before any command ran: #{error.message}. " \
+          'The host may still be booting, sshd may not be running yet, or the name may point at a ' \
+          'machine that is no longer there.'
       end
 
       def connect
