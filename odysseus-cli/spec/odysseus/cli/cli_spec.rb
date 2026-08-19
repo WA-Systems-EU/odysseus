@@ -1271,6 +1271,51 @@ RSpec.describe Odysseus::CLI::CLI do
       output_of { cli.setup(config: fixture_path('worker-only.yml')) }
     end
 
+    # --debug reaching only the UI is the failure this pins: the flag exists to
+    # show what was actually sent to the host, and the SSH layer is what prints
+    # it. A run debugging a real host is exactly when this is asked for, so a
+    # silent --debug is worse than no flag at all.
+    it 'shows the commands it sends when --debug is on' do
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
+
+      expect(Odysseus::Deployer::SSH).to receive(:new)
+        .with(hash_including(verbose: true))
+        .at_least(:once)
+        .and_return(instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu'))
+
+      output_of { described_class.new(debug: true).setup(config: fixture_path('worker-only.yml')) }
+    end
+
+    it 'shows the commands it sends when -v is on' do
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
+
+      expect(Odysseus::Deployer::SSH).to receive(:new)
+        .with(hash_including(verbose: true))
+        .at_least(:once)
+        .and_return(instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu'))
+
+      # debug: false deliberately -- the shared `cli` subject is debug: true,
+      # so reusing it here would pass with options[:verbose] ignored entirely.
+      output_of { described_class.new(debug: false).setup(config: fixture_path('worker-only.yml'), verbose: true) }
+    end
+
+    it 'stays quiet without either flag' do
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
+
+      expect(Odysseus::Deployer::SSH).to receive(:new)
+        .with(hash_including(verbose: false))
+        .at_least(:once)
+        .and_return(instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu'))
+
+      output_of { described_class.new(debug: false).setup(config: fixture_path('worker-only.yml')) }
+    end
+
     it 'closes every connection it opens, even when a step fails' do
       ssh = instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu')
       allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)

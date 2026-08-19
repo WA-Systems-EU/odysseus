@@ -30,6 +30,8 @@ module Odysseus
         config_file = options[:config] || 'deploy.yml'
         config = load_config(config_file)
         identity = options[:as] || DEFAULT_IDENTITY
+        # Same idiom deploy, build and pussh use: -v or --debug, either one.
+        verbose = options[:verbose] || @ui.debug?
 
         refuse_root_deploy_user!(config)
         keys = Odysseus::Setup::PublicKey.resolve(keys: config[:ssh][:keys], explicit: Array(options[:key]))
@@ -44,7 +46,7 @@ module Odysseus
 
         executor.host_roles.each_key do |host|
           @ui.section host
-          ssh = connect_as(identity, host, config)
+          ssh = connect_as(identity, host, config, verbose: verbose)
 
           begin
             escalation = Odysseus::Setup::Escalation.new(ssh: ssh, as: identity)
@@ -146,12 +148,13 @@ module Odysseus
       # fresh hosts that do not have Tailscale yet, so on the one command
       # where a timeout is most likely, that advice would be actively
       # misleading.
-      def connect_as(identity, host, config)
+      def connect_as(identity, host, config, verbose: false)
         Odysseus::Deployer::SSH.new(
           host: host,
           user: identity,
           keys: config[:ssh][:keys],
-          use_tailscale: false
+          use_tailscale: false,
+          verbose: verbose
         )
       end
     end
