@@ -56,6 +56,20 @@ module Odysseus
               worst = escalate(worst, result.status)
               render_result(result)
             end
+          rescue Odysseus::SSHAuthenticationError => e
+            # The default identity is a guess -- a good one on a stock cloud
+            # image, wrong on anything else -- and the operator has no way to
+            # know which flag fixes it unless this says so. The spec requires
+            # a host with neither a usable ubuntu nor root SSH to be refused
+            # with an error naming both flags.
+            worst = escalate(worst, :fail)
+            render_result(
+              Odysseus::Setup::Preparer::Result.new(
+                step: :connection, status: :fail,
+                detail: "#{host}: #{e.message} Setup connected as #{identity}; pass --as root " \
+                        'if root SSH is enabled, or --as USER for whichever identity can log in.'
+              )
+            )
           rescue StandardError => e
             # Mirrors DoctorCommands#doctor's rescue: a step failing is a
             # Result with status: :fail, produced by Preparer without

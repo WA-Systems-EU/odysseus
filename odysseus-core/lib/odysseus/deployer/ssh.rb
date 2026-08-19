@@ -164,7 +164,8 @@ module Odysseus
       rescue SocketError
         raise Odysseus::SSHConnectionError, "Could not resolve hostname '#{@host}'. Check your DNS or /etc/hosts."
       rescue Net::SSH::AuthenticationFailed
-        raise Odysseus::SSHConnectionError, "SSH authentication failed for #{@user}@#{@host}. Check your SSH keys."
+        raise Odysseus::SSHAuthenticationError,
+              "SSH authentication failed for #{@user}@#{@host}. Check your SSH keys."
       rescue Errno::ETIMEDOUT, Net::SSH::ConnectionTimeout, Errno::EHOSTUNREACH
         error_msg = "Connection to #{@host} timed out."
         if @use_tailscale

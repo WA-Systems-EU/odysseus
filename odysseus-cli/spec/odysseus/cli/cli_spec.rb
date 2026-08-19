@@ -1316,6 +1316,43 @@ RSpec.describe Odysseus::CLI::CLI do
       output_of { described_class.new(debug: false).setup(config: fixture_path('worker-only.yml')) }
     end
 
+    # The default identity is a guess. When it is wrong the operator sees an
+    # authentication failure and has no way to know a flag exists that fixes
+    # it -- which is exactly what happened on a real host, where the answer
+    # turned out to be --as root and had to be worked out by hand.
+    it 'names the --as flag when the bootstrap identity cannot authenticate' do
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Deployer::SSH).to receive(:new)
+        .and_return(instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu'))
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_raise(Odysseus::SSHAuthenticationError, 'SSH authentication failed for ubuntu@web1. Check your SSH keys.')
+
+      output = output_of do
+        expect { cli.setup(config: fixture_path('worker-only.yml')) }.to raise_error(SystemExit)
+      end
+
+      expect(output).to include('--as root')
+      expect(output).to include('ubuntu')
+    end
+
+    # A failure that is NOT about identity must not offer identity advice --
+    # that is how the sudo message came to tell people with broken DNS to
+    # configure NOPASSWD sudo.
+    it 'does not offer --as advice when the host was simply unreachable' do
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Deployer::SSH).to receive(:new)
+        .and_return(instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu'))
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_raise(Odysseus::SSHConnectionError, "Could not resolve hostname 'web1'.")
+
+      output = output_of do
+        expect { cli.setup(config: fixture_path('worker-only.yml')) }.to raise_error(SystemExit)
+      end
+
+      expect(output).to include('Could not resolve hostname')
+      expect(output).not_to include('--as')
+    end
+
     it 'closes every connection it opens, even when a step fails' do
       ssh = instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu')
       allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
