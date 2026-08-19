@@ -7,6 +7,34 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- `Setup::Escalation`'s sudo probe no longer reports an unreachable host as a
+  sudo problem. It rescued `Odysseus::Error`, the shared ancestor of
+  `SSHCommandError` and `SSHConnectionError`, and the probe is the first
+  command setup sends — so a host whose name did not resolve was told to
+  configure passwordless sudo. It now catches only the error that means the
+  command ran and sudo refused.
+- `SSHAuthenticationError` is a new class under `SSHError`, raised where
+  `SSHConnectionError` was raised for `Net::SSH::AuthenticationFailed`. "The
+  host refused this identity" and "the host was never reached" were the same
+  class, so no caller could advise on one without guessing about the other.
+  Nothing rescued `SSHConnectionError` specifically, so no other behaviour
+  changes.
+- `SSH#with_connection` no longer describes a connection that never opened as
+  a mid-command drop. `IOError`, `Net::SSH::Disconnect`, `ECONNRESET` and
+  `EPIPE` arrive both while opening and while a command runs, and the rescue
+  wrapped both, so a host that accepted the connection and hung up before any
+  command existed — one still booting, or an sshd not yet up — was reported as
+  having dropped a command that had never been sent.
+- `Docker::Client` escapes the healthcheck command instead of wrapping it in
+  hand-written single quotes. A cmd containing a quote, such as
+  `--execute='SELECT 1'`, closed the quote early and word-split into docker's
+  arguments, so the tail landed where the image name goes and docker reported
+  it could not find image `'1:latest'`. Volume specs are escaped for the same
+  reason. A container's `cmd` stays unescaped by design — it has to reach the
+  container as separate arguments.
+
 ### Added
 - `Odysseus::Setup::Escalation`, `Odysseus::Setup::PublicKey`,
   `Odysseus::Setup::DockerApt` and `Odysseus::Setup::Preparer`, the classes

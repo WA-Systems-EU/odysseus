@@ -7,6 +7,19 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- `setup` names the `--as` flag when the bootstrap identity cannot
+  authenticate. The default identity is a guess — right on a stock Ubuntu
+  cloud image, wrong on anything else — and the failure was a bare "SSH
+  authentication failed", with nothing to suggest a flag existed that would
+  fix it. A host that is merely unreachable still gets no `--as` advice.
+- `--debug` (and `ODYSSEUS_DEBUG=1`) reaches the SSH layer, not only the UI.
+  It was read and passed to the UI, but the connection builders never passed
+  `verbose:` to `SSH.new`, so the flag whose purpose is showing what was sent
+  to the host showed nothing for `setup`, `doctor`, `status`, `containers` or
+  `logs`. `setup` accepts `-v` as well.
+
 ### Added
 - `odysseus setup`, which prepares every host in the config so odysseus can
   deploy to it as a non-root user: creates the user `ssh.user` names, adds

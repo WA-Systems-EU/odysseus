@@ -101,6 +101,20 @@ The `--build` flag automatically chooses how to distribute the image:
 
 ## Commands
 
+### Global options
+
+These work with every command:
+
+- `--config FILE` - Path to deploy.yml (default: `deploy.yml` in the working directory)
+- `--debug` - Show every command sent to the host, and the connection as it opens.
+  `ODYSSEUS_DEBUG=1` does the same. Reach for this first when a command fails
+  in a way the message doesn't explain — it prints the literal shell line that
+  ran, which is usually where the answer is.
+- `--version` - odysseus, odysseus-core and ruby versions
+
+`-v` / `--verbose` is accepted by `deploy`, `build`, `pussh` and `setup`, and
+means the same as `--debug` for those commands.
+
 ### deploy
 
 Deploy all roles to their configured hosts.
@@ -425,6 +439,25 @@ odysseus dependency shell <server> --name db
 ```
 
 Dependency commands like `boot`, `remove`, `restart`, `upgrade`, and `status` read the target hosts from the dependency's `hosts` configuration in deploy.yml, similar to how `deploy` works. Only `logs`, `exec`, and `shell` require a server argument since they operate on a specific host.
+
+**Removing one: `remove` first, then edit deploy.yml.** Every dependency command
+finds its containers through that dependency's config block, so deleting the
+block first strands the container — `remove` then answers `Dependency 'redis'
+not found in config`, and nothing else will find it either. `boot-all` only
+boots what the config lists; it never removes what the config has stopped
+listing, deliberately, because a typo or a half-merged branch would otherwise
+destroy a database. If you have already deleted the block, put it back, run
+`remove`, then delete it.
+
+**Volumes outlive `remove`.** It stops and removes containers and nothing else,
+so a named volume — and the data in it — survives, which is what you want when
+replacing a container and not what you want when you meant to be rid of it.
+Removing the data is a separate, deliberate step on the host:
+`docker volume rm myapp-db-data`.
+
+A container whose config block is gone keeps running, and keeps restarting,
+without appearing in `dependency status` — which lists what the config
+declares, not what the host is running.
 
 ### app
 

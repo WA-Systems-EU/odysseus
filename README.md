@@ -68,6 +68,19 @@ ssh:
     - ~/.ssh/id_ed25519
 ```
 
+Prepare a fresh host, if you have one to prepare:
+
+```bash
+# Creates the user ssh.user names, adds it to the docker group, installs your
+# key, and installs Docker if the host has none. Ubuntu 24.04/26.04 only, and
+# for getting a single host going — servers at scale belong to OpenTofu or an
+# equivalent tool. Skip this entirely for a host you provisioned yourself.
+odysseus setup
+
+# Read-only, and worth running however the host was prepared
+odysseus doctor
+```
+
 Deploy:
 
 ```bash
@@ -221,8 +234,10 @@ arrive, and the release process.
 - Docker (for building images)
 
 **Target servers:**
-- Docker
 - SSH access
+- Docker — or a supported Ubuntu (24.04/26.04) and `odysseus setup`, which
+  installs it. Deploys themselves never check the distro: any host with a
+  working Docker daemon will do.
 
 Caddy is automatically deployed as a container - no manual installation needed.
 
