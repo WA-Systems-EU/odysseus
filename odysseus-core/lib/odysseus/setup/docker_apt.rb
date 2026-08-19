@@ -5,7 +5,11 @@ require 'shellwords'
 module Odysseus
   module Setup
     # Installs Docker from Docker's official apt repository, following Docker's
-    # own published instructions for Ubuntu.
+    # published PROCEDURE for Ubuntu -- the keyring, the sources line, the apt
+    # install. Not its package list: see PACKAGES below, which deliberately
+    # omits docker-compose-plugin. Saying "following Docker's instructions"
+    # unqualified is what put the same overstatement on the docs site, where a
+    # reader deciding whether to run this was not told what would be missing.
     #
     # Every file this writes on the host is written WHOLE rather than appended,
     # so a run interrupted anywhere leaves a stale file that the next run
