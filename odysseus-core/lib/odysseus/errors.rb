@@ -12,6 +12,10 @@ module Odysseus
   class RollbackError < DeployError; end
   class SSHError < DeployError; end
   class SSHConnectionError < SSHError; end
+  # Distinct from SSHConnectionError: the host was reached and refused
+  # this identity. Only a caller that knows which identities are
+  # available can advise on that, so it needs to be catchable on its own.
+  class SSHAuthenticationError < SSHError; end
   class SSHCommandError < SSHError; end
 
   class ProxyError < Error; end
@@ -28,4 +32,6 @@ module Odysseus
   class GeneratorError < Error; end
   class DockerComposeGenerationError < GeneratorError; end
   class CaddyGenerationError < GeneratorError; end
+
+  class SetupError < Error; end
 end

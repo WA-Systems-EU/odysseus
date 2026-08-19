@@ -7,6 +7,7 @@ require_relative 'ui'
 require_relative 'rollback_commands'
 require_relative 'interactive_commands'
 require_relative 'doctor_commands'
+require_relative 'setup_commands'
 
 module Odysseus
   module CLI
@@ -14,6 +15,7 @@ module Odysseus
       include RollbackCommands
       include InteractiveCommands
       include DoctorCommands
+      include SetupCommands
 
       def initialize(debug: false)
         @ui = UI.new(debug: debug)
@@ -862,12 +864,19 @@ module Odysseus
         Odysseus::Core::Environment.new(config: config, secrets_loader: loader, ssh: ssh).build
       end
 
-      def connect_to_server(server, config)
+      # --debug (or ODYSSEUS_DEBUG=1) reaches the SSH layer here rather than
+      # only the UI, so every command built on this connection can show the
+      # commands it actually sent. Deploy, build and pussh already did this
+      # via `options[:verbose] || @ui.debug?`; the connection builder itself
+      # did not, which left doctor, status, containers and logs unable to
+      # show anything under --debug however loudly it was asked.
+      def connect_to_server(server, config, verbose: @ui.debug?)
         Odysseus::Deployer::SSH.new(
           host: server,
           user: config[:ssh][:user],
           keys: config[:ssh][:keys],
-          use_tailscale: true
+          use_tailscale: true,
+          verbose: verbose
         )
       end
 

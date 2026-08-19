@@ -226,6 +226,22 @@ RSpec.describe 'bin/odysseus' do
     end
   end
 
+  describe 'setup' do
+    it 'dispatches setup' do
+      stdout, stderr, status = run_cli('setup', '--config', 'nope.yml')
+
+      expect(stdout).not_to match(/Usage: odysseus <command> \[options\]/)
+      expect("#{stdout}#{stderr}").not_to match(/undefined method|NoMethodError/)
+      expect(status.exitstatus).not_to eq(0)
+    end
+
+    it 'accepts --as and --key on setup' do
+      stdout, stderr, = run_cli('setup', '--as', 'root', '--key', '/tmp/nope.pub', '--config', 'nope.yml')
+
+      expect("#{stdout}#{stderr}").not_to include('OptionParser::InvalidOption')
+    end
+  end
+
   # The dispatch table named three methods that do not exist on the CLI object
   # — dependency_dispatch, app_dispatch, secrets_dispatch — reachable only if
   # the guards above it ever stopped intercepting those verbs first. That is
@@ -236,7 +252,7 @@ RSpec.describe 'bin/odysseus' do
   # dispatched to something that is not there.
   describe 'every command the help lists' do
     %w[deploy rollback build pussh status containers logs cleanup validate
-       dependency app secrets version doctor].each do |command|
+       dependency app secrets version doctor setup].each do |command|
       it "#{command} dispatches" do
         stdout, stderr, = run_cli(command)
 

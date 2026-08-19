@@ -101,6 +101,20 @@ The `--build` flag automatically chooses how to distribute the image:
 
 ## Commands
 
+### Global options
+
+These work with every command:
+
+- `--config FILE` - Path to deploy.yml (default: `deploy.yml` in the working directory)
+- `--debug` - Show every command sent to the host, and the connection as it opens.
+  `ODYSSEUS_DEBUG=1` does the same. Reach for this first when a command fails
+  in a way the message doesn't explain — it prints the literal shell line that
+  ran, which is usually where the answer is.
+- `--version` - odysseus, odysseus-core and ruby versions
+
+`-v` / `--verbose` is accepted by `deploy`, `build`, `pussh` and `setup`, and
+means the same as `--debug` for those commands.
+
 ### deploy
 
 Deploy all roles to their configured hosts.
@@ -249,6 +263,82 @@ This loads `plugins:`/`sails:` before checking anything else, the same as
 every other command, so it also catches a plugin gem that is not installed
 on this machine — see `plugins` in the configuration reference below.
 
+### setup
+
+Prepares every host in the config so odysseus can deploy to it as a
+non-root user: creates the user `ssh.user` names, adds it to the `docker`
+group, installs your public key, and creates its state directory under
+that user's home (`~/.odysseus`). It only **adds** access — it never
+modifies root's configuration or the bootstrap user's.
+
+```bash
+odysseus setup [--config FILE] [--as USER] [--key PATH]
+```
+
+Options:
+- `--as USER` - Identity to connect as while preparing the host (default:
+  `ubuntu`, the user Ubuntu's LTS cloud images ship, with passwordless sudo
+  already configured). `--as root` connects as root and needs no sudo at
+  all. Passwordless sudo is a hard requirement for any other identity —
+  odysseus cannot answer a password prompt, so a host without it is
+  refused before anything is changed.
+- `--key PATH` - Install this public key instead of the one resolved from
+  `ssh.keys`. Repeatable.
+
+It reads no new configuration keys: the user comes from `ssh.user`, the
+hosts from `servers.*.hosts`, and the keys from `ssh.keys` — each entry's
+`.pub` sibling if one has a valid key line in it, otherwise derived from
+the private key itself with `ssh-keygen -y`. A `--key` path that doesn't
+resolve to a valid public key refuses, naming the path, rather than
+falling back to `ssh.keys`; the same goes for a `.pub` sibling that has
+content but no line in it validates — for example a restricted
+`command="..." ssh-ed25519 ...` entry, which setup deliberately does not
+install. Setup installs plain login keys only, and it will not silently
+substitute a different key for the one you named or the one on disk. Only
+an empty or whitespace-only `.pub` sibling falls through to deriving the
+key from its private half.
+
+**Docker is installed if it isn't there.** If `docker info` doesn't answer,
+setup installs it from Docker's own official apt repository, following
+Docker's published instructions for Ubuntu — it does not distinguish "not
+installed" from "installed but stopped" going in, since neither leaves a
+usable daemon. The keyring and the apt sources file it writes are replaced
+whole on every run, never appended, so a run interrupted partway through
+leaves a stale file the next run overwrites rather than a corrupt one with
+the repository listed twice. apt itself runs non-interactively with a
+300-second wait for the dpkg lock — long enough to outlast cloud-init or
+unattended-upgrades on a host that's only minutes old — and a timeout
+names the process holding it rather than failing silently. The GPG key's
+fingerprint is deliberately not pinned: Docker's own instructions trust
+TLS rather than pin it, and pinning here would turn Docker's routine key
+rotation into an outage for everyone running this command. None of this
+repairs an apt or dpkg state setup didn't create — a host with a broken
+apt is reported, not fixed. Either way, success is decided by `docker
+info` answering after the install runs, not by apt exiting zero. Ubuntu
+24.04 and 26.04 are the only distros it knows; anything else is refused by
+name too — unlike `doctor`, which only warns on an unsupported distro,
+because a deploy just needs a working Docker daemon and doesn't care which
+distro provides it. Setup is stricter because it changes the host: it
+stops at the first thing it can't verify rather than proceeding on a guess.
+
+It reports what it changed separately from what was already correct, and
+running it twice against an already-prepared host changes nothing on
+either run.
+
+The last thing it does is open a second connection — as the user it just
+created, not the bootstrap identity — and prove Docker and the state
+directory both work from there. It reports success only if that passes. A
+failure at this step leaves the bootstrap path, and everything already
+prepared, untouched: the host stays reachable and there is always a way
+back in to try again.
+
+**What it's for.** `setup` gets a single host ready for odysseus to deploy
+to. Preparing servers at scale — many hosts, built from scratch — belongs
+to OpenTofu, Terraform or an equivalent tool that can do it declaratively;
+`setup` is not a substitute for that, only for getting one host going.
+However a host was prepared, including one a provisioning tool built, run
+[`doctor`](#doctor) afterwards to check it.
+
 ### doctor
 
 Read-only diagnosis of every host in the config, connecting as the user
@@ -283,13 +373,15 @@ installed, nothing is repaired. Caddy's directory is deliberately not
 checked — it doesn't exist until the first deploy starts Caddy, so checking
 for it would report a correctly configured, not-yet-deployed host as broken.
 
-**What it's for.** Preparing a server — creating a user, installing Docker,
-opening firewall ports — is not odysseus's job; that belongs to OpenTofu,
-Terraform or an equivalent tool that can do it declaratively and at scale.
-`doctor` answers whether the host they produced is actually usable by
-odysseus as the user your config names, which is worth asking however the
-host was prepared, and can serve as the acceptance test for a tofu-built one.
-odysseus does not provision servers.
+**What it's for.** Preparing servers at scale — users, Docker, firewall
+ports, everything declaratively and repeatably — belongs to OpenTofu,
+Terraform or an equivalent tool, not to odysseus. [`setup`](#setup) does a
+deliberately narrow slice of that: a trial-scale bootstrap to get going, not
+the declarative provisioning at scale a tool like that is for; it opens no
+ports, and it is not a provisioning tool. `doctor` answers whether a host is
+actually usable by odysseus as the user your config names, which is worth
+asking however the host was prepared, and can serve as the acceptance test
+for a tofu-built one.
 
 ### rollback
 
@@ -347,6 +439,25 @@ odysseus dependency shell <server> --name db
 ```
 
 Dependency commands like `boot`, `remove`, `restart`, `upgrade`, and `status` read the target hosts from the dependency's `hosts` configuration in deploy.yml, similar to how `deploy` works. Only `logs`, `exec`, and `shell` require a server argument since they operate on a specific host.
+
+**Removing one: `remove` first, then edit deploy.yml.** Every dependency command
+finds its containers through that dependency's config block, so deleting the
+block first strands the container — `remove` then answers `Dependency 'redis'
+not found in config`, and nothing else will find it either. `boot-all` only
+boots what the config lists; it never removes what the config has stopped
+listing, deliberately, because a typo or a half-merged branch would otherwise
+destroy a database. If you have already deleted the block, put it back, run
+`remove`, then delete it.
+
+**Volumes outlive `remove`.** It stops and removes containers and nothing else,
+so a named volume — and the data in it — survives, which is what you want when
+replacing a container and not what you want when you meant to be rid of it.
+Removing the data is a separate, deliberate step on the host:
+`docker volume rm myapp-db-data`.
+
+A container whose config block is gone keeps running, and keeps restarting,
+without appearing in `dependency status` — which lists what the config
+declares, not what the host is running.
 
 ### app
 
@@ -682,8 +793,10 @@ root connection, `$HOME/.odysseus/caddy` for any other user.
 
 A non-root `user` must already exist on the target host — with membership in
 the `docker` group and a writable home directory — and its key must be one of
-`keys` above. Odysseus does not create this user, install Docker, or set up
-the host for you; all of that is on you today.
+`keys` above. [`odysseus setup`](#setup) can create that user, add it to
+`docker`, install the key for you, and install Docker itself if the host
+doesn't have it. A host prepared by a provisioning tool instead of `setup`
+still needs Docker present.
 
 ### builder
 
@@ -755,7 +868,13 @@ removing it means `docker image rm` by hand on the host.
 
 ## Server Requirements
 
-Your target servers only need **Docker** installed. Odysseus automatically deploys and manages Caddy as a container (`odysseus-caddy`) - no manual Caddy installation required.
+A host odysseus **deploys** to needs a working Docker daemon and SSH access —
+deploys never gate on distro. [`odysseus setup`](#setup), the optional
+bootstrap for a fresh host, is what requires a supported Ubuntu release
+(24.04 or 26.04); a host prepared some other way — by hand, or by a
+provisioning tool — just needs Docker present already. Odysseus
+automatically deploys and manages Caddy as a container (`odysseus-caddy`) -
+no manual Caddy installation required.
 
 ## How It Works
 

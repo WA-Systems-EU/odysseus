@@ -7,6 +7,73 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-19
+
+### Fixed
+
+- `Setup::Escalation`'s sudo probe no longer reports an unreachable host as a
+  sudo problem. It rescued `Odysseus::Error`, the shared ancestor of
+  `SSHCommandError` and `SSHConnectionError`, and the probe is the first
+  command setup sends — so a host whose name did not resolve was told to
+  configure passwordless sudo. It now catches only the error that means the
+  command ran and sudo refused.
+- `SSHAuthenticationError` is a new class under `SSHError`, raised where
+  `SSHConnectionError` was raised for `Net::SSH::AuthenticationFailed`. "The
+  host refused this identity" and "the host was never reached" were the same
+  class, so no caller could advise on one without guessing about the other.
+  Nothing rescued `SSHConnectionError` specifically, so no other behaviour
+  changes.
+- `SSH#with_connection` no longer describes a connection that never opened as
+  a mid-command drop. `IOError`, `Net::SSH::Disconnect`, `ECONNRESET` and
+  `EPIPE` arrive both while opening and while a command runs, and the rescue
+  wrapped both, so a host that accepted the connection and hung up before any
+  command existed — one still booting, or an sshd not yet up — was reported as
+  having dropped a command that had never been sent.
+- `Docker::Client` escapes the healthcheck command instead of wrapping it in
+  hand-written single quotes. A cmd containing a quote, such as
+  `--execute='SELECT 1'`, closed the quote early and word-split into docker's
+  arguments, so the tail landed where the image name goes and docker reported
+  it could not find image `'1:latest'`. Volume specs are escaped for the same
+  reason. A container's `cmd` stays unescaped by design — it has to reach the
+  container as separate arguments.
+
+### Added
+- `Odysseus::Setup::Escalation`, `Odysseus::Setup::PublicKey`,
+  `Odysseus::Setup::DockerApt` and `Odysseus::Setup::Preparer`, the classes
+  behind `odysseus setup` (odysseus-cli). `Escalation` gets root on the
+  target host via passwordless sudo, or none at all when connected as root,
+  and refuses up front — before anything is touched — if passwordless sudo
+  isn't available, since a password prompt can't be answered. `PublicKey`
+  resolves which key(s) to install, entirely on the local machine before
+  any host is touched: from `--key`, or from each `ssh.keys` entry's `.pub`
+  sibling, deriving one via `ssh-keygen -y` only when that sibling is empty
+  or missing; a key that doesn't resolve, or a sibling with content that
+  doesn't validate, refuses by name rather than silently substituting a
+  different key. `DockerApt` installs Docker from Docker's own official
+  apt repository, following Docker's published instructions for Ubuntu: it
+  installs `docker-ce docker-ce-cli containerd.io docker-buildx-plugin`
+  (Docker's instructions also install `docker-compose-plugin`, which is
+  deliberately left out — nothing in this codebase invokes `docker
+  compose`). The keyring and apt sources file are written whole on every
+  run, never appended, so an interrupted run leaves a stale file the next
+  run replaces rather than a corrupt one. apt runs non-interactively with a
+  300-second bounded wait for the dpkg lock, long enough to outlast
+  cloud-init and unattended-upgrades on a minutes-old host; a timeout names
+  the process holding the lock. It repairs no apt or dpkg state it did not
+  create. The GPG key's fingerprint is deliberately not pinned, matching
+  Docker's own instructions, which trust TLS rather than pin it — pinning
+  would turn Docker's key rotation into an outage for everyone using this
+  command. `Preparer` runs the actual sequence against a host: installs
+  Docker via `DockerApt` if the host doesn't already have it, creates the
+  deploy user and its home, adds it to the `docker` group, installs the
+  resolved key(s), creates the state directory, and finishes by opening a
+  second connection as that new user to prove Docker and the state
+  directory both work before reporting success. A host whose Docker daemon
+  still does not answer after the install is failed, naming that the host
+  may need a reboot or that the daemon may have failed to start — success
+  is decided by the daemon answering after the install runs, not by apt
+  exiting zero.
+
 ## [0.8.0] - 2026-08-17
 
 ### Fixed

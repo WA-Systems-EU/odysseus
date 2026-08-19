@@ -1,0 +1,174 @@
+# frozen_string_literal: true
+
+require 'spec_helper'
+
+RSpec.describe Odysseus::Setup::Escalation do
+  def ssh_double(answers: {})
+    ssh = instance_double(Odysseus::Deployer::SSH)
+    allow(ssh).to receive(:execute) do |cmd|
+      pattern = answers.keys.find { |p| cmd.match?(p) }
+      raise "spec did not anticipate: #{cmd}" unless pattern
+
+      answers[pattern]
+    end
+    ssh
+  end
+
+  describe 'as root' do
+    subject(:escalation) { described_class.new(ssh: ssh, as: 'root') }
+
+    let(:ssh) { ssh_double(answers: { /whoami/ => "root\n" }) }
+
+    it 'needs no sudo' do
+      expect(escalation.sudo?).to be(false)
+    end
+
+    # Minimal images often have no sudo at all, so a root bootstrap must not
+    # depend on it even to check.
+    it 'probes without running sudo' do
+      escalation.probe!
+
+      expect(ssh).not_to have_received(:execute)
+    end
+
+    it 'runs a command unprefixed' do
+      commands = []
+      ssh = instance_double(Odysseus::Deployer::SSH)
+      allow(ssh).to receive(:execute) { |cmd|
+        commands << cmd
+        ''
+      }
+
+      described_class.new(ssh: ssh, as: 'root').run('apt-get update')
+
+      expect(commands).to eq(['apt-get update'])
+    end
+  end
+
+  describe 'as a sudo user' do
+    subject(:escalation) { described_class.new(ssh: ssh, as: 'ubuntu') }
+
+    let(:ssh) { ssh_double(answers: { /sudo -n true/ => "\n" }) }
+
+    it 'needs sudo' do
+      expect(escalation.sudo?).to be(true)
+    end
+
+    it 'probes with a non-interactive sudo' do
+      escalation.probe!
+
+      expect(ssh).to have_received(:execute).with(a_string_including('sudo -n true'))
+    end
+
+    it 'prefixes a command with a non-interactive sudo' do
+      commands = []
+      ssh = instance_double(Odysseus::Deployer::SSH)
+      allow(ssh).to receive(:execute) { |cmd|
+        commands << cmd
+        ''
+      }
+
+      described_class.new(ssh: ssh, as: 'ubuntu').run('apt-get update')
+
+      expect(commands).to eq(['sudo -n apt-get update'])
+    end
+
+    # A password prompt cannot be answered: Net::SSH runs non_interactive, so
+    # the prompt hangs and then fails. The probe turns that into one sentence.
+    it 'refuses when passwordless sudo is unavailable, saying why' do
+      ssh = ssh_double(answers: { /sudo -n true/ => nil })
+      allow(ssh).to receive(:execute).and_raise(Odysseus::SSHCommandError, 'sudo: a password is required')
+
+      expect { described_class.new(ssh: ssh, as: 'ubuntu').probe! }
+        .to raise_error(Odysseus::SetupError, /passwordless sudo/i)
+    end
+
+    it 'names the identity that could not escalate' do
+      ssh = instance_double(Odysseus::Deployer::SSH)
+      allow(ssh).to receive(:execute).and_raise(Odysseus::SSHCommandError, 'sudo: command not found')
+
+      expect { described_class.new(ssh: ssh, as: 'deploy').probe! }
+        .to raise_error(Odysseus::SetupError, /deploy/)
+    end
+
+    # The probe is the FIRST thing setup does, so it is also the first
+    # connection attempt -- which means an unreachable host surfaces here, as
+    # a connection error, not as anything sudo said. SSHConnectionError and
+    # SSHCommandError are siblings under SSHError, so a `rescue
+    # Odysseus::Error` here swallows both and tells an operator whose DNS is
+    # wrong to go configure NOPASSWD sudo. Only a command failure means sudo
+    # refused; a connection failure must travel on untouched, to be reported
+    # against the connection by the caller that owns that concern.
+    it 'lets an unreachable host stay a connection error rather than blaming sudo' do
+      ssh = instance_double(Odysseus::Deployer::SSH)
+      allow(ssh).to receive(:execute)
+        .and_raise(Odysseus::SSHConnectionError,
+                   "Could not resolve hostname 'target.example'. Check your DNS or /etc/hosts.")
+
+      expect { described_class.new(ssh: ssh, as: 'ubuntu').probe! }
+        .to raise_error(Odysseus::SSHConnectionError, /Could not resolve hostname/)
+    end
+
+    it 'does not mention sudo when the host could not be reached' do
+      ssh = instance_double(Odysseus::Deployer::SSH)
+      allow(ssh).to receive(:execute)
+        .and_raise(Odysseus::SSHConnectionError, 'Connection to target.example timed out.')
+
+      described_class.new(ssh: ssh, as: 'ubuntu').probe!
+    rescue Odysseus::Error => e
+      expect(e.message).not_to match(/sudo/i)
+      expect(e.message).not_to match(/NOPASSWD/)
+    end
+
+    # The wrapper text alone (checked above) can't tell "sudo: command not
+    # found" apart from "sudo: a password is required" — only the
+    # underlying error's own detail can. Assert on that detail specifically
+    # so dropping e.message from the raised message (e.g. swapping it for
+    # e.class.name) fails this spec even though it satisfies every other one.
+    it "carries the underlying sudo failure's own detail, not just its class" do
+      ssh = instance_double(Odysseus::Deployer::SSH)
+      allow(ssh).to receive(:execute).and_raise(Odysseus::SSHCommandError, 'sudo: command not found')
+
+      expect { described_class.new(ssh: ssh, as: 'deploy').probe! }
+        .to raise_error(Odysseus::SetupError, /sudo: command not found/)
+    end
+  end
+
+  describe '#elevate' do
+    it 'prefixes sudo for a non-root bootstrap identity' do
+      ssh = instance_double(Odysseus::Deployer::SSH)
+      escalation = described_class.new(ssh: ssh, as: 'ubuntu')
+
+      expect(escalation.elevate('tee /etc/apt/sources.list.d/docker.list'))
+        .to eq('sudo -n tee /etc/apt/sources.list.d/docker.list')
+    end
+
+    it 'leaves the command alone as root, which may not have sudo installed' do
+      ssh = instance_double(Odysseus::Deployer::SSH)
+      escalation = described_class.new(ssh: ssh, as: 'root')
+
+      expect(escalation.elevate('tee /etc/apt/sources.list.d/docker.list'))
+        .to eq('tee /etc/apt/sources.list.d/docker.list')
+    end
+
+    # The point of extracting this: #run must ASK #elevate, not hold a second
+    # opinion that happens to agree today. Asserting the call rather than
+    # comparing output is deliberate -- an earlier version of this example
+    # expected `execute` to have received `escalation.elevate('whoami')`,
+    # deriving the oracle from the method under test, so a #run that forked
+    # the decision back inline would still have agreed with itself and
+    # passed. This fails the moment #run stops going through #elevate,
+    # whatever string the fork happens to produce.
+    it 'asks #elevate rather than deciding again' do
+      ssh = instance_double(Odysseus::Deployer::SSH)
+      allow(ssh).to receive(:execute)
+      escalation = described_class.new(ssh: ssh, as: 'ubuntu')
+      allow(escalation).to receive(:elevate).and_call_original
+
+      escalation.run('whoami')
+
+      expect(escalation).to have_received(:elevate).with('whoami')
+      expect(ssh).to have_received(:execute).with('sudo -n whoami')
+    end
+  end
+end

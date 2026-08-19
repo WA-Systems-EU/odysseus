@@ -501,7 +501,15 @@ module Odysseus
         # Health check (use image's HEALTHCHECK by default)
         if options[:healthcheck]
           hc = options[:healthcheck]
-          parts << "--health-cmd '#{hc[:cmd]}'" if hc[:cmd]
+          # Escaped, not hand-quoted. A cmd containing a single quote --
+          # `--execute='SELECT 1'`, which is how you write a one-shot query
+          # for most database clients -- closed the quote early, and the
+          # remainder word-split into docker's argument list: the tail landed
+          # where the image name goes, and docker reported it could not find
+          # the image '1:latest'. Shellwords makes it one word whatever it
+          # contains; docker runs it through a shell at the other end, so the
+          # inner quoting still means what it says.
+          parts << "--health-cmd #{Shellwords.escape(hc[:cmd])}" if hc[:cmd]
           parts << "--health-interval #{hc[:interval]}s" if hc[:interval]
           parts << "--health-timeout #{hc[:timeout]}s" if hc[:timeout]
           parts << "--health-retries #{hc[:retries]}" if hc[:retries]
@@ -510,8 +518,9 @@ module Odysseus
         # Network
         parts << "--network #{options[:network]}" if options[:network]
 
-        # Volume mounts
-        options[:volumes]&.each { |v| parts << "-v #{v}" }
+        # Volume mounts. Escaped for the same reason as the healthcheck above:
+        # a host path with a space in it is otherwise two arguments.
+        options[:volumes]&.each { |v| parts << "-v #{Shellwords.escape(v)}" }
 
         # Restart policy
         parts << "--restart #{options[:restart] || 'unless-stopped'}"
@@ -519,7 +528,10 @@ module Odysseus
         # Image
         parts << image
 
-        # Command (if provided)
+        # Command (if provided). Deliberately NOT escaped, unlike everything
+        # above: `start-single-node --insecure` has to reach the container as
+        # three arguments, and escaping it would hand docker one literal
+        # string containing spaces. Do not "fix" this to match its neighbours.
         parts << options[:cmd] if options[:cmd]
 
         parts.join(' ')

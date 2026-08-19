@@ -1085,6 +1085,354 @@ RSpec.describe Odysseus::CLI::CLI do
     end
   end
 
+  describe '#setup' do
+    # Overrides the outer `executor` double: setup drives the host loop off
+    # #host_roles rather than any of the deploy-shaped methods the other
+    # describes stub.
+    let(:executor) do
+      instance_double(
+        Odysseus::Deployer::Executor,
+        host_roles: { 'web1.example.com' => [:web], 'worker1.example.com' => [:jobs] }
+      )
+    end
+
+    let(:ok)      { Odysseus::Setup::Preparer::Result.new(step: :docker, status: :ok, detail: 'docker 29.1.3') }
+    let(:changed) { Odysseus::Setup::Preparer::Result.new(step: :user, status: :changed, detail: 'created odysseus') }
+    let(:warn)    { Odysseus::Setup::Preparer::Result.new(step: :distro, status: :warn, detail: 'debian 12 — deploys work here') }
+    let(:bad)     { Odysseus::Setup::Preparer::Result.new(step: :distro, status: :fail, detail: 'debian 12') }
+
+    # worker-only.yml, not deploy.yml: its ssh.user is 'deploy', not 'root'.
+    # deploy.yml is deliberately root, for the refusal examples below --
+    # every other example here exercises what happens once that gate is
+    # past, so it needs a config the gate lets through.
+    def run_setup(results, options = {})
+      ssh = instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu')
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['ssh-ed25519 AAAAtest t@e'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: results))
+
+      cli.setup({ config: fixture_path('worker-only.yml') }.merge(options))
+    end
+
+    it 'exits zero when every step is ok or changed' do
+      expect { output_of { run_setup([ok, changed]) } }.not_to raise_error
+    end
+
+    it 'exits non-zero when a step fails' do
+      expect { output_of { run_setup([ok, bad]) } }
+        .to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
+    end
+
+    # `escalate`'s rank table (setup_commands.rb) has no coverage above this
+    # point for :warn at all. Mirrors doctor's analogous pair (cli_spec.rb,
+    # `#doctor`) for the same reason: a rank-swap mutation of
+    # `{ ok: 0, changed: 0, warn: 1, fail: 2 }` to `warn: 2, fail: 1` passes
+    # each ordering alone, because both examples below only ever compare a
+    # status against :ok (order value 0), which the swap leaves unchanged.
+    # Only seeing both a :warn-then-:fail survey and a :fail-then-:warn
+    # survey forces the comparison between :warn and :fail itself.
+    it 'exits zero when the worst result is a warning' do
+      expect { output_of { run_setup([ok, warn]) } }.not_to raise_error
+    end
+
+    it 'exits non-zero when a warning is followed by a failure' do
+      expect { output_of { run_setup([warn, bad]) } }
+        .to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
+    end
+
+    # The reverse order is also realistic: worst carries across hosts, so one
+    # host's fail can be followed by a later host's distro warning. This pins
+    # that a recorded failure is never downgraded by a later warning.
+    it 'exits non-zero when a failure is followed by a warning' do
+      expect { output_of { run_setup([bad, warn]) } }
+        .to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
+    end
+
+    # Asserts on the UI calls rather than on substring presence in the
+    # rendered output: `render_result`'s :changed branch calling
+    # @ui.step_ok instead of @ui.step_info would still put
+    # 'created odysseus' in stdout (step_ok prints the same message text,
+    # just with a different icon/color), so a substring-only assertion
+    # passes under that mutation. Spying on the CLI's real UI instance
+    # (rather than stubbing it, which would need its own render assertions
+    # duplicated per icon) lets the example assert directly that :changed
+    # was routed to step_info and never to step_ok.
+    it 'shows what it changed distinctly from what was already correct' do
+      ui = cli.instance_variable_get(:@ui)
+      allow(ui).to receive(:step_info).and_call_original
+      allow(ui).to receive(:step_ok).and_call_original
+
+      output_of { run_setup([ok, changed]) }
+
+      # Exactly twice, not at_least(:once): the config has two hosts and each
+      # renders the whole result list, so a regression that rendered :changed
+      # for only one of them would satisfy a looser cardinality.
+      expect(ui).to have_received(:step_info).with(a_string_matching('created odysseus')).exactly(2).times
+      expect(ui).to have_received(:step_ok).with(a_string_matching('docker 29.1.3')).exactly(2).times
+      expect(ui).not_to have_received(:step_ok).with(a_string_matching('created odysseus'))
+    end
+
+    # Mirrors the :changed example directly above, for the :warn arm of the
+    # same case statement. `escalate`'s rank table already has coverage that
+    # :warn and :ok/:changed are ranked differently ('exits zero when the
+    # worst result is a warning' etc. above); render_result's :warn branch
+    # calling @ui.step_ok instead of @ui.warn is the same class of mutation
+    # those examples cannot see, since none of them inspect what got
+    # rendered, only the exit code. Preparer emits no :warn today (this
+    # fixture's `warn` let is synthetic), but the render arm exists and must
+    # hold regardless of whether anything feeds it yet.
+    it 'shows a warning distinctly from a step that was already correct' do
+      ui = cli.instance_variable_get(:@ui)
+      allow(ui).to receive(:warn).and_call_original
+      allow(ui).to receive(:step_ok).and_call_original
+
+      output_of { run_setup([ok, warn]) }
+
+      # Exactly twice, not at_least(:once): two hosts, each rendering the
+      # whole result list -- see the :changed example above for why looser
+      # cardinality would miss a regression on only one host.
+      expect(ui).to have_received(:warn).with(a_string_matching('debian 12')).exactly(2).times
+      expect(ui).to have_received(:step_ok).with(a_string_matching('docker 29.1.3')).exactly(2).times
+      expect(ui).not_to have_received(:step_ok).with(a_string_matching('debian 12'))
+    end
+
+    # The default is the Ubuntu cloud image's user, so a stock image works
+    # untouched.
+    it 'connects as ubuntu by default' do
+      users = []
+      allow(Odysseus::Deployer::SSH).to receive(:new) do |args|
+        users << args[:user]
+        instance_double(Odysseus::Deployer::SSH, close: nil, user: args[:user])
+      end
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
+
+      output_of { cli.setup(config: fixture_path('worker-only.yml')) }
+
+      expect(users.uniq).to eq(['ubuntu'])
+    end
+
+    # --as root (the bootstrap identity connected as) is legitimate and
+    # unrelated to ssh.user (the identity being created, refused below when
+    # it's root) -- worker-only.yml's ssh.user is 'deploy', so this exercises
+    # --as without tripping that gate.
+    it 'connects as the identity --as names' do
+      users = []
+      allow(Odysseus::Deployer::SSH).to receive(:new) do |args|
+        users << args[:user]
+        instance_double(Odysseus::Deployer::SSH, close: nil, user: args[:user])
+      end
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
+
+      output_of { cli.setup(config: fixture_path('worker-only.yml'), as: 'root') }
+
+      expect(users.uniq).to eq(['root'])
+    end
+
+    # A created user with no way to log in is the worst outcome available, so
+    # the key is resolved before a single host is touched.
+    it 'refuses before connecting when no public key can be resolved' do
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve)
+        .and_raise(Odysseus::SetupError, 'Found no public key to install')
+      expect(Odysseus::Deployer::SSH).not_to receive(:new)
+
+      expect { output_of { cli.setup(config: fixture_path('worker-only.yml')) } }.to raise_error(SystemExit)
+    end
+
+    it 'prepares every host in the config, not only the first' do
+      hosts = []
+      allow(Odysseus::Deployer::SSH).to receive(:new) do |args|
+        hosts << args[:host]
+        instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu')
+      end
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
+
+      output_of { cli.setup(config: fixture_path('worker-only.yml')) }
+
+      expect(hosts).to contain_exactly('web1.example.com', 'worker1.example.com')
+    end
+
+    it 'opens setup connections without Tailscale troubleshooting advice on timeout' do
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
+
+      expect(Odysseus::Deployer::SSH).to receive(:new)
+        .with(hash_including(use_tailscale: false))
+        .at_least(:once)
+        .and_return(instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu'))
+
+      output_of { cli.setup(config: fixture_path('worker-only.yml')) }
+    end
+
+    # --debug reaching only the UI is the failure this pins: the flag exists to
+    # show what was actually sent to the host, and the SSH layer is what prints
+    # it. A run debugging a real host is exactly when this is asked for, so a
+    # silent --debug is worse than no flag at all.
+    it 'shows the commands it sends when --debug is on' do
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
+
+      expect(Odysseus::Deployer::SSH).to receive(:new)
+        .with(hash_including(verbose: true))
+        .at_least(:once)
+        .and_return(instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu'))
+
+      output_of { described_class.new(debug: true).setup(config: fixture_path('worker-only.yml')) }
+    end
+
+    it 'shows the commands it sends when -v is on' do
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
+
+      expect(Odysseus::Deployer::SSH).to receive(:new)
+        .with(hash_including(verbose: true))
+        .at_least(:once)
+        .and_return(instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu'))
+
+      # debug: false deliberately -- the shared `cli` subject is debug: true,
+      # so reusing it here would pass with options[:verbose] ignored entirely.
+      output_of { described_class.new(debug: false).setup(config: fixture_path('worker-only.yml'), verbose: true) }
+    end
+
+    it 'stays quiet without either flag' do
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [ok]))
+
+      expect(Odysseus::Deployer::SSH).to receive(:new)
+        .with(hash_including(verbose: false))
+        .at_least(:once)
+        .and_return(instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu'))
+
+      output_of { described_class.new(debug: false).setup(config: fixture_path('worker-only.yml')) }
+    end
+
+    # The default identity is a guess. When it is wrong the operator sees an
+    # authentication failure and has no way to know a flag exists that fixes
+    # it -- which is exactly what happened on a real host, where the answer
+    # turned out to be --as root and had to be worked out by hand.
+    it 'names the --as flag when the bootstrap identity cannot authenticate' do
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Deployer::SSH).to receive(:new)
+        .and_return(instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu'))
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_raise(Odysseus::SSHAuthenticationError, 'SSH authentication failed for ubuntu@web1. Check your SSH keys.')
+
+      output = output_of do
+        expect { cli.setup(config: fixture_path('worker-only.yml')) }.to raise_error(SystemExit)
+      end
+
+      expect(output).to include('--as root')
+      expect(output).to include('ubuntu')
+    end
+
+    # A failure that is NOT about identity must not offer identity advice --
+    # that is how the sudo message came to tell people with broken DNS to
+    # configure NOPASSWD sudo.
+    it 'does not offer --as advice when the host was simply unreachable' do
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Deployer::SSH).to receive(:new)
+        .and_return(instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu'))
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_raise(Odysseus::SSHConnectionError, "Could not resolve hostname 'web1'.")
+
+      output = output_of do
+        expect { cli.setup(config: fixture_path('worker-only.yml')) }.to raise_error(SystemExit)
+      end
+
+      expect(output).to include('Could not resolve hostname')
+      expect(output).not_to include('--as')
+    end
+
+    it 'closes every connection it opens, even when a step fails' do
+      ssh = instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu')
+      allow(Odysseus::Deployer::SSH).to receive(:new).and_return(ssh)
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new)
+        .and_return(instance_double(Odysseus::Setup::Preparer, prepare: [bad]))
+
+      output_of do
+        cli.setup(config: fixture_path('worker-only.yml'))
+      rescue SystemExit
+        nil
+      end
+
+      expect(ssh).to have_received(:close).at_least(:once)
+    end
+
+    it 'reports a host whose preparation raises and continues to the next' do
+      hosts = []
+      allow(Odysseus::Deployer::SSH).to receive(:new) do |args|
+        hosts << args[:host]
+        instance_double(Odysseus::Deployer::SSH, close: nil, user: 'ubuntu')
+      end
+      allow(Odysseus::Setup::PublicKey).to receive(:resolve).and_return(['k'])
+      allow(Odysseus::Setup::Preparer).to receive(:new) do
+        instance_double(Odysseus::Setup::Preparer).tap do |p|
+          allow(p).to receive(:prepare).and_raise(IOError, 'connection dropped')
+        end
+      end
+
+      error = nil
+      output = output_of do
+        cli.setup(config: fixture_path('worker-only.yml'))
+      rescue SystemExit => e
+        error = e
+      end
+
+      expect(hosts.size).to eq(2)
+      expect(output).to include('IOError')
+
+      # setup_commands.rb's per-host rescue escalates `worst` to :fail before
+      # rendering the error -- a raising host is reported through
+      # render_result, but that alone does not touch the exit code. Deleting
+      # that escalation line leaves the IOError still printed above while
+      # `worst` never leaves :ok, so the run would exit zero. An operator
+      # scripting around this command needs a raise to look exactly like a
+      # reported :fail step, not silently succeed.
+      expect(error).to be_a(SystemExit)
+      expect(error.status).not_to eq(0)
+    end
+
+    # deploy.yml (unlike worker-only.yml, used everywhere else in this
+    # describe) has ssh.user: root -- exactly the config this refusal
+    # exists for. Before this fix, setup walked the whole sequence against
+    # such a config and reported success; these examples pin that it now
+    # refuses before a single connection opens.
+    describe 'ssh.user: root' do
+      it 'refuses before resolving keys or opening a connection' do
+        expect(Odysseus::Setup::PublicKey).not_to receive(:resolve)
+        expect(Odysseus::Deployer::SSH).not_to receive(:new)
+
+        expect { output_of { cli.setup(config: fixture_path('deploy.yml')) } }
+          .to raise_error(SystemExit) { |e| expect(e.status).not_to eq(0) }
+      end
+
+      it 'names ssh.user as the thing to change, and never mentions --as' do
+        output = output_of do
+          cli.setup(config: fixture_path('deploy.yml'))
+        rescue SystemExit
+          nil
+        end
+
+        expect(output).to include('ssh.user')
+        # --as (the bootstrap identity) and ssh.user (the identity being
+        # created) name different things; --as root is legitimate and must
+        # never be implicated by this message.
+        expect(output).not_to include('--as')
+      end
+    end
+  end
+
   describe '#dependency_boot' do
     it 'boots the named dependency' do
       expect(executor).to receive(:deploy_dependency).with(name: 'db')

@@ -7,6 +7,39 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-19
+
+### Fixed
+
+- `setup` names the `--as` flag when the bootstrap identity cannot
+  authenticate. The default identity is a guess — right on a stock Ubuntu
+  cloud image, wrong on anything else — and the failure was a bare "SSH
+  authentication failed", with nothing to suggest a flag existed that would
+  fix it. A host that is merely unreachable still gets no `--as` advice.
+- `--debug` (and `ODYSSEUS_DEBUG=1`) reaches the SSH layer, not only the UI.
+  It was read and passed to the UI, but the connection builders never passed
+  `verbose:` to `SSH.new`, so the flag whose purpose is showing what was sent
+  to the host showed nothing for `setup`, `doctor`, `status`, `containers` or
+  `logs`. `setup` accepts `-v` as well.
+
+### Added
+- `odysseus setup`, which prepares every host in the config so odysseus can
+  deploy to it as a non-root user: creates the user `ssh.user` names, adds
+  it to the `docker` group, installs your public key, installs Docker
+  itself if the host doesn't have it, and creates its state directory.
+  Connects as `--as USER`, default `ubuntu` — the user Ubuntu's LTS cloud
+  images ship with passwordless sudo already configured; `--as root` needs
+  no sudo. It reads no new configuration keys: the user, keys and hosts all
+  come from the existing `ssh.user`, `ssh.keys` and `servers.*.hosts`, with
+  `--key PATH` (repeatable) to override the key source. `setup` no longer
+  refuses a host without Docker — if `docker info` doesn't answer, it
+  installs Docker from Docker's own apt repository and checks again, and
+  only fails the step if the daemon still doesn't answer afterward — and it
+  still refuses anything other than Ubuntu 24.04 or 26.04 by name. It
+  reports what it changed separately from what was already correct, and
+  finishes by reconnecting as the new user to prove the host actually works
+  before reporting success.
+
 ## [0.8.0] - 2026-08-17
 
 ### Changed

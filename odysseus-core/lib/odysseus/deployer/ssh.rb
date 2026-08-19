@@ -27,6 +27,13 @@ module Odysseus
       # else.
       attr_reader :user
 
+      # Host and port a caller needs to open an equivalent second connection
+      # (Setup::Preparer's self-test, which must reconnect as a different
+      # user against the same target) without this class exposing @keys or
+      # @use_tailscale too -- those the caller already has, from config and
+      # from its own reasons for choosing them.
+      attr_reader :host, :port
+
       # Execute remote command
       #
       # Standard error is kept out of the returned value so callers can parse
@@ -145,6 +152,11 @@ module Odysseus
 
       def with_connection
         connect unless connected?
+        # Set only once the session is open, so the rescue below can tell a
+        # command that died from a connection that never carried one. Ruby
+        # leaves it nil when connect raises first, which is exactly the
+        # distinction needed.
+        open = true
         yield(@session)
       rescue Errno::ECONNREFUSED
         raise Odysseus::SSHConnectionError,
@@ -152,7 +164,8 @@ module Odysseus
       rescue SocketError
         raise Odysseus::SSHConnectionError, "Could not resolve hostname '#{@host}'. Check your DNS or /etc/hosts."
       rescue Net::SSH::AuthenticationFailed
-        raise Odysseus::SSHConnectionError, "SSH authentication failed for #{@user}@#{@host}. Check your SSH keys."
+        raise Odysseus::SSHAuthenticationError,
+              "SSH authentication failed for #{@user}@#{@host}. Check your SSH keys."
       rescue Errno::ETIMEDOUT, Net::SSH::ConnectionTimeout, Errno::EHOSTUNREACH
         error_msg = "Connection to #{@host} timed out."
         if @use_tailscale
@@ -162,6 +175,25 @@ module Odysseus
           error_msg += "  3. The host is online: tailscale ping #{@host}"
         end
         raise Odysseus::SSHConnectionError, error_msg
+      rescue IOError, Net::SSH::Disconnect, Errno::ECONNRESET, Errno::EPIPE => e
+        # These four arrive from both directions and mean opposite things.
+        # Mid-command, the host took the work and then vanished. While
+        # opening, it accepted the TCP connection and hung up before a command
+        # existed -- a machine still booting, an sshd not up, or a name
+        # pointing at a host that is no longer there. Saying "dropped
+        # mid-command" for the second is a false claim about what happened,
+        # and it points the reader at a flaky network instead of a host that
+        # never answered.
+        raise Odysseus::SSHConnectionError, drop_message(open, e)
+      end
+
+      # @param open [Boolean, nil] whether the session was established
+      def drop_message(open, error)
+        return "Connection to #{@host} dropped mid-command rather than failing to open: #{error.message}" if open
+
+        "#{@host} accepted the connection and then closed it before any command ran: #{error.message}. " \
+          'The host may still be booting, sshd may not be running yet, or the name may point at a ' \
+          'machine that is no longer there.'
       end
 
       def connect

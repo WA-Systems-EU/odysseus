@@ -31,6 +31,56 @@ RSpec.describe Odysseus::Docker::Client do
       expect(result).to eq(container_id)
     end
 
+    # Reported from a real host. A healthcheck of
+    # `cockroach sql --insecure --execute='SELECT 1'` closed the hand-written
+    # quote early; the remainder word-split into docker's argument list and
+    # the tail landed where the image name goes, so docker answered "Unable
+    # to find image '1:latest'". Asserting on Shellwords rather than on a
+    # literal keeps this honest about what one-argument means.
+    it 'keeps a healthcheck containing quotes as a single argument' do
+      cmd_with_quotes = "cockroach sql --insecure --execute='SELECT 1'"
+
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(cmd).to include("--health-cmd #{Shellwords.escape(cmd_with_quotes)}")
+        # The image must still be the last word before any command, not a
+        # fragment of the healthcheck.
+        expect(cmd).to include('cockroachdb/cockroach:latest')
+        expect(cmd).not_to match(/--health-cmd '[^']*'[^ ]/)
+        "#{container_id}\n"
+      end
+
+      client.run(
+        name: 'test',
+        image: 'cockroachdb/cockroach:latest',
+        options: { healthcheck: { cmd: cmd_with_quotes, interval: 10 } }
+      )
+    end
+
+    it 'keeps a volume path containing a space as a single argument' do
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(cmd).to include("-v #{Shellwords.escape('/srv/my data:/data')}")
+        "#{container_id}\n"
+      end
+
+      client.run(name: 'test', image: 'myapp:latest', options: { volumes: ['/srv/my data:/data'] })
+    end
+
+    # The exception to the rule above, and the reason the rule is not applied
+    # blindly: a command must still word-split, or `start-single-node
+    # --insecure` reaches the container as one argument with spaces in it.
+    it 'leaves a command splittable rather than escaping it into one word' do
+      expect(mock_ssh).to receive(:execute) do |cmd|
+        expect(cmd).to end_with('start-single-node --insecure')
+        "#{container_id}\n"
+      end
+
+      client.run(
+        name: 'test',
+        image: 'cockroachdb/cockroach:latest',
+        options: { cmd: 'start-single-node --insecure' }
+      )
+    end
+
     it 'includes service label' do
       expect(mock_ssh).to receive(:execute) do |cmd|
         expect(labels_in(cmd)).to include('odysseus.service=myservice')
