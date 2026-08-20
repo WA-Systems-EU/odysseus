@@ -97,7 +97,7 @@ might later need to roll back or account for.
 
 The `--build` flag automatically chooses how to distribute the image:
 - **Without `registry` config** → uses [pussh](https://github.com/psviderski/unregistry) to transfer images directly via SSH
-- **With `registry` config** → pushes to registry, hosts pull from there
+- **With `registry` config** → pushes to registry, hosts pull from there — **experimental**, see [registry](#registry)
 
 ## Commands
 
@@ -132,7 +132,7 @@ Options:
 
 The `--build` flag automatically chooses the distribution method based on your config:
 - **No `registry` config** → uses pussh (direct SSH transfer to each host)
-- **Has `registry` config** → pushes to registry (hosts pull from there)
+- **Has `registry` config** → pushes to registry (hosts pull from there) — **experimental**, see [registry](#registry)
 
 Examples:
 
@@ -155,7 +155,7 @@ odysseus build [options]
 Options:
 - `--config FILE` - Path to deploy.yml (default: deploy.yml)
 - `--image TAG` - Docker image tag (default: the git commit being deployed; required outside a clean git repository). See [Naming the version](#naming-the-version) — it is the quick way, not the equivalent way.
-- `--push` - Push image to registry after build
+- `--push` - Push image to registry after build (**experimental**, see [registry](#registry))
 - `--context PATH` - Build context path (default: . relative to deploy.yml)
 - `-v, --verbose` - Show build commands being executed
 
@@ -839,6 +839,9 @@ Build strategies:
 - `remote` - Build on a remote host via SSH (useful for CI or dedicated build servers)
 
 ### registry
+
+> **Experimental:** registry-based distribution is not officially supported yet. The
+> pussh path is the supported one; treat this as untested ground and keep a way back.
 
 Docker registry configuration. When present, `odysseus deploy --build` will push images to the registry instead of using pussh:
 

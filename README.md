@@ -30,7 +30,7 @@ Odysseus deploys containerized applications to your own servers using SSH, Docke
 ```
 
 1. Build your Docker image locally
-2. Push it to servers via SSH (or registry)
+2. Push it to servers via SSH (registry mode is experimental)
 3. Start new container, wait for health check
 4. Update Caddy routing to new container
 5. Drain connections from old container
