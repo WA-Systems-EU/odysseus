@@ -47,7 +47,10 @@ module Odysseus
       # @return [String] command stdout
       # @raise [Odysseus::SSHCommandError] if the command exits non-zero
       def execute(command)
-        puts "  > #{command}" if @verbose
+        # Redacted on the way to the terminal only; the command executed
+        # below is the real one. See Odysseus::CommandRedaction for why this
+        # lives here rather than in the CLI's own redactor.
+        puts "  > #{Odysseus::CommandRedaction.redact(command)}" if @verbose
         with_connection do |session|
           stdout = ''
           stderr = ''

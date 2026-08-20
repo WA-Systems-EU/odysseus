@@ -7,6 +7,17 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- Commands echoed under `--debug`/`-v` no longer print secrets. `SSH#execute`
+  echoed the command verbatim, and registry login is built as
+  `echo '<password>' | docker login <server> -u <user> --password-stdin` --
+  `--password-stdin` keeps the password off the argv, and interpolating it into
+  `echo` put it straight back into the string being echoed. With no `-p` and no
+  `--password`, every pattern written to catch those missed it. New
+  `Odysseus::CommandRedaction` runs on the way to the terminal only; the command
+  executed is unchanged.
+
 ## [0.9.0] - 2026-08-19
 
 ### Fixed

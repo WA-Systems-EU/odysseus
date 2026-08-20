@@ -37,6 +37,29 @@ RSpec.describe Odysseus::Deployer::SSH do
     end
   end
 
+  describe 'verbose echo' do
+    # The module has its own specs; this pins that SSH actually USES it.
+    # Without this, removing the redaction call from #execute passes the whole
+    # file -- which is how the leak would come back.
+    it 'does not print a registry password when echoing the command' do
+      verbose_ssh = described_class.new(host: 'test-server', user: 'deploy', verbose: true)
+      allow(mock_session).to receive(:open_channel).and_return(mock_channel)
+      allow(mock_session).to receive(:loop)
+      allow(mock_channel).to receive(:exec).and_yield(mock_channel, true)
+      allow(mock_channel).to receive(:on_data)
+      allow(mock_channel).to receive(:on_extended_data)
+      allow(mock_channel).to receive(:on_request).with('exit-status')
+                                                 .and_yield(mock_channel,
+                                                            instance_double(Net::SSH::Buffer, read_long: 0))
+      allow(mock_channel).to receive(:wait)
+
+      login = "echo 'hunter2' | docker login r.example.com -u deploy --password-stdin"
+
+      expect { verbose_ssh.execute(login) }.to output(/docker login r\.example\.com/).to_stdout
+      expect { verbose_ssh.execute(login) }.not_to output(/hunter2/).to_stdout
+    end
+  end
+
   describe '#execute' do
     before do
       allow(mock_session).to receive(:open_channel).and_yield(mock_channel)

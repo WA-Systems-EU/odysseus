@@ -400,7 +400,7 @@ module Odysseus
           l.define_singleton_method(:info) { |msg| puts msg }
           l.define_singleton_method(:warn) { |msg| puts "[WARN] #{msg}" }
           l.define_singleton_method(:error) { |msg| puts "[ERROR] #{msg}" }
-          l.define_singleton_method(:debug) { |msg| puts "  > #{msg}" if verbose }
+          l.define_singleton_method(:debug) { |msg| puts "  > #{Odysseus::CommandRedaction.redact(msg)}" if verbose }
           l.define_singleton_method(:verbose?) { verbose }
         end
       end
