@@ -801,10 +801,15 @@ module Odysseus
       # The container to read logs from, chosen from everything carrying the
       # service label — stopped containers included. `docker ps` without -a
       # hides the container that has just exited, which is precisely the one
-      # whose logs you came for, and cleanup keeps the previous two deploys
-      # around on purpose, so a stopped container is the normal state of a host
-      # rather than an edge case. `status` and `cleanup` already read with
-      # all: true.
+      # whose logs you came for.
+      #
+      # Note what that container is NOT: a previous version. A deploy stops AND
+      # removes the container it replaces (web_deploy.rb:252-253), and the
+      # keep: 2 sweep selects only containers already in state `exited`
+      # (docker/client.rb:299-301) — so what it retains is crashes, not
+      # history. A stopped container here means something exited on its own,
+      # which is exactly the case worth reading logs for. `status` and
+      # `cleanup` already read with all: true.
       #
       # Finding nothing is a failed request for logs, not a success, so it
       # exits non-zero. And when the only match is stopped, say so: otherwise
