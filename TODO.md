@@ -315,6 +315,39 @@ Smaller findings worth fixing but not blocking anything.
       domain, which is normal practice. Note an app must permit its public
       hostname regardless; this fix removes the impossible half of the problem,
       not both halves.
+- [ ] **Registry support has never run against a real registry.** It has unit
+      coverage (`builder/client_spec.rb` covers `#push` and `#build_and_push`
+      with doubles) but no end-to-end test, and three things look wrong on
+      reading:
+
+      1. **Nothing logs in on the deploy hosts, and nothing pulls explicitly.**
+         `docker login` runs only on the build executor
+         (`builder/client.rb:62`) — the local machine, or the remote build host
+         under the `:remote` strategy. `Docker::Client#pull` exists
+         (`docker/client.rb:139`) but only `dependency_deploy.rb:148` calls it;
+         app deploys rely on `docker run` auto-pulling. That works for a public
+         registry and fails for a private one, at container-start time, after
+         the deploy is already underway rather than at a pre-flight.
+
+      2. **The registry password can reach the terminal in plaintext.** The
+         login command is `echo '<password>' | docker login … --password-stdin`
+         (`builder/client.rb:241`). Under `--debug`/`-v` with the `:remote`
+         builder strategy, `ssh.rb:50` prints `> <command>` — and `UI#redact`
+         (`ui.rb:390-396`) matches `-p X`, `--password X` and `KEY=` forms, none
+         of which fit a password inside `echo '...'`. `build` is also not one of
+         the three commands whose output goes through `RedactingIO`. So it is
+         unredacted twice over. Fix the redact pattern at minimum; better,
+         stop putting the password in a command string at all.
+
+      3. **`RegistryError`, `RegistryPushError` and `RegistryAuthError` are
+         defined and never raised** (`errors.rb:24-26`). `#push` swallows
+         `SSHCommandError, BuildError` into `{ success: false, error: }`, so an
+         auth failure and a push failure are indistinguishable to a caller. The
+         taxonomy was designed and never wired.
+
+      Working as intended, for the record: a failed push does stop the deploy —
+      `cli.rb:57` raises `BuildError` before the deploy phase begins.
+
 - [ ] **`cleanup` is a destructive command with a reassuring name.** Separate
       from the proxy bug below, and broader: it stops and force-removes EVERY
       container for the service on that server — every role, every dependency
