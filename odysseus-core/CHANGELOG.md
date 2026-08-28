@@ -471,6 +471,25 @@ previously reported success while failing will now stop and say so.
 - `rake` runs RSpec and RuboCop clean. Remaining Metrics offences are recorded
   in `.rubocop_todo.yml` rather than hidden in the main configuration.
 
+## [0.3.2] - 2026-08-12
+
+Reconstructed after the fact: 0.3.2 was bumped in `version.rb` but never
+tagged, and the change first reached users in 0.4.0.
+
+### Fixed
+
+- Adding a hostname to `proxy.hosts` had no effect on an already-deployed
+  service. `Caddy::Client#add_upstream` reconciled only the upstreams of an
+  existing route, never its Host matcher, so the route kept whatever hosts it
+  was created with until it was deleted by hand. TLS was unaffected --
+  `enable_tls_for_hosts` always received the full list -- which made the
+  failure confusing: Caddy answered the new hostname over HTTPS with a valid
+  certificate, matched no route, and served the default handler instead of the
+  service. `add_upstream` now PATCHes `match/0/host` when the configured hosts
+  differ from the deployed ones. The repair needs one deploy: the reconcile
+  runs during `add_upstream`, so upgrading alone leaves an existing route as it
+  was.
+
 ## [0.3.1] - 2026-04-05
 
 ### Fixed
