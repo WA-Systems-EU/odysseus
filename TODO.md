@@ -159,6 +159,32 @@ we'd feel their absence.
       `Config::Parser#normalize` falls back to `config['accessories']`, and
       `bin/odysseus`'s `DEPENDENCY_ALIASES` includes `accessory`. Update the
       seven app `deploy.yml` files before removing them.
+- [ ] **Container log rotation defaults.** Every container Odysseus starts —
+      web, job, dependency and `odysseus-caddy` alike — runs under whatever the
+      host daemon's default logging is, which for a stock Docker install is
+      `json-file` with no size limit at all. Caddy is the one that hurts: it is
+      the only container that is never replaced by a deploy, so its access log
+      grows until the disk fills. `Docker::Client` should name the driver and
+      the limits on every `docker run`: `json-file`, `max-size=100m`,
+      `max-file=3`. Pin the driver rather than leave it to the daemon, because
+      `max-size`/`max-file` are `json-file`/`local` options only — on a host
+      defaulting to `journald` or `syslog`, passing them is not ignored, it
+      fails the run outright. Pinning also makes explicit something the code
+      already assumes: `odysseus logs` shells out to `docker logs`, which most
+      other drivers cannot answer. The trade to accept knowingly: a host with a
+      deliberate daemon-wide driver gets overridden.
+- [ ] **Configurable log driver and options.** The defaults above are right as
+      a default and wrong as the only choice. A host with central logging —
+      `journald`, `syslog`, `awslogs`, a Vector or Fluentd sidecar — has no way
+      to opt in, and per-service limits are not settable either: a chatty job
+      container and a quiet dependency get the same 100m. Needs a `logging:`
+      block with `driver:` and a free-form `options:` map, accepted globally
+      and per service and dependency, overriding the constants in
+      `Docker::Client`; validation that rejects `max-size`/`max-file` against a
+      driver that does not take them, since docker fails the run rather than
+      ignoring them; and a decision about what `odysseus logs` should report
+      once the driver can no longer answer `docker logs`. Kamal: `logging:`
+      with `driver:` and `options:`, global and per-role.
 
 ## P2 — after the gap closes
 
@@ -172,6 +198,24 @@ we'd feel their absence.
 
 Smaller findings worth fixing but not blocking anything.
 
+- [ ] Nothing in the suite deploys a service with more than one hostname.
+      Multiple hosts do work — `proxy.hosts` travels intact from
+      `Config::Parser#parse_proxy` through `WebDeploy#add_to_caddy` into
+      Caddy's any-of matcher at `caddy/client.rb:340`, and every entry becomes
+      a TLS subject — but every fixture in `spec/odysseus/caddy/client_spec.rb`
+      is a one-element `['app.example.com']`. A regression reducing the list to
+      its first element would pass the whole suite, and so would one dropping
+      the `current_hosts.sort != hosts.sort` comparison, because a
+      single-element list sorts to itself.
+- [ ] A scalar `proxy.hosts:` crashes the deploy instead of being coerced.
+      `parse_proxy` does `proxy['hosts'] || []` with no `Array()` wrap, so
+      `hosts: myapp.example.com` written without a list marker reaches
+      `enable_tls_for_hosts` as a String and dies on `hosts.each`
+      (`caddy/client.rb:287`) — `String#each` has not existed since 1.9.
+      `validators/config.rb` checks only `app_port`, so nothing catches it up
+      front and the failure lands after the new container is already running.
+      The READMEs only ever show the list form, which is exactly why someone
+      will write the other one.
 - [ ] `Docker#run_once` and the CLI's `app shell`/`console`/`exec` still inline
       `-e KEY=VALUE` unquoted, so a clear env value containing a space breaks the
       command. The deploy path now uses a 0600 `--env-file`; these did not
