@@ -9,6 +9,27 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ### Fixed
 
+- Caddy no longer loses every route when its container is replaced or the host
+  reboots. Routes are added through the admin API and live in Caddy's memory;
+  Caddy autosaves them to `$XDG_CONFIG_HOME/caddy/autosave.json`, which the
+  official image sets to `/config` -- and odysseus mounted only `/data`
+  (`XDG_DATA_HOME`), so certificates persisted and routes were discarded with
+  the container. On a host with nine services, all nine stayed unreachable until
+  nine separate deploys ran. `HostPaths#caddy_config_dir` is now mounted at
+  `/config` and Caddy starts with `--resume`.
+
+  If `--resume` fails to start the container, odysseus renames the autosave to
+  `autosave.json.rejected` and starts once without it. `CADDY_IMAGE` is the
+  moving `caddy:2-alpine` tag, so a newer Caddy can meet an autosave it will not
+  parse, and `WebDeploy` aborts when Caddy does not come up -- unhandled, one
+  bad autosave would have failed every deploy on the host. The rename runs
+  inside a container: Caddy creates `/config/caddy` as root with mode 0700, so a
+  non-root deploy user cannot move the file from the host.
+
+  A host that has never run Caddy still has no routes until each service
+  deploys; `--resume` falls back to the image's Caddyfile there, which is what
+  creates `srv0`.
+
 - Commands echoed under `--debug`/`-v` no longer print secrets. `SSH#execute`
   echoed the command verbatim, and registry login is built as
   `echo '<password>' | docker login <server> -u <user> --password-stdin` --

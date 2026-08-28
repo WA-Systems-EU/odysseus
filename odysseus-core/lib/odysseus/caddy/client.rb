@@ -10,6 +10,11 @@ module Odysseus
       CONTAINER_NAME = 'odysseus-caddy'.freeze
       CADDY_IMAGE = 'caddy:2-alpine'.freeze
 
+      # The image's own CMD. Repeated here because --resume has to be appended
+      # to it: passing only --resume would drop the Caddyfile fallback that
+      # creates srv0 on a host with no autosave yet.
+      CADDY_RUN_CMD = 'caddy run --config /etc/caddy/Caddyfile --adapter caddyfile'.freeze
+
       # @param ssh [Odysseus::Deployer::SSH] SSH connection to server
       # @param docker [Odysseus::Docker::Client] Docker client
       def initialize(ssh:, docker:)
@@ -34,6 +39,17 @@ module Odysseus
       # Nothing is lost: certificates live in the mounted volume, and routes
       # are re-added by the deploy that follows.
       #
+      # Started with --resume, so the routes added through the admin API by
+      # previous deploys come back with the container rather than having to be
+      # re-added by redeploying every service on the host.
+      #
+      # If that start fails the autosave is the only new thing that could have
+      # caused it -- CADDY_IMAGE is a moving tag, so a newer Caddy can meet an
+      # autosave it will not parse. Since WebDeploy aborts when Caddy does not
+      # come up, leaving that unhandled would fail every deploy on the host
+      # until someone deleted the file by hand. The retry gives up the routes,
+      # which is exactly the behaviour that existed before --resume.
+      #
       # @return [Boolean] true if caddy is running
       def ensure_running
         return true if running?
@@ -41,6 +57,9 @@ module Odysseus
         @docker.remove(CONTAINER_NAME) if @docker.container_exists?(CONTAINER_NAME)
 
         start_caddy
+        return true if running?
+
+        restart_without_autosave
         running?
       end
 
@@ -51,12 +70,18 @@ module Odysseus
       end
 
       # Start Caddy container
-      def start_caddy
+      # @param resume [Boolean] reload the autosaved config (see #ensure_running)
+      def start_caddy(resume: true)
         # Create network if not exists (with label to protect from prune)
         @ssh.execute('docker network create --label odysseus.managed=true odysseus 2>/dev/null || true')
 
-        # Create data directory for certificates
+        # Create data directory for certificates, and the config directory
+        # holding the autosave. Two directories because the image sets
+        # XDG_DATA_HOME=/data and XDG_CONFIG_HOME=/config, and Caddy writes the
+        # autosave under the latter -- mounting only /data persisted the
+        # certificates and threw the routes away with the container.
         @ssh.execute("mkdir -p #{Shellwords.escape(host_paths.caddy_dir)}")
+        @ssh.execute("mkdir -p #{Shellwords.escape(host_paths.caddy_config_dir)}")
 
         # Run Caddy with admin API enabled and persistent storage for certs
         #
@@ -81,13 +106,17 @@ module Odysseus
             ports: ['80:80', '443:443', "127.0.0.1:#{ADMIN_API_PORT}:#{ADMIN_API_PORT}"],
             network: 'odysseus',
             restart: 'unless-stopped',
-            volumes: ["#{Shellwords.escape(host_paths.caddy_dir)}:/data"],
+            volumes: [
+              "#{Shellwords.escape(host_paths.caddy_dir)}:/data",
+              "#{Shellwords.escape(host_paths.caddy_config_dir)}:/config"
+            ],
             env: {
               'CADDY_ADMIN' => "0.0.0.0:#{ADMIN_API_PORT}"
             },
             labels: {
               'odysseus.managed' => 'true'
-            }
+            },
+            cmd: resume ? "#{CADDY_RUN_CMD} --resume" : CADDY_RUN_CMD
           }
         )
 
@@ -315,6 +344,29 @@ module Odysseus
       end
 
       private
+
+      def restart_without_autosave
+        @docker.remove(CONTAINER_NAME) if @docker.container_exists?(CONTAINER_NAME)
+        discard_autosave
+        start_caddy(resume: false)
+      end
+
+      # Caddy creates /config/caddy as root with mode 0700, so a non-root deploy
+      # user cannot move the file from the host -- it has to be moved from
+      # inside a container. CADDY_IMAGE is guaranteed to be on the host: it is
+      # the image that just failed to start.
+      #
+      # Renamed rather than deleted, because if --resume was not the reason
+      # Caddy failed then this file is the only copy of the host's routes.
+      # Tolerates its own failure: a Caddy that died for some other reason may
+      # have no autosave at all, and that must not abort the retry.
+      def discard_autosave
+        mount = "#{Shellwords.escape(host_paths.caddy_config_dir)}:/config"
+        @ssh.execute(
+          "docker run --rm -v #{mount} #{CADDY_IMAGE} " \
+          'mv /config/caddy/autosave.json /config/caddy/autosave.json.rejected 2>/dev/null || true'
+        )
+      end
 
       def host_paths
         @host_paths ||= Odysseus::HostPaths.new(@ssh)

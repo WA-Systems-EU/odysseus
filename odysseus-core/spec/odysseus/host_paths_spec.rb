@@ -90,4 +90,25 @@ RSpec.describe Odysseus::HostPaths do
         .to eq('/home/odysseus/.odysseus/caddy')
     end
   end
+
+  # Caddy autosaves its running config to $XDG_CONFIG_HOME/caddy/autosave.json,
+  # which the official image sets to /config -- a different directory from the
+  # /data mount, which is why the autosave was being discarded with every
+  # container. This is the host side of that mount.
+  describe '#caddy_config_dir' do
+    it 'is a sibling of the data directory for root' do
+      expect(described_class.new(ssh_double(user: 'root')).caddy_config_dir)
+        .to eq('/var/lib/odysseus/caddy-config')
+    end
+
+    it 'follows the user for a non-root connection' do
+      expect(described_class.new(ssh_double(user: 'odysseus')).caddy_config_dir)
+        .to eq('/home/odysseus/.odysseus/caddy-config')
+    end
+
+    it 'is not the data directory' do
+      paths = described_class.new(ssh_double(user: 'root'))
+      expect(paths.caddy_config_dir).not_to eq(paths.caddy_dir)
+    end
+  end
 end

@@ -57,6 +57,20 @@ module Odysseus
       File.join(base, 'caddy')
     end
 
+    # Caddy's /config mount: the autosave of its running configuration.
+    #
+    # The official image sets XDG_CONFIG_HOME=/config and XDG_DATA_HOME=/data,
+    # and Caddy writes $XDG_CONFIG_HOME/caddy/autosave.json on every admin API
+    # change. Mounting only #caddy_dir therefore persisted certificates and
+    # discarded the routes, which is why a removed or restarted Caddy came back
+    # serving nothing until every service on the host redeployed. Kept separate
+    # from #caddy_dir rather than nested inside it because the container owns
+    # the layout of both, and /data already has a meaning to Caddy.
+    # @return [String]
+    def caddy_config_dir
+      File.join(base, 'caddy-config')
+    end
+
     # Where a root install wrote, whoever is connected now. Used to read the
     # deploy history of a host that has since moved to a deploy user.
     # @return [String]
