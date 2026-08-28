@@ -7,6 +7,8 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-08-28
+
 ### Changed
 
 - `cleanup`'s documentation now describes what the command does. It was

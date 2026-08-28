@@ -23,5 +23,5 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = '>= 3.2.0'
 
   # Lockstep with core: the CLI relies on the deploy behaviour released in 0.4.0.
-  spec.add_dependency 'odysseus-core', '~> 0.9.0'
+  spec.add_dependency 'odysseus-core', '~> 0.10.0'
 end

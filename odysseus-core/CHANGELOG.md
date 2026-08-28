@@ -7,6 +7,8 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-08-28
+
 ### Fixed
 
 - Caddy no longer loses every route when its container is replaced or the host
