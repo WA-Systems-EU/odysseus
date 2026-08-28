@@ -7,6 +7,24 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Changed
+
+- Every container odysseus starts now has a bounded log. Containers inherited
+  the daemon's default logging, which on a stock Docker install is `json-file`
+  with no size limit, so a long-lived container filled the disk -- most visibly
+  `odysseus-caddy`, the one container no deploy ever replaces. Every
+  `docker run` now carries `--log-driver json-file --log-opt max-size=100m
+  --log-opt max-file=3`.
+
+  The driver is named rather than left to the daemon because `max-size` and
+  `max-file` belong to `json-file` and `local` only: on a host defaulting to
+  `journald` or `syslog`, docker refuses the run rather than ignoring them.
+  Naming it also makes explicit what `odysseus logs` already assumed, since it
+  shells out to `docker logs`.
+
+  **This overrides a deliberate daemon-wide log driver on the host.** Making the
+  driver and options configurable per service is tracked in TODO.md.
+
 ## [0.10.0] - 2026-08-28
 
 ### Fixed

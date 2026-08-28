@@ -9,6 +9,25 @@ module Odysseus
     class Client
       HEALTHCHECK_POLL_INTERVAL = 2 # seconds
 
+      # Applied to every container odysseus starts. Without them a container
+      # inherits the daemon's default logging, which on a stock Docker install
+      # is json-file with no size limit -- so a long-lived container fills the
+      # disk. Caddy is the clearest case, being the one container no deploy
+      # ever replaces, but a dependency that runs for months has the same
+      # problem, so this belongs on the shared path rather than on one caller.
+      #
+      # The driver is named rather than left to the daemon because max-size and
+      # max-file belong to json-file and local only: on a host defaulting to
+      # journald or syslog, passing them does not degrade gracefully, docker
+      # refuses the run. Naming it also makes explicit what the codebase
+      # already assumes -- `odysseus logs` shells out to `docker logs`, which
+      # most other drivers cannot answer.
+      #
+      # The cost, knowingly: a host with a deliberate daemon-wide log driver is
+      # overridden. Making these configurable is a separate TODO entry.
+      LOG_DRIVER = 'json-file'.freeze
+      LOG_OPTIONS = { 'max-size' => '100m', 'max-file' => '3' }.freeze
+
       # @param ssh [Odysseus::Deployer::SSH] SSH connection to server
       def initialize(ssh)
         @ssh = ssh
@@ -468,6 +487,14 @@ module Odysseus
         nil
       end
 
+      # Extracted from build_run_command rather than inlined there: the flags
+      # are fixed, and the method was already at RuboCop's complexity ceiling.
+      # @return [Array<String>] the --log-driver and --log-opt arguments
+      def log_args
+        ["--log-driver #{LOG_DRIVER}"] +
+          LOG_OPTIONS.map { |key, value| "--log-opt #{key}=#{value}" }
+      end
+
       def build_run_command(name:, image:, options:, env_file: nil)
         parts = ['docker run -d']
 
@@ -524,6 +551,10 @@ module Odysseus
 
         # Restart policy
         parts << "--restart #{options[:restart] || 'unless-stopped'}"
+
+        # Log rotation (see LOG_DRIVER/LOG_OPTIONS). Before the image, or
+        # docker would hand them to the container's entrypoint instead.
+        parts.concat(log_args)
 
         # Image
         parts << image

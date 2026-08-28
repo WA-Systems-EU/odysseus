@@ -159,20 +159,31 @@ we'd feel their absence.
       `Config::Parser#normalize` falls back to `config['accessories']`, and
       `bin/odysseus`'s `DEPENDENCY_ALIASES` includes `accessory`. Update the
       seven app `deploy.yml` files before removing them.
-- [ ] **Container log rotation defaults.** Every container Odysseus starts —
-      web, job, dependency and `odysseus-caddy` alike — runs under whatever the
-      host daemon's default logging is, which for a stock Docker install is
+- [x] **Container log rotation defaults.** Every container odysseus starts --
+      web, job, dependency and `odysseus-caddy` alike -- ran under whatever the
+      host daemon's default logging was, which for a stock Docker install is
       `json-file` with no size limit at all. Caddy is the one that hurts: it is
-      the only container that is never replaced by a deploy, so its access log
-      grows until the disk fills. `Docker::Client` should name the driver and
-      the limits on every `docker run`: `json-file`, `max-size=100m`,
-      `max-file=3`. Pin the driver rather than leave it to the daemon, because
-      `max-size`/`max-file` are `json-file`/`local` options only — on a host
-      defaulting to `journald` or `syslog`, passing them is not ignored, it
-      fails the run outright. Pinning also makes explicit something the code
-      already assumes: `odysseus logs` shells out to `docker logs`, which most
-      other drivers cannot answer. The trade to accept knowingly: a host with a
-      deliberate daemon-wide driver gets overridden.
+      the only container no deploy ever replaces, so its log grows until the
+      disk fills. `Docker::Client` now names the driver and the limits on every
+      `docker run`: `json-file`, `max-size=100m`, `max-file=3`, emitted before
+      the image so docker reads them rather than passing them to the
+      entrypoint. The driver is pinned rather than left to the daemon because
+      `max-size`/`max-file` are `json-file`/`local` options only -- on a host
+      defaulting to `journald` or `syslog`, passing them is not ignored, docker
+      refuses the run. Pinning also makes explicit what the code already
+      assumed: `odysseus logs` shells out to `docker logs`, which most other
+      drivers cannot answer. The trade, taken knowingly: a host with a
+      deliberate daemon-wide driver is overridden.
+      Verified against real docker 2026-08-28, which the specs cannot do since
+      every docker call in the suite is a double: a container started with these
+      flags reports `HostConfig.LogConfig` of `json-file` with `max-size: 100m`
+      and `max-file: 3`, and `docker logs` still answers under it. Each spec was
+      checked against a deliberate mutation -- dropping the flags, transposing
+      the two values, omitting the driver, moving the flags after the image, and
+      weakening the cap each fail at least one example.
+      `build_run_command` was at RuboCop's complexity ceiling, so the flags are
+      built by a `log_args` helper rather than inlined; adding them directly
+      pushed it to 23/22.
 - [ ] **Configurable log driver and options.** The defaults above are right as
       a default and wrong as the only choice. A host with central logging —
       `journald`, `syslog`, `awslogs`, a Vector or Fluentd sidecar — has no way
