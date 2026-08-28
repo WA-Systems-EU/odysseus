@@ -375,25 +375,40 @@ Smaller findings worth fixing but not blocking anything.
       Needs its own design pass: decide the removal from containers rather than
       routes, and let a failed stop or remove be reported rather than
       swallowed.
-- [ ] **A restarted Caddy loses every route until each service is redeployed.**
-      The container runs `caddy run --config /etc/caddy/Caddyfile` with no
-      `--resume`, and odysseus adds routes through the admin API at runtime — so
-      they live only in Caddy's memory. Confirmed on dedalus-prototypes
-      2026-08-17: the mounted `/data` holds `certificates`, `instance.uuid` and
-      `locks`, and **no `autosave.json`**. Certificates therefore survive a
-      restart; routes do not.
-      `--restart unless-stopped` means a host reboot restarts the container and
-      re-runs that command, so this is not hypothetical: on a host with seven
-      services, all seven stay unreachable until seven separate deploys run. The
-      sibling entry about `ensure_running` recreating a stopped Caddy has the
-      same consequence, and so does anything that restarts the daemon.
-      Options: start Caddy with `--resume` so it reloads the autosaved config
-      (needs checking that odysseus's API calls actually trigger an autosave —
-      the missing file suggests they may not); or write a real Caddyfile / JSON
-      config to the mounted volume so the routes are declarative rather than
-      runtime state; or have odysseus reconcile all known services' routes on
-      any deploy rather than only the one being deployed. The last is the
-      smallest change and the least complete.
+- [x] **A restarted Caddy loses every route until each service is redeployed.**
+      Fixed. Caddy is now started with `--resume` and `HostPaths#caddy_config_dir`
+      is mounted at `/config`, so the routes come back with the container.
+      **The earlier diagnosis here was wrong and is worth recording.** It said
+      Caddy produces no autosave, on the evidence that the mounted `/data` holds
+      `certificates`, `instance.uuid` and `locks` and no `autosave.json`. But
+      the official image sets `XDG_DATA_HOME=/data` and
+      `XDG_CONFIG_HOME=/config`, and Caddy writes the autosave under the
+      *config* home -- the file was never going to be in `/data`. Autosaving had
+      worked all along; odysseus mounted one of the image's two directories and
+      discarded the other with every container.
+      Verified against a real `caddy:2-alpine` on 2026-08-28, which the specs
+      cannot do: an admin API `PUT` to `/config/apps/http/servers/srv0/routes/0`
+      grew `/config/caddy/autosave.json` from 184 to 320 bytes; after
+      `docker rm -f` and a fresh container on the same volume, the route, its
+      `@id` and its host matcher all came back. On an empty `/config`,
+      `--resume` falls back to the image's Caddyfile, so `srv0` still exists on
+      a host that has never deployed.
+      A failed `--resume` falls back to starting without it: `CADDY_IMAGE` is a
+      moving tag, so a newer Caddy can meet an autosave it will not parse, and
+      `WebDeploy` aborts when Caddy does not come up -- unhandled, one bad
+      autosave would fail every deploy on the host. The autosave is renamed to
+      `.rejected` from inside a container rather than over SSH, because Caddy
+      creates `/config/caddy` as root with mode 0700 and a non-root deploy user
+      gets `EACCES` on the host (reproduced, then fixed, 2026-08-28).
+      Still open, deliberately: a host with no autosave yet -- a genuinely fresh
+      one -- has no routes until each service deploys. Closing that needs the
+      reconcile-every-service option below, which is a separate change.
+- [ ] **Reconcile every known service's route on any deploy**, rather than only
+      the service being deployed. `--resume` covers the case where Caddy has run
+      before; this covers a first-ever start, an autosave rejected by a newer
+      Caddy, and any drift between deploy.yml and what is actually in Caddy.
+      Smallest useful form: on each deploy, re-add the routes for every service
+      the host's deploy log knows about.
 - [ ] **Every service on a host shares one flat network, so every app can reach
       every other service's database.** Everything is started with
       `--network odysseus` and nothing else, and Docker's embedded DNS resolves

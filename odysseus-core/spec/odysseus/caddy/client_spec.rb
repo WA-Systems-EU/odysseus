@@ -153,7 +153,7 @@ RSpec.describe Odysseus::Caddy::Client do
 
         it 'mounts the historic system path, byte-identical to before this change' do
           expect(mock_docker).to receive(:run).with(
-            hash_including(options: hash_including(volumes: ['/var/lib/odysseus/caddy:/data']))
+            hash_including(options: hash_including(volumes: ['/var/lib/odysseus/caddy:/data', '/var/lib/odysseus/caddy-config:/config']))
           )
           client.ensure_running
         end
@@ -172,7 +172,10 @@ RSpec.describe Odysseus::Caddy::Client do
 
         it 'mounts the same directory the mkdir created' do
           expect(mock_docker).to receive(:run).with(
-            hash_including(options: hash_including(volumes: ['/home/deploy/.odysseus/caddy:/data']))
+            hash_including(options: hash_including(volumes: [
+                                                     '/home/deploy/.odysseus/caddy:/data',
+                                                     '/home/deploy/.odysseus/caddy-config:/config'
+                                                   ]))
           )
           client.ensure_running
         end
@@ -191,10 +194,144 @@ RSpec.describe Odysseus::Caddy::Client do
 
         it 'escapes the mounted directory the same way' do
           expect(mock_docker).to receive(:run).with(
-            hash_including(options: hash_including(volumes: ['/home/deploy\ user/.odysseus/caddy:/data']))
+            hash_including(options: hash_including(volumes: [
+                                                     '/home/deploy\ user/.odysseus/caddy:/data',
+                                                     '/home/deploy\ user/.odysseus/caddy-config:/config'
+                                                   ]))
           )
           client.ensure_running
         end
+      end
+    end
+
+    # Routes are added through the admin API at runtime, so they live in
+    # Caddy's memory. Caddy autosaves them to $XDG_CONFIG_HOME/caddy, which the
+    # image sets to /config -- a directory odysseus never mounted, so every
+    # removed or restarted container came back with certificates and no routes.
+    # Mounting /config and starting with --resume is what makes routes outlive
+    # the container.
+    describe "Caddy's config directory and --resume" do
+      before do
+        allow(mock_docker).to receive(:running?).with('odysseus-caddy').and_return(false, true)
+        allow(mock_docker).to receive(:container_exists?).with('odysseus-caddy').and_return(false)
+        allow(mock_docker).to receive(:run)
+        allow(client).to receive(:sleep)
+        allow(mock_ssh).to receive(:user).and_return('root')
+        allow(mock_ssh).to receive(:execute)
+      end
+
+      it 'mkdirs the config directory as well as the data directory' do
+        expect(mock_ssh).to receive(:execute).with('mkdir -p /var/lib/odysseus/caddy-config')
+        client.ensure_running
+      end
+
+      it 'starts caddy with --resume so the autosaved routes are reloaded' do
+        expect(mock_docker).to receive(:run).with(
+          hash_including(
+            options: hash_including(
+              cmd: 'caddy run --config /etc/caddy/Caddyfile --adapter caddyfile --resume'
+            )
+          )
+        )
+        client.ensure_running
+      end
+    end
+
+    # --resume refuses to start on an autosave a newer Caddy cannot parse, and
+    # CADDY_IMAGE is a moving tag. Without this fallback one bad autosave would
+    # fail every deploy on the host until someone deleted a file by hand,
+    # because WebDeploy aborts when Caddy will not start.
+    describe 'when --resume fails to start the container' do
+      before do
+        allow(mock_docker).to receive(:container_exists?).with('odysseus-caddy').and_return(false)
+        allow(mock_docker).to receive(:run)
+        allow(client).to receive(:sleep)
+        allow(mock_ssh).to receive(:user).and_return('root')
+        allow(mock_ssh).to receive(:execute)
+      end
+
+      context 'and the retry succeeds' do
+        before do
+          allow(mock_docker).to receive(:running?)
+            .with('odysseus-caddy').and_return(false, false, true)
+        end
+
+        # Caddy creates /config/caddy as root with mode 0700, so a non-root
+        # deploy user gets EACCES moving the file from the host. Done from
+        # inside a container instead, or the bad autosave survives and every
+        # later deploy starts caddy twice.
+        it 'discards the autosave from inside a container, not from the host' do
+          expect(mock_ssh).to receive(:execute).with(
+            'docker run --rm -v /var/lib/odysseus/caddy-config:/config caddy:2-alpine ' \
+            'mv /config/caddy/autosave.json /config/caddy/autosave.json.rejected 2>/dev/null || true'
+          )
+          client.ensure_running
+        end
+
+        it 'mounts the connecting user\'s own config directory' do
+          allow(mock_ssh).to receive(:user).and_return('deploy')
+          allow(mock_ssh).to receive(:execute).with('echo $HOME').and_return("/home/deploy\n")
+          expect(mock_ssh).to receive(:execute).with(
+            a_string_including('-v /home/deploy/.odysseus/caddy-config:/config caddy:2-alpine mv')
+          )
+          client.ensure_running
+        end
+
+        it 'starts again without --resume' do
+          expect(mock_docker).to receive(:run).with(
+            hash_including(
+              options: hash_including(
+                cmd: 'caddy run --config /etc/caddy/Caddyfile --adapter caddyfile --resume'
+              )
+            )
+          ).ordered
+          expect(mock_docker).to receive(:run).with(
+            hash_including(
+              options: hash_including(
+                cmd: 'caddy run --config /etc/caddy/Caddyfile --adapter caddyfile'
+              )
+            )
+          ).ordered
+          client.ensure_running
+        end
+
+        it 'reports success' do
+          expect(client.ensure_running).to be true
+        end
+      end
+
+      context 'and the retry also fails' do
+        before do
+          allow(mock_docker).to receive(:running?)
+            .with('odysseus-caddy').and_return(false, false, false)
+        end
+
+        it 'reports failure rather than claiming caddy is up' do
+          expect(client.ensure_running).to be false
+        end
+      end
+    end
+
+    # The fallback must not fire when the first start worked, or every deploy
+    # would discard a good autosave and start caddy twice.
+    describe 'when --resume starts cleanly' do
+      before do
+        allow(mock_docker).to receive(:running?).with('odysseus-caddy').and_return(false, true)
+        allow(mock_docker).to receive(:container_exists?).with('odysseus-caddy').and_return(false)
+        allow(client).to receive(:sleep)
+        allow(mock_ssh).to receive(:user).and_return('root')
+        allow(mock_ssh).to receive(:execute)
+      end
+
+      it 'runs the container exactly once' do
+        expect(mock_docker).to receive(:run).once
+        client.ensure_running
+      end
+
+      it 'never touches the autosave' do
+        allow(mock_docker).to receive(:run)
+        expect(mock_ssh).not_to receive(:execute).with(a_string_including('autosave.json'))
+        client.ensure_running
       end
     end
   end
