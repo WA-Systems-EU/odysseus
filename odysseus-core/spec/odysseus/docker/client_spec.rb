@@ -94,6 +94,55 @@ RSpec.describe Odysseus::Docker::Client do
       )
     end
 
+    # Every container odysseus starts inherited the daemon's default logging,
+    # which for a stock Docker install is json-file with no size limit at all.
+    # Caddy is the one that hurts -- it is never replaced by a deploy, so its
+    # log grows until the disk fills -- but a long-lived dependency has the
+    # same problem, so the limits go on every run rather than on one caller.
+    describe 'log rotation' do
+      it 'caps each log file at 100m' do
+        expect(mock_ssh).to receive(:execute) do |cmd|
+          expect(cmd).to include('--log-opt max-size=100m')
+          "#{container_id}\n"
+        end
+        client.run(name: 'test', image: 'myapp:latest')
+      end
+
+      it 'keeps three rotated files' do
+        expect(mock_ssh).to receive(:execute) do |cmd|
+          expect(cmd).to include('--log-opt max-file=3')
+          "#{container_id}\n"
+        end
+        client.run(name: 'test', image: 'myapp:latest')
+      end
+
+      # max-size and max-file are json-file/local options only. On a host whose
+      # daemon defaults to journald or syslog, passing them is not ignored --
+      # docker fails the run outright. Naming the driver makes the result the
+      # same everywhere, and matches an assumption the codebase already has:
+      # `odysseus logs` shells out to `docker logs`, which most other drivers
+      # cannot answer.
+      it 'names the driver rather than trusting the daemon default' do
+        expect(mock_ssh).to receive(:execute) do |cmd|
+          expect(cmd).to include('--log-driver json-file')
+          "#{container_id}\n"
+        end
+        client.run(name: 'test', image: 'myapp:latest')
+      end
+
+      # docker parses flags before the image name; anything after it is the
+      # container's own command. Log options landing there would be passed to
+      # the entrypoint instead of to docker.
+      it 'puts the log flags before the image, where docker reads them' do
+        expect(mock_ssh).to receive(:execute) do |cmd|
+          expect(cmd.index('--log-driver')).to be < cmd.index('myapp:latest')
+          expect(cmd.index('--log-opt max-file=3')).to be < cmd.index('myapp:latest')
+          "#{container_id}\n"
+        end
+        client.run(name: 'test', image: 'myapp:latest')
+      end
+    end
+
     it 'includes memory limits' do
       expect(mock_ssh).to receive(:execute) do |cmd|
         expect(cmd).to include('--memory 1g')
