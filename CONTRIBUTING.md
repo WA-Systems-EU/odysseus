@@ -110,6 +110,14 @@ Both gems are versioned in lockstep and released together.
    ```
 6. `gem push` core first, then the CLI, so the dependency resolves.
 7. Tag the release.
+8. Regenerate the marketing site's changelog page, which is built from the two
+   `CHANGELOG.md` files rather than written by hand:
+   ```bash
+   cd ../odysseus-site/rails-site && bin/rails changelog:sync
+   ```
+   Commit `db/changelog.yml` there. Skipping this leaves the published page a
+   release behind; it prints the date it was generated, so the staleness shows
+   rather than hiding.
 
 ## Reporting a bug
 
