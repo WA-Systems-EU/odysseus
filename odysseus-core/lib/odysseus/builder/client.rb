@@ -1,8 +1,14 @@
 # lib/odysseus/builder/client.rb
 
+require 'open3'
+
 module Odysseus
   module Builder
     class Client
+      # A push moves a whole image over SSH, so this is generous -- it exists
+      # to end a hang, not to police a slow link.
+      PUSSH_TIMEOUT = 1800 # seconds
+
       # @param config [Hash] builder config from deploy.yml
       # @param ssh_config [Hash] SSH config (user, keys)
       # @param logger [Object] logger
@@ -85,11 +91,28 @@ module Odysseus
         cmd = "docker pussh #{image} #{target}"
         @logger.debug(cmd) if @logger.respond_to?(:debug)
 
-        output = execute_local_command(cmd)
+        output = execute_local_command(cmd, timeout: PUSSH_TIMEOUT)
         { success: true, output: output, host: host }
       rescue BuildError => e
-        @logger.error("Pussh failed: #{e.message}")
-        { success: false, error: e.message, host: host }
+        message = push_failure_message(e, host)
+        @logger.error("Pussh failed: #{message}")
+        { success: false, error: message, host: host }
+      end
+
+      # A push that timed out almost never failed because of docker. It failed
+      # because the host could not be reached, and the commonest reason here is
+      # Tailscale -- which SSH#with_connection already explains for the deploy
+      # connection, but `docker pussh` shells out to the system ssh and reaches
+      # none of that handling.
+      def push_failure_message(error, host)
+        return error.message unless error.message.include?('timed out')
+
+        "#{error.message}\n\n" \
+          "The push could not reach #{host}. Worth checking:\n  " \
+          "1. Tailscale is running: tailscale status\n  " \
+          "2. You're authenticated: tailscale login\n  " \
+          "3. The host is online: tailscale ping #{host}\n  " \
+          "4. SSH works on its own: ssh #{host} true"
       end
 
       # Push image to multiple hosts via SSH
@@ -263,11 +286,67 @@ module Odysseus
         end
       end
 
-      def execute_local_command(cmd)
-        output = `#{cmd} 2>&1`
-        raise BuildError, "Command failed: #{output}" unless $?.success?
+      # Runs a local command, streaming its output and refusing to wait forever.
+      #
+      # This was `` `#{cmd} 2>&1` ``, and all three of its properties were
+      # wrong for `docker pussh`. Backticks capture everything into a string,
+      # so a push printed nothing until it returned and a healthy one looked
+      # exactly like a stuck one. There was no timeout. And stdin stayed
+      # attached to the parent, so a child that asked a question waited on an
+      # answer that could never be typed into output nobody could see -- the
+      # reported symptom was a push that hung with no message at all.
+      #
+      # stdin is /dev/null so that any prompt reaches EOF and the command fails
+      # promptly instead of hanging. Prompting is not something odysseus can
+      # usefully do here anyway: SSH#connect is non-interactive for the same
+      # reason.
+      #
+      # @param timeout [Integer, nil] seconds before the command is killed
+      # @raise [Odysseus::BuildError] on failure, or on timeout
+      def execute_local_command(cmd, timeout: nil)
+        output = +''
+
+        # pgroup: true is not optional. Without it the child shares this
+        # process's group, and terminate's kill(-pgid) would signal odysseus
+        # itself -- which it duly did the first time this was run.
+        Open3.popen2e(cmd, pgroup: true) do |stdin, out, wait_thread|
+          # Closed immediately, not redirected: popen2e makes its own stdin
+          # pipe and ignores an `in:` option. Closing it is what gives a child
+          # that asks a question an EOF instead of an indefinite wait.
+          stdin.close
+          reader = Thread.new do
+            out.each_line do |line|
+              output << line
+              @logger.info(line.chomp)
+            end
+          rescue IOError
+            nil # the stream is closed under us when a timeout kills the child
+          end
+
+          unless timeout.nil? || wait_thread.join(timeout)
+            terminate(wait_thread.pid)
+            reader.join(1)
+            raise BuildError, "Command timed out after #{timeout}s: #{cmd}\n#{output}"
+          end
+
+          wait_thread.join
+          reader.join
+          raise BuildError, "Command failed: #{output}" unless wait_thread.value.success?
+        end
 
         output
+      end
+
+      # The child is usually a shell, so signal the whole process group -- else
+      # `sh -c 'docker pussh ...'` dies and leaves the push running.
+      def terminate(pid)
+        Process.kill('TERM', -Process.getpgid(pid))
+      rescue Errno::ESRCH, Errno::EPERM
+        begin
+          Process.kill('TERM', pid)
+        rescue Errno::ESRCH
+          nil
+        end
       end
 
       def connect_to_build_host

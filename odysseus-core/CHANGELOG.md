@@ -7,6 +7,39 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- odysseus could not read an SSH key from disk unless ssh-agent happened to be
+  holding it. `net-ssh` needs `ed25519` and `bcrypt_pbkdf` to parse anything in
+  the `-----BEGIN OPENSSH PRIVATE KEY-----` container -- which is what every
+  modern `ssh-keygen` writes, **RSA included, not only ed25519** -- and neither
+  was declared, so `key_factory.rb` raised `NotImplementedError` before it ever
+  looked at the algorithm. Both are runtime dependencies now. Reported by a
+  tester whose deploys failed with a passphrase-protected key; the passphrase
+  was not the cause, the key format was.
+
+- A passphrase-protected SSH key is no longer reported as "Check your SSH
+  keys." odysseus connects with `non_interactive: true` -- a passphrase prompt
+  on a deploy connection can never be answered, so prompting would hang rather
+  than help -- and net-ssh reports the resulting key-loading failure to a
+  logger rather than raising it, so with none configured the reason was
+  discarded and the reader was sent to inspect keys that were entirely correct.
+  The failure now names each locked key and gives the `ssh-add` line for it.
+  `Odysseus::SSHKey.encrypted?` answers that by reading the cipher named in the
+  key file, so no passphrase is needed to detect one.
+
+- `docker pussh` no longer hangs silently. It ran through backticks with
+  everything folded into a captured string, which had three consequences: no
+  output reached the terminal until the push finished, so a healthy push and a
+  stuck one looked identical; there was no timeout; and stdin stayed attached
+  to the parent, so a child that asked a question waited forever on an answer
+  nobody could see it requesting. Output now streams as it arrives, stdin is
+  closed so any prompt reaches EOF and fails promptly, and a push is bounded by
+  `PUSSH_TIMEOUT` (30 minutes -- generous, since it exists to end a hang rather
+  than to police a slow link). A push that does time out now suggests what to
+  check, including the Tailscale steps `SSH#with_connection` already gives for
+  the deploy connection but which `pussh` never reached.
+
 ### Changed
 
 - Every container odysseus starts now has a bounded log. Containers inherited

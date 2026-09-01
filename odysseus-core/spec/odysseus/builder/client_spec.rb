@@ -1,6 +1,7 @@
 # spec/odysseus/builder/client_spec.rb
 
 require 'spec_helper'
+require 'timeout'
 
 RSpec.describe Odysseus::Builder::Client do
   let(:builder_config) do
@@ -417,6 +418,79 @@ RSpec.describe Odysseus::Builder::Client do
       expect(result[:success]).to be false
       expect(result[:results]['server1.example.com'][:success]).to be true
       expect(result[:results]['server2.example.com'][:success]).to be false
+    end
+  end
+
+  # `docker pussh` was run through backticks with everything folded into a
+  # captured string: no output reached the terminal until it returned, there
+  # was no timeout, and stdin stayed attached to the parent -- so a push that
+  # could not connect sat there indefinitely showing nothing. Reported from
+  # real use behind Tailscale: "the push of the image hangs without message or
+  # anything."
+  describe 'local command execution' do
+    subject(:client) { described_class.new(config: builder_config, ssh_config: ssh_config, logger: mock_logger) }
+
+    it 'returns the output of a command that succeeds' do
+      expect(client.send(:execute_local_command, 'echo hello')).to include('hello')
+    end
+
+    it 'streams each line to the logger rather than withholding it until the end' do
+      expect(mock_logger).to receive(:info).with('one').ordered
+      expect(mock_logger).to receive(:info).with('two').ordered
+      client.send(:execute_local_command, "printf 'one\ntwo\n'")
+    end
+
+    it 'captures stderr too, so a failure explains itself' do
+      expect { client.send(:execute_local_command, 'echo boom >&2; exit 1') }
+        .to raise_error(Odysseus::BuildError, /boom/)
+    end
+
+    # The hang. A child that reads stdin must reach EOF immediately instead of
+    # waiting on a terminal whose output nobody can see.
+    it 'does not wait on stdin' do
+      expect do
+        Timeout.timeout(10) { client.send(:execute_local_command, 'cat') }
+      end.not_to raise_error
+    end
+
+    it 'gives up on a command that outlives its timeout' do
+      expect { client.send(:execute_local_command, 'sleep 30', timeout: 1) }
+        .to raise_error(Odysseus::BuildError, /timed out|timeout/i)
+    end
+
+    it 'names the timeout it exceeded' do
+      expect { client.send(:execute_local_command, 'sleep 30', timeout: 1) }
+        .to raise_error(Odysseus::BuildError, /1s|1 second/)
+    end
+
+    it 'bounds a pussh so it cannot hang forever' do
+      expect(client).to receive(:execute_local_command)
+        .with(a_string_including('docker pussh'), hash_including(:timeout))
+        .and_return('ok')
+      client.pussh(image: 'app:v1', host: 'prod', user: 'deploy')
+    end
+
+    # The reported case. SSH#with_connection already says this for the deploy
+    # connection, but pussh shells out to the system ssh through docker and
+    # reaches none of that handling.
+    it 'suggests what to check when a push times out' do
+      allow(client).to receive(:execute_local_command)
+        .and_raise(Odysseus::BuildError, 'Command timed out after 600s: docker pussh')
+      result = client.pussh(image: 'app:v1', host: 'prod', user: 'deploy')
+
+      expect(result[:success]).to be false
+      expect(result[:error]).to match(/tailscale status/)
+    end
+
+    it 'does not leave the process running after a timeout' do
+      marker = "odysseus-spec-#{Process.pid}"
+      begin
+        client.send(:execute_local_command, "sh -c 'echo #{marker} >/dev/null; sleep 30'", timeout: 1)
+      rescue Odysseus::BuildError
+        nil
+      end
+      sleep 0.5
+      expect(`ps -eo args`).not_to include("echo #{marker}")
     end
   end
 end

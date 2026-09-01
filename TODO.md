@@ -227,6 +227,39 @@ Smaller findings worth fixing but not blocking anything.
       front and the failure lands after the new container is already running.
       The READMEs only ever show the list form, which is exactly why someone
       will write the other one.
+- [x] **odysseus cannot read any modern SSH key file.** Fixed: `ed25519` and
+      `bcrypt_pbkdf` are runtime dependencies now. `odysseus-core.gemspec`
+      declares `net-ssh` and not `ed25519`/`bcrypt_pbkdf`, and net-ssh raises
+      `NotImplementedError` for anything in the `-----BEGIN OPENSSH PRIVATE
+      KEY-----` container (`key_factory.rb:198`) without them. That container is
+      what every modern `ssh-keygen` writes, **RSA included** -- this is not an
+      ed25519-only problem. Verified 2026-09-01 against net-ssh 7.3.0: without
+      the gems all four of {ed25519, RSA} x {passphrase, none} raise
+      `NotImplementedError`; with them the plain keys load. Masked whenever
+      ssh-agent holds the key, which is why it reads as "works for us" and
+      fails for a tester on a fresh machine.
+- [x] **A passphrase-protected key is reported as the wrong problem.** Fixed:
+      `Odysseus::SSHKey.encrypted?` reads the cipher without decrypting, and the
+      failure now names the locked key and says `ssh-add` it.
+      `non_interactive: true` (`ssh.rb:206`) is right -- a passphrase prompt on
+      a deploy connection can never be answered -- but net-ssh reports
+      key-loading failures to a *logger* rather than raising
+      (`key_manager.rb:319`), and odysseus passes no logger, so the reason is
+      discarded. Authentication then fails and `with_connection` says "SSH
+      authentication failed ... Check your SSH keys." The key is fine; it is
+      locked. Should name the case and say what to do about it: add the key to
+      ssh-agent, since odysseus will never prompt.
+- [x] **`pussh` hangs silently and forever.** Fixed: output streams, stdin is
+      closed so a prompt gets EOF, and a push is bounded by `PUSSH_TIMEOUT`. `execute_local_command`
+      (`builder/client.rb:266`) is `` `#{cmd} 2>&1` ``: it captures everything
+      into a string, so `docker pussh` progress never reaches the terminal and
+      a healthy push is indistinguishable from a stuck one; there is no timeout
+      on the call; and no `ConnectTimeout` reaches the `ssh` underneath, so an
+      unroutable host blocks on TCP connect indefinitely. Reported from real
+      use with Tailscale needing login: "the push of the image hangs without
+      message or anything." Note `SSH#with_connection` already has good
+      Tailscale diagnostics (`ssh.rb:172-178`) -- `pussh` shells out to the
+      system `ssh` via `docker pussh` and reaches none of it.
 - [ ] `Docker#run_once` and the CLI's `app shell`/`console`/`exec` still inline
       `-e KEY=VALUE` unquoted, so a clear env value containing a space breaks the
       command. The deploy path now uses a 0600 `--env-file`; these did not

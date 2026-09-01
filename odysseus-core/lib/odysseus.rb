@@ -9,6 +9,7 @@ module Odysseus
         loader = Zeitwerk::Loader.for_gem(warn_on_extra_files: false)
         loader.inflector.inflect(
           'ssh' => 'SSH',
+          'ssh_key' => 'SSHKey',
           'aws_asg' => 'AwsAsg'
         )
         # errors.rb doesn't follow Zeitwerk conventions (plural, defines multiple classes)
