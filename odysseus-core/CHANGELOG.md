@@ -28,6 +28,18 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   `Odysseus::SSHKey.encrypted?` answers that by reading the cipher named in the
   key file, so no passphrase is needed to detect one.
 
+- `docker pussh` no longer hangs silently. It ran through backticks with
+  everything folded into a captured string, which had three consequences: no
+  output reached the terminal until the push finished, so a healthy push and a
+  stuck one looked identical; there was no timeout; and stdin stayed attached
+  to the parent, so a child that asked a question waited forever on an answer
+  nobody could see it requesting. Output now streams as it arrives, stdin is
+  closed so any prompt reaches EOF and fails promptly, and a push is bounded by
+  `PUSSH_TIMEOUT` (30 minutes -- generous, since it exists to end a hang rather
+  than to police a slow link). A push that does time out now suggests what to
+  check, including the Tailscale steps `SSH#with_connection` already gives for
+  the deploy connection but which `pussh` never reached.
+
 ### Changed
 
 - Every container odysseus starts now has a bounded log. Containers inherited

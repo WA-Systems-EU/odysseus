@@ -249,7 +249,8 @@ Smaller findings worth fixing but not blocking anything.
       authentication failed ... Check your SSH keys." The key is fine; it is
       locked. Should name the case and say what to do about it: add the key to
       ssh-agent, since odysseus will never prompt.
-- [ ] **`pussh` hangs silently and forever.** `execute_local_command`
+- [x] **`pussh` hangs silently and forever.** Fixed: output streams, stdin is
+      closed so a prompt gets EOF, and a push is bounded by `PUSSH_TIMEOUT`. `execute_local_command`
       (`builder/client.rb:266`) is `` `#{cmd} 2>&1` ``: it captures everything
       into a string, so `docker pussh` progress never reaches the terminal and
       a healthy push is indistinguishable from a stuck one; there is no timeout
