@@ -38,5 +38,12 @@ Gem::Specification.new do |spec|
   spec.add_dependency 'logger'  # Required in Ruby 4.0+
   spec.add_dependency 'net-scp', '~> 4.0'
   spec.add_dependency 'net-ssh', '~> 7.2'
+  # net-ssh needs both to read a key in the `-----BEGIN OPENSSH PRIVATE KEY-----`
+  # container -- which is what every modern ssh-keygen writes, RSA included, not
+  # only ed25519. Without them key_factory.rb raises NotImplementedError before
+  # it looks at the algorithm, and odysseus can only authenticate through
+  # ssh-agent. bcrypt_pbkdf is what decrypts an encrypted one.
+  spec.add_dependency 'bcrypt_pbkdf', '~> 1.1'
+  spec.add_dependency 'ed25519', '~> 1.3'
   spec.add_dependency 'zeitwerk', '~> 2.6'
 end

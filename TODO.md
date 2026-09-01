@@ -227,7 +227,8 @@ Smaller findings worth fixing but not blocking anything.
       front and the failure lands after the new container is already running.
       The READMEs only ever show the list form, which is exactly why someone
       will write the other one.
-- [ ] **odysseus cannot read any modern SSH key file.** `odysseus-core.gemspec`
+- [x] **odysseus cannot read any modern SSH key file.** Fixed: `ed25519` and
+      `bcrypt_pbkdf` are runtime dependencies now. `odysseus-core.gemspec`
       declares `net-ssh` and not `ed25519`/`bcrypt_pbkdf`, and net-ssh raises
       `NotImplementedError` for anything in the `-----BEGIN OPENSSH PRIVATE
       KEY-----` container (`key_factory.rb:198`) without them. That container is

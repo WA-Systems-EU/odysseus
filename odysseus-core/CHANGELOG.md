@@ -7,6 +7,17 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- odysseus could not read an SSH key from disk unless ssh-agent happened to be
+  holding it. `net-ssh` needs `ed25519` and `bcrypt_pbkdf` to parse anything in
+  the `-----BEGIN OPENSSH PRIVATE KEY-----` container -- which is what every
+  modern `ssh-keygen` writes, **RSA included, not only ed25519** -- and neither
+  was declared, so `key_factory.rb` raised `NotImplementedError` before it ever
+  looked at the algorithm. Both are runtime dependencies now. Reported by a
+  tester whose deploys failed with a passphrase-protected key; the passphrase
+  was not the cause, the key format was.
+
 ### Changed
 
 - Every container odysseus starts now has a bounded log. Containers inherited
