@@ -238,7 +238,9 @@ Smaller findings worth fixing but not blocking anything.
       `NotImplementedError`; with them the plain keys load. Masked whenever
       ssh-agent holds the key, which is why it reads as "works for us" and
       fails for a tester on a fresh machine.
-- [ ] **A passphrase-protected key is reported as the wrong problem.**
+- [x] **A passphrase-protected key is reported as the wrong problem.** Fixed:
+      `Odysseus::SSHKey.encrypted?` reads the cipher without decrypting, and the
+      failure now names the locked key and says `ssh-add` it.
       `non_interactive: true` (`ssh.rb:206`) is right -- a passphrase prompt on
       a deploy connection can never be answered -- but net-ssh reports
       key-loading failures to a *logger* rather than raising

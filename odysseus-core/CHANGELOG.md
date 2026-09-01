@@ -18,6 +18,16 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   tester whose deploys failed with a passphrase-protected key; the passphrase
   was not the cause, the key format was.
 
+- A passphrase-protected SSH key is no longer reported as "Check your SSH
+  keys." odysseus connects with `non_interactive: true` -- a passphrase prompt
+  on a deploy connection can never be answered, so prompting would hang rather
+  than help -- and net-ssh reports the resulting key-loading failure to a
+  logger rather than raising it, so with none configured the reason was
+  discarded and the reader was sent to inspect keys that were entirely correct.
+  The failure now names each locked key and gives the `ssh-add` line for it.
+  `Odysseus::SSHKey.encrypted?` answers that by reading the cipher named in the
+  key file, so no passphrase is needed to detect one.
+
 ### Changed
 
 - Every container odysseus starts now has a bounded log. Containers inherited

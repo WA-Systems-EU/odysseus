@@ -167,8 +167,7 @@ module Odysseus
       rescue SocketError
         raise Odysseus::SSHConnectionError, "Could not resolve hostname '#{@host}'. Check your DNS or /etc/hosts."
       rescue Net::SSH::AuthenticationFailed
-        raise Odysseus::SSHAuthenticationError,
-              "SSH authentication failed for #{@user}@#{@host}. Check your SSH keys."
+        raise Odysseus::SSHAuthenticationError, authentication_failure_message
       rescue Errno::ETIMEDOUT, Net::SSH::ConnectionTimeout, Errno::EHOSTUNREACH
         error_msg = "Connection to #{@host} timed out."
         if @use_tailscale
@@ -188,6 +187,29 @@ module Odysseus
         # and it points the reader at a flaky network instead of a host that
         # never answered.
         raise Odysseus::SSHConnectionError, drop_message(open, e)
+      end
+
+      # A passphrase-protected key reaches here as an ordinary authentication
+      # failure. net-ssh sends the real reason to a logger rather than raising
+      # it (key_manager.rb:319) and odysseus configures none, so without this
+      # the reader is told to check keys that are entirely correct.
+      #
+      # The advice is ssh-agent rather than a prompt on purpose: odysseus
+      # connects with non_interactive: true, and a passphrase prompt on a
+      # deploy connection cannot be answered -- it would hang the deploy
+      # instead of failing it.
+      def authentication_failure_message
+        base = "SSH authentication failed for #{@user}@#{@host}."
+        locked = @keys.select { |key| Odysseus::SSHKey.encrypted?(File.expand_path(key)) }
+
+        return "#{base} Check your SSH keys." if locked.empty?
+
+        "#{base}\n\n" \
+          "#{locked.length == 1 ? 'This key is' : 'These keys are'} passphrase-protected, and odysseus " \
+          "never prompts for one:\n" \
+          "#{locked.map { |key| "  #{key}" }.join("\n")}\n\n" \
+          "Add #{locked.length == 1 ? 'it' : 'them'} to your agent instead:\n" \
+          "#{locked.map { |key| "  ssh-add #{key}" }.join("\n")}"
       end
 
       # @param open [Boolean, nil] whether the session was established

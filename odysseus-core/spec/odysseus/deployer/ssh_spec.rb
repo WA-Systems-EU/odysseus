@@ -96,6 +96,58 @@ RSpec.describe Odysseus::Deployer::SSH do
       end
     end
 
+    # net-ssh reports key-loading failures to a logger rather than raising
+    # (key_manager.rb:319), and odysseus configures none -- so a
+    # passphrase-protected key arrives here as a plain authentication failure
+    # and the reader is told to check keys that are entirely correct. odysseus
+    # will never prompt (non_interactive is deliberate), so naming the locked
+    # key and pointing at ssh-agent is the only useful thing it can say.
+    context 'when authentication fails' do
+      let(:locked) { '/home/deploy/.ssh/id_locked' }
+
+      before do
+        allow(Net::SSH).to receive(:start).and_raise(Net::SSH::AuthenticationFailed.new('deploy'))
+      end
+
+      context 'and a configured key is passphrase-protected' do
+        subject(:ssh) { described_class.new(host: 'test-server', user: 'deploy', keys: [locked]) }
+
+        before do
+          allow(Odysseus::SSHKey).to receive(:encrypted?).with(locked).and_return(true)
+        end
+
+        it 'names the key that is locked' do
+          expect { ssh.execute('test') }
+            .to raise_error(Odysseus::SSHAuthenticationError, /#{Regexp.escape(locked)}/)
+        end
+
+        it 'says what to do about it' do
+          expect { ssh.execute('test') }
+            .to raise_error(Odysseus::SSHAuthenticationError, /ssh-add/)
+        end
+
+        it 'does not blame the keys themselves' do
+          expect { ssh.execute('test') }
+            .to raise_error(Odysseus::SSHAuthenticationError) { |e|
+              expect(e.message).not_to include('Check your SSH keys')
+            }
+        end
+      end
+
+      context 'and no configured key is encrypted' do
+        subject(:ssh) { described_class.new(host: 'test-server', user: 'deploy', keys: [locked]) }
+
+        before do
+          allow(Odysseus::SSHKey).to receive(:encrypted?).and_return(false)
+        end
+
+        it 'keeps the original message rather than guessing' do
+          expect { ssh.execute('test') }
+            .to raise_error(Odysseus::SSHAuthenticationError, /Check your SSH keys/)
+        end
+      end
+    end
+
     context 'when connection fails' do
       before do
         allow(Net::SSH).to receive(:start)
