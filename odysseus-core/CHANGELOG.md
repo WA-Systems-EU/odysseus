@@ -7,6 +7,8 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-09-16
+
 ### Fixed
 
 - odysseus could not read an SSH key from disk unless ssh-agent happened to be
