@@ -7,6 +7,8 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-09-18
+
 ### Fixed
 
 - `deploy --build` no longer dies with `incompatible character encodings:
