@@ -41,6 +41,58 @@ RSpec.describe Odysseus::CLI::UI do
 
   # In debug mode output flows through the redactor rather than the spinner
   # renderer, which is the seam where secrets could leak into a terminal or CI
+  # Reported from a real deploy: `odysseus deploy --build` died with
+  # "incompatible character encodings: UTF-8 and BINARY" while pushing. The
+  # non-debug branch reads the pipe with IO#read_nonblock, which hands back
+  # ASCII-8BIT; the accumulator starts as a UTF-8 literal but takes the
+  # chunk's encoding on the first append, so any byte above 0x7F -- a
+  # progress bar, a box-drawing character, an accented path -- reaches the
+  # spinner's UTF-8 format string as binary and raises there, after the build
+  # has already succeeded.
+  describe 'streamed output that is not plain ASCII' do
+    let(:ui) { described_class.new(debug: false) }
+
+    # The pause is load-bearing, not padding. The reader loop polls the pipe
+    # every 0.06s and exits as soon as the block is done and the buffer is
+    # drained, so without it the block finishes first and nothing is ever
+    # rendered -- which silently made an earlier version of these examples
+    # pass for any input, including the input that crashes.
+    def stream(line)
+      output = StringIO.new
+      original = $stdout
+      $stdout = output
+      begin
+        ui.stream_steps(title: 'Building') do
+          puts line
+          $stdout.flush
+          sleep 0.25
+        end
+      ensure
+        $stdout = original
+      end
+      output.string
+    end
+
+    it 'survives a line containing non-ASCII bytes' do
+      expect { stream('Pushing image ▓▓▓▓ 50%') }.not_to raise_error
+    end
+
+    it 'still shows the line it was given' do
+      expect(stream('Pushing image ▓▓▓▓ 50%')).to include('Pushing image')
+    end
+
+    # A read boundary can fall inside a multi-byte character, so the bytes of
+    # one character can arrive in two chunks. Scrubbing per chunk would eat it;
+    # scrubbing a completed line cannot, since every byte of the line is there.
+    it 'does not mangle a multi-byte character that spans a read' do
+      expect(stream('Café built')).to include('Café')
+    end
+
+    it 'does not raise on genuinely invalid byte sequences' do
+      expect { stream("broken \xC3\x28 output") }.not_to raise_error
+    end
+  end
+
   # log. The orchestrators print the docker commands they run.
   describe 'redaction of streamed output' do
     let(:ui) { described_class.new(debug: true) }

@@ -203,7 +203,13 @@ module Odysseus
         end
 
         frame_idx = 0
-        buf = ''
+        # Binary on purpose. IO#read_nonblock below returns ASCII-8BIT, and a
+        # UTF-8 literal here would silently take that encoding on the first
+        # append -- then any byte above 0x7F reaching the spinner's UTF-8
+        # format string raises Encoding::CompatibilityError, after the build it
+        # was reporting on has already succeeded. Accumulate bytes; decode a
+        # line once it is complete.
+        buf = String.new(encoding: Encoding::BINARY)
 
         loop do
           # Non-blocking read from pipe
@@ -218,7 +224,12 @@ module Odysseus
 
           # Process complete lines
           while (nl = buf.index("\n"))
-            line = buf.slice!(0..nl).strip
+            # Decode here rather than per chunk: a read boundary can fall
+            # inside a multi-byte character, and scrubbing a half-read chunk
+            # would destroy it. By the time a newline is in the buffer, every
+            # byte of that line has arrived, so scrub can only be removing
+            # genuinely invalid sequences.
+            line = buf.slice!(0..nl).force_encoding(Encoding::UTF_8).scrub('').strip
             next if line.empty?
 
             line = clean_line(line)

@@ -7,6 +7,18 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- `deploy --build` no longer dies with `incompatible character encodings:
+  UTF-8 and BINARY` after the build has already succeeded. The streamed-output
+  reader accumulated chunks from `IO#read_nonblock`, which returns ASCII-8BIT,
+  into a UTF-8 string literal -- which silently takes the chunk's encoding on
+  the first append. Any byte above 0x7F in the build or push output then
+  reached the spinner's UTF-8 format string as binary and raised there. Bytes
+  are now accumulated as binary and decoded once a line is complete, so a read
+  boundary falling inside a multi-byte character cannot mangle it either.
+  Reported from a real deploy that failed while pushing to a host.
+
 ## [0.10.0] - 2026-08-28
 
 ### Changed
