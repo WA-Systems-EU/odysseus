@@ -35,7 +35,7 @@ module Odysseus
         raise Odysseus::ConfigError, both_sources_message if literal && secret_key
 
         return from_secrets if secret_key
-        return literal if literal
+        return literal_with_deprecation_warning if literal
 
         value = @env[ENV_VAR]
         value unless value.nil? || value.empty?
@@ -60,6 +60,21 @@ module Odysseus
 
       def literal = @registry[:password]
       def secret_key = @registry[:password_secret]
+
+      # #password is called more than once per deploy -- #complete? checks it,
+      # then HostSession reads it again to log in -- so the warning is gated
+      # on an instance flag rather than printed every call. One Credentials
+      # per deploy (Executor memoizes it), so this is one notice per deploy,
+      # not one per host or per role.
+      def literal_with_deprecation_warning
+        unless @warned_literal_password
+          warn 'registry.password is deprecated and will be removed one release after this one. ' \
+               'Use registry.password_secret to read the credential from the encrypted secrets file instead.'
+          @warned_literal_password = true
+        end
+
+        literal
+      end
 
       def from_secrets
         value = @secrets_loader&.get(secret_key)

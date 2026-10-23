@@ -32,8 +32,38 @@ RSpec.describe Odysseus::Registry::Credentials do
   end
 
   describe 'literal password' do
-    it 'is still accepted' do
-      expect(creds({ server: 'ghcr.io', username: 'wa', password: 'literal' }).password).to eq('literal')
+    it 'is still accepted, and warns once that it is deprecated' do
+      c = creds({ server: 'ghcr.io', username: 'wa', password: 'literal' })
+      result = nil
+
+      expect { result = c.password }.to output(/password_secret/).to_stderr
+      expect(result).to eq('literal')
+    end
+
+    it 'warns only once even when #password is read more than once' do
+      c = creds({ server: 'ghcr.io', username: 'wa', password: 'literal' })
+
+      messages = []
+      expect(c).to(receive(:warn).once { |msg| messages << msg })
+
+      c.password
+      c.password
+      c.password
+
+      expect(messages).to eq(messages.take(1))
+    end
+
+    it 'does not warn when password_secret is used instead' do
+      allow(loader).to receive(:get).with('REGISTRY_TOKEN').and_return('s3cr3t')
+      c = creds({ server: 'ghcr.io', username: 'wa', password_secret: 'REGISTRY_TOKEN' })
+
+      expect { c.password }.not_to output.to_stderr
+    end
+
+    it 'does not warn when the credential comes from the env var' do
+      c = creds({ server: 'ghcr.io', username: 'wa' }, env: { 'ODYSSEUS_REGISTRY_PASSWORD' => 'from-env' })
+
+      expect { c.password }.not_to output.to_stderr
     end
   end
 
@@ -57,7 +87,11 @@ RSpec.describe Odysseus::Registry::Credentials do
 
   describe '#complete?' do
     it 'needs server, username and password' do
-      expect(creds({ server: 'ghcr.io', username: 'wa', password: 'p' }).complete?).to be true
+      # A literal password warns (see 'literal password' above); swallowed
+      # here since this example is about #complete?, not the deprecation.
+      result = nil
+      expect { result = creds({ server: 'ghcr.io', username: 'wa', password: 'p' }).complete? }.to output.to_stderr
+      expect(result).to be true
     end
 
     it 'is false without a username' do
