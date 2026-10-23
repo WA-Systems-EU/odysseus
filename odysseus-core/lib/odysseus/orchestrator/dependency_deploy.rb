@@ -11,13 +11,18 @@ module Odysseus
       # @param config [Hash] parsed deploy config
       # @param secrets_loader [Odysseus::Secrets::Loader] secrets loader (optional)
       # @param logger [Object] logger (optional)
-      def initialize(ssh:, config:, secrets_loader: nil, logger: nil)
+      # @param registry_config_dir [String, nil] docker config directory
+      #   holding registry credentials, from Registry::HostSession. Optional:
+      #   executor.rb passes this signature to sail plugins too, and a required
+      #   argument would break odysseus-sail-rolling.
+      def initialize(ssh:, config:, secrets_loader: nil, logger: nil, registry_config_dir: nil)
         @ssh = ssh
         @config = config
         @secrets_loader = secrets_loader
         @logger = logger || default_logger
         @docker = Odysseus::Docker::Client.new(ssh)
         @caddy = Odysseus::Caddy::Client.new(ssh: ssh, docker: @docker)
+        @registry_config_dir = registry_config_dir
       end
 
       # Deploy/ensure an dependency is running
@@ -145,7 +150,7 @@ module Odysseus
 
         # Pull the new image first (before stopping anything)
         log 'Pulling new image...'
-        @docker.pull(image)
+        @docker.pull(image, config_dir: @registry_config_dir)
         log '  Image pulled'
 
         # Check for existing container

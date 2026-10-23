@@ -227,8 +227,24 @@ RSpec.describe Odysseus::Orchestrator::DependencyDeploy do
       end
 
       it 'pulls the new image first' do
-        expect(mock_docker).to receive(:pull).with('redis:7-alpine').ordered
+        expect(mock_docker).to receive(:pull).with('redis:7-alpine', config_dir: nil).ordered
         expect(mock_docker).to receive(:stop).ordered
+        orchestrator.upgrade(name: :redis)
+      end
+
+      # This orchestrator already pulled; what it lacked was credentials.
+      it 'pulls through the registry config directory when given one' do
+        registry_orchestrator = described_class.new(ssh: mock_ssh, config: config, logger: silent_logger,
+                                                    registry_config_dir: '/tmp/d')
+
+        expect(mock_docker).to receive(:pull).with('redis:7-alpine', config_dir: '/tmp/d')
+
+        registry_orchestrator.upgrade(name: :redis)
+      end
+
+      it 'pulls without one otherwise' do
+        expect(mock_docker).to receive(:pull).with('redis:7-alpine', config_dir: nil)
+
         orchestrator.upgrade(name: :redis)
       end
 
@@ -276,7 +292,7 @@ RSpec.describe Odysseus::Orchestrator::DependencyDeploy do
       end
 
       it 'pulls image and starts container without needing to stop anything' do
-        expect(mock_docker).to receive(:pull).with('redis:7-alpine')
+        expect(mock_docker).to receive(:pull).with('redis:7-alpine', config_dir: nil)
         expect(mock_docker).not_to receive(:stop)
         expect(mock_docker).to receive(:run).and_return(new_container_id)
 
