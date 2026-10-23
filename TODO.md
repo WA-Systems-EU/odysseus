@@ -260,6 +260,18 @@ Smaller findings worth fixing but not blocking anything.
       message or anything." Note `SSH#with_connection` already has good
       Tailscale diagnostics (`ssh.rb:172-178`) -- `pussh` shells out to the
       system `ssh` via `docker pussh` and reaches none of it.
+- [ ] **A missing secret silently takes whatever the host has.**
+      `Core::Environment#secret_value` reads the encrypted file first and then
+      falls back to the deploy target's own environment with
+      `@ssh.execute("echo $#{key}")`. So a key you forgot to add to the secrets
+      file does not fail the deploy -- it quietly injects whatever that host
+      happens to have under the same name, which is a surprising way to deploy
+      the wrong value, and differs per host. Two things to decide: whether the
+      fallback should exist at all (it is undocumented), and if it does, whether
+      a value coming from it should be announced. Also unquoted: the key name
+      comes from deploy.yml and is interpolated into a shell command, so a name
+      containing shell metacharacters is injection -- self-inflicted, since it
+      is the user's own config, but still wrong.
 - [ ] `Docker#run_once` and the CLI's `app shell`/`console`/`exec` still inline
       `-e KEY=VALUE` unquoted, so a clear env value containing a space breaks the
       command. The deploy path now uses a 0600 `--env-file`; these did not
