@@ -1,0 +1,21 @@
+# spec/fixtures/deploy-registry.yml
+# Identical to deploy.yml but with a complete, literal registry credential, so
+# Executor#run_deploy has something to open a Registry::HostSession around.
+
+service: myapp
+image: myapp-production
+
+registry:
+  server: ghcr.io
+  username: wa
+  password: s3cr3t
+
+servers:
+  web:
+    hosts:
+      - app1.example.com
+
+ssh:
+  user: root
+  keys:
+    - ~/.ssh/id_ed25519

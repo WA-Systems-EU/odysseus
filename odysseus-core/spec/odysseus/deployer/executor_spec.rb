@@ -166,7 +166,8 @@ RSpec.describe Odysseus::Deployer::Executor do
           ssh: mock_ssh,
           config: hash_including(service: 'myapp', image: 'myapp-production'),
           logger: anything,
-          secrets_loader: instance_of(Odysseus::Secrets::Loader)
+          secrets_loader: instance_of(Odysseus::Secrets::Loader),
+          registry_config_dir: nil
         ).and_return(mock_orchestrator)
 
         executor.deploy_role(host: 'test-server', image_tag: 'v1.0', role: :web)
@@ -196,7 +197,7 @@ RSpec.describe Odysseus::Deployer::Executor do
         mock_job_orchestrator = instance_double(Odysseus::Orchestrator::JobDeploy)
 
         expect(Odysseus::Orchestrator::JobDeploy).to receive(:new)
-          .with(ssh: mock_ssh, config: anything, logger: anything, secrets_loader: anything)
+          .with(ssh: mock_ssh, config: anything, logger: anything, secrets_loader: anything, registry_config_dir: nil)
           .and_return(mock_job_orchestrator)
         allow(mock_job_orchestrator).to receive(:deploy).and_return({ success: true })
 
@@ -300,6 +301,66 @@ RSpec.describe Odysseus::Deployer::Executor do
     end
   end
 
+  describe 'registry sessions' do
+    let(:registry_executor) { described_class.new(fixture_path('deploy-registry.yml')) }
+
+    it 'opens a session around the orchestrator and passes the directory down' do
+      allow(Odysseus::Registry::HostSession).to receive(:open) do |ssh:, credentials:, &block|
+        expect(ssh).to eq(mock_ssh)
+        expect(credentials).to be_a(Odysseus::Registry::Credentials)
+        block.call('/tmp/odysseus-registry.abc')
+      end
+      expect(Odysseus::Orchestrator::WebDeploy).to receive(:new).with(
+        hash_including(registry_config_dir: '/tmp/odysseus-registry.abc')
+      ).and_return(mock_orchestrator)
+      allow(mock_orchestrator).to receive(:deploy).and_return(success: true)
+
+      registry_executor.deploy_role(host: 'test-server', image_tag: 'v1.0', role: :web)
+    end
+
+    # Executor's connection is per role-host, so HostSession.open is always the
+    # entry point reached (Registry::Credentials.new + .open is cheap and
+    # always safe to call) -- what must NOT happen with no registry configured
+    # is an actual session, i.e. HostSession ever being instantiated to log in.
+    it 'opens no session when no registry is configured' do
+      allow(Odysseus::Orchestrator::WebDeploy).to receive(:new).and_return(mock_orchestrator)
+      allow(mock_orchestrator).to receive(:deploy).and_return(success: true)
+      expect(Odysseus::Registry::HostSession).not_to receive(:new)
+
+      executor.deploy_role(host: 'test-server', image_tag: 'v1.0', role: :web)
+    end
+
+    # Drives the real HostSession (not stubbed) so the credential's removal --
+    # HostSession's own `rm -rf`, run in its `ensure` -- can be placed in the
+    # same timeline as record_deploy. record_deploy happening inside the
+    # session block (rather than after it, as required) would reorder this to
+    # [create_dir, login, record_deploy, remove_dir], leaving the credential on
+    # the host for the duration of recording.
+    it 'removes the registry credential from the host before recording the deploy' do
+      call_order = []
+      allow(mock_ssh).to receive(:execute) do |cmd|
+        case cmd
+        when /mktemp/
+          call_order << :create_dir
+          "/tmp/odysseus-registry.abc\n"
+        when /docker login/
+          call_order << :login
+        when /rm -rf/
+          call_order << :remove_dir
+        end
+      end
+      deploy_log = instance_double(Odysseus::DeployLog)
+      allow(Odysseus::DeployLog).to receive(:new).and_return(deploy_log)
+      allow(deploy_log).to receive(:append) { call_order << :record_deploy }
+      allow(Odysseus::Orchestrator::WebDeploy).to receive(:new).and_return(mock_orchestrator)
+      allow(mock_orchestrator).to receive(:deploy).and_return(success: true)
+
+      registry_executor.deploy_role(host: 'test-server', image_tag: 'v1.0', role: :web)
+
+      expect(call_order).to eq(%i[create_dir login remove_dir record_deploy])
+    end
+  end
+
   describe '#deploy_version' do
     let(:resolver) { instance_double(Odysseus::VersionResolver) }
     let(:resolved) do
@@ -340,7 +401,8 @@ RSpec.describe Odysseus::Deployer::Executor do
         ssh: mock_ssh,
         config: hash_including(deploy_version: resolved),
         logger: anything,
-        secrets_loader: anything
+        secrets_loader: anything,
+        registry_config_dir: nil
       ).and_return(mock_orchestrator)
 
       executor.deploy_role(host: 'test-server', image_tag: nil, role: :web)
@@ -587,6 +649,50 @@ RSpec.describe Odysseus::Deployer::Executor do
         end.at_least(:once)
 
         multihost.rollback_all(plan)
+      end
+    end
+
+    describe 'registry_config_dir and a sail' do
+      # A sail is built against the old four-keyword signature, so handing it
+      # registry_config_dir only when it is not nil is what keeps every sail
+      # not using a registry working. sail_class above (fixed keywords, no
+      # registry_config_dir) would raise ArgumentError either way an unknown
+      # keyword arrived -- nil or not -- which proves nothing about whether
+      # nil specifically was withheld. This double instead records exactly
+      # what it was constructed with, so the assertion is on the args hash
+      # build_orchestrator built, not on a double's tolerance of it.
+      let(:capturing_sail) do
+        Class.new do
+          class << self
+            attr_accessor :received_args
+          end
+
+          def initialize(**kwargs)
+            self.class.received_args = kwargs
+          end
+
+          def deploy(image_tag:, role:)
+            { success: true, image_tag: image_tag, role: role }
+          end
+        end
+      end
+
+      let(:resolved) do
+        Odysseus::DeployVersion.new(version: 'v1', ref: 'main', deployer: 'dev@example.com')
+      end
+
+      before { Odysseus::Sails.register(:rolling, capturing_sail) }
+
+      it 'omits registry_config_dir entirely from the sail args when none is configured' do
+        multihost.send(:build_orchestrator, mock_ssh, :cron, resolved, registry_config_dir: nil)
+
+        expect(capturing_sail.received_args).not_to have_key(:registry_config_dir)
+      end
+
+      it 'passes registry_config_dir to the sail when one is given' do
+        multihost.send(:build_orchestrator, mock_ssh, :cron, resolved, registry_config_dir: '/tmp/odysseus-registry.abc')
+
+        expect(capturing_sail.received_args[:registry_config_dir]).to eq('/tmp/odysseus-registry.abc')
       end
     end
 

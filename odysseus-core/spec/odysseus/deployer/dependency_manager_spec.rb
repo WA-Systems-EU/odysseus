@@ -73,6 +73,44 @@ RSpec.describe Odysseus::Deployer::DependencyManager do
     end
   end
 
+  describe 'registry sessions' do
+    let(:registry_fixture) { fixture_path('deploy-dependencies-registry.yml') }
+    let(:registry_executor) { Odysseus::Deployer::Executor.new(registry_fixture) }
+
+    it 'opens a session around the orchestrator and passes the directory down' do
+      allow(Odysseus::Registry::HostSession).to receive(:open) do |ssh:, credentials:, &block|
+        expect(ssh).to eq(mock_ssh)
+        expect(credentials).to be_a(Odysseus::Registry::Credentials)
+        block.call('/tmp/odysseus-registry.abc')
+      end
+      expect(Odysseus::Orchestrator::DependencyDeploy).to receive(:new).with(
+        hash_including(registry_config_dir: '/tmp/odysseus-registry.abc')
+      ).at_least(:once).and_return(orchestrator)
+      allow(orchestrator).to receive(:deploy).and_return(success: true)
+
+      registry_executor.deploy_dependency(name: 'redis')
+    end
+
+    # run_action's connection is per host, so HostSession.open is always the
+    # entry point reached (Registry::Credentials.new + .open is cheap and
+    # always safe to call) -- what must NOT happen with no registry configured
+    # is an actual session, i.e. HostSession ever being instantiated to log in.
+    it 'opens no session when no registry is configured' do
+      allow(orchestrator).to receive(:deploy).and_return(success: true)
+      expect(Odysseus::Registry::HostSession).not_to receive(:new)
+
+      executor.deploy_dependency(name: 'redis')
+    end
+
+    it 'opens no session for a status query, which does not pull' do
+      allow(orchestrator).to receive(:list_status).and_return([])
+      expect(Odysseus::Registry::HostSession).not_to receive(:open)
+      expect(Odysseus::Registry::HostSession).not_to receive(:new)
+
+      registry_executor.dependency_status
+    end
+  end
+
   describe '#dependency_status' do
     context 'with dependencies configured' do
       before do

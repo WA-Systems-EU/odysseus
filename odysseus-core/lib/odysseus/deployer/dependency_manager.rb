@@ -92,8 +92,11 @@ module Odysseus
         config
       end
 
-      # Shared plumbing for the verbs above: resolve hosts, connect, build the
-      # orchestrator, run the block, and always close the connection.
+      # Shared plumbing for the verbs above: resolve hosts, connect, open a
+      # registry session scoped to that connection, build the orchestrator,
+      # run the block, and always close the connection. The session cannot
+      # outlive the connection it logged in over, so it is opened per host
+      # here rather than once for the whole run.
       def run_action(name, verb, preposition)
         hosts = dependency_config(name)[:hosts] || []
 
@@ -105,7 +108,9 @@ module Odysseus
           ssh = @connector.call(host)
 
           begin
-            results[host] = yield(build_orchestrator(ssh))
+            results[host] = Odysseus::Registry::HostSession.open(ssh: ssh, credentials: registry_credentials) do |config_dir|
+              yield(build_orchestrator(ssh, registry_config_dir: config_dir))
+            end
           ensure
             ssh.close
           end
@@ -113,8 +118,14 @@ module Odysseus
         results
       end
 
-      def build_orchestrator(ssh)
-        Odysseus::Orchestrator::DependencyDeploy.new(ssh: ssh, config: @config, secrets_loader: @secrets_loader)
+      def registry_credentials
+        @registry_credentials ||= Odysseus::Registry::Credentials.new(@config[:registry], secrets_loader: @secrets_loader)
+      end
+
+      def build_orchestrator(ssh, registry_config_dir: nil)
+        Odysseus::Orchestrator::DependencyDeploy.new(
+          ssh: ssh, config: @config, secrets_loader: @secrets_loader, registry_config_dir: registry_config_dir
+        )
       end
     end
   end

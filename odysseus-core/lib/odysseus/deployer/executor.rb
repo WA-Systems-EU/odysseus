@@ -345,13 +345,25 @@ module Odysseus
         ssh = connect_to_server(host)
 
         begin
-          orchestrator = build_orchestrator(ssh, role, resolved)
-          result = orchestrator.deploy(image_tag: resolved.version, role: role)
+          # The session is scoped to this connection, which is one role on one
+          # host. It cannot be wider: a login cannot outlive the connection it
+          # was made over. Closing before record_deploy means the credential is
+          # gone from the host as soon as the containers are up.
+          result = Odysseus::Registry::HostSession.open(ssh: ssh, credentials: registry_credentials) do |config_dir|
+            orchestrator = build_orchestrator(ssh, role, resolved, registry_config_dir: config_dir)
+            orchestrator.deploy(image_tag: resolved.version, role: role)
+          end
           record_deploy(ssh: ssh, host: host, role: role, resolved: resolved, kind: kind, from: from)
           result
         ensure
           ssh.close
         end
+      end
+
+      def registry_credentials
+        @registry_credentials ||= Odysseus::Registry::Credentials.new(
+          @config[:registry], secrets_loader: @secrets_loader
+        )
       end
 
       # The host's own record of what it is running, written only after the
@@ -371,7 +383,7 @@ module Odysseus
         build_logger.warn("Could not record the deploy on #{host}: #{e.message}")
       end
 
-      def build_orchestrator(ssh, role, resolved)
+      def build_orchestrator(ssh, role, resolved, registry_config_dir: nil)
         logger = build_logger
         role_config = @config[:servers][role] || {}
         strategy = role_config.dig(:deploy, :strategy)
@@ -380,16 +392,22 @@ module Odysseus
         # Check if a sail plugin provides this strategy
         if strategy && Odysseus::Sails.registered?(strategy)
           sail_klass = Odysseus::Sails.resolve(strategy)
-          sail_klass.new(
-            ssh: ssh, config: config, logger: logger, secrets_loader: @secrets_loader
-          )
+          args = { ssh: ssh, config: config, logger: logger, secrets_loader: @secrets_loader }
+          # Withheld when nil: a sail built against the old signature raises
+          # ArgumentError on an unknown keyword, and nil would not have changed
+          # anything for it anyway. A sail plus a private registry still needs
+          # the sail updated -- see TODO.md.
+          args[:registry_config_dir] = registry_config_dir if registry_config_dir
+          sail_klass.new(**args)
         elsif role == WEB_ROLE
           Odysseus::Orchestrator::WebDeploy.new(
-            ssh: ssh, config: config, logger: logger, secrets_loader: @secrets_loader
+            ssh: ssh, config: config, logger: logger, secrets_loader: @secrets_loader,
+            registry_config_dir: registry_config_dir
           )
         else
           Odysseus::Orchestrator::JobDeploy.new(
-            ssh: ssh, config: config, logger: logger, secrets_loader: @secrets_loader
+            ssh: ssh, config: config, logger: logger, secrets_loader: @secrets_loader,
+            registry_config_dir: registry_config_dir
           )
         end
       end

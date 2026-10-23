@@ -1,0 +1,33 @@
+# spec/fixtures/deploy-dependencies-registry.yml
+# Identical to deploy-dependencies.yml but with a complete, literal registry
+# credential, so DependencyManager#run_action has something to open a
+# Registry::HostSession around.
+
+service: myapp
+image: myapp-production
+
+registry:
+  server: ghcr.io
+  username: wa
+  password: s3cr3t
+
+servers:
+  web:
+    hosts:
+      - web1.example.com
+
+dependencies:
+  redis:
+    image: redis:7
+    hosts:
+      - acc1.example.com
+      - acc2.example.com
+  sidekiq:
+    image: sidekiq:latest
+    hosts:
+      - acc1.example.com
+
+ssh:
+  user: root
+  keys:
+    - ~/.ssh/id_ed25519
