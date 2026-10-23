@@ -409,9 +409,25 @@ RSpec.describe Odysseus::Registry::HostSession do
 
   it 'creates the directory mode 700, so another user on the host cannot read it' do
     stub_mktemp
-    expect(ssh).to receive(:execute).with(a_string_including('mktemp -d')).and_return("/tmp/d\n")
+    expect(ssh).to receive(:execute).with(a_string_including('chmod 700')).and_return("/tmp/d\n")
     allow(ssh).to receive(:execute)
     described_class.open(ssh: ssh, credentials: complete) { nil }
+  end
+
+  # $_ holds mktemp's last argument, not its output -- a first version of this
+  # chmod'd the template and returned it as the directory.
+  it 'returns the directory mktemp created, not the template it was given' do
+    allow(ssh).to receive(:execute).with(a_string_including('mktemp')).and_return("/tmp/odysseus-registry.AbCdEfGh\n")
+    allow(ssh).to receive(:execute)
+    described_class.open(ssh: ssh, credentials: complete) do |dir|
+      expect(dir).to eq('/tmp/odysseus-registry.AbCdEfGh')
+    end
+  end
+
+  it 'aborts when the directory cannot be created' do
+    allow(ssh).to receive(:execute).with(a_string_including('mktemp')).and_return("\n")
+    expect { described_class.open(ssh: ssh, credentials: complete) { nil } }
+      .to raise_error(Odysseus::DeployError, /director/i)
   end
 
   # Any other shape loses redaction. See CommandRedaction::STDIN_PIPE.
@@ -541,7 +557,13 @@ module Odysseus
       # Mode 700 because the file written inside holds the credential, and a
       # host may have other users on it.
       def create_dir
-        @ssh.execute("mktemp -d -t #{DIR_TEMPLATE} && chmod 700 \"$_\"").strip.lines.first.to_s.strip
+        # $_ would hold mktemp's last ARGUMENT, not its output, so the
+        # directory has to be captured in a shell variable and echoed back.
+        out = @ssh.execute("d=$(mktemp -d -t #{DIR_TEMPLATE}) && chmod 700 \"$d\" && echo \"$d\"")
+        dir = out.to_s.strip.lines.last.to_s.strip
+        raise Odysseus::DeployError, 'Could not create a directory for the registry credentials' if dir.empty?
+
+        dir
       end
 
       # Built in exactly the shape CommandRedaction::STDIN_PIPE matches, with
