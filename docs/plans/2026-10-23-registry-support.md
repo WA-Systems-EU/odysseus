@@ -869,7 +869,20 @@ Run: `cd odysseus-core && bundle exec rspec spec/odysseus/deployer/executor_spec
       end
 ```
 
-**A sail written against the old signature will raise `ArgumentError: unknown keyword`.** Decide and record which: either forward it only when non-nil, or accept that sails must be updated. Write the decision into the commit message and into `TODO.md` if sails need updating — do not leave it undocumented.
+**Decided: forward it to a sail only when it is non-nil.** A sail written against the old signature raises `ArgumentError: unknown keyword` if handed the argument, and `nil` is exactly the case where it would change nothing — so withholding it there keeps every existing sail working for everyone not using a registry, which is nearly everyone. Only a deploy using *both* a sail and a private registry hits the gap, and that is recorded as its own TODO entry in Task 7 rather than fixed here.
+
+```ruby
+        if strategy && Odysseus::Sails.registered?(strategy)
+          args = { ssh: ssh, config: config, logger: logger, secrets_loader: @secrets_loader }
+          # Withheld when nil: a sail built against the old signature raises
+          # ArgumentError on an unknown keyword, and nil would not have changed
+          # anything for it anyway. A sail plus a private registry still needs
+          # the sail updated -- see TODO.md.
+          args[:registry_config_dir] = registry_config_dir if registry_config_dir
+          sail_klass.new(**args)
+```
+
+The `WebDeploy` and `JobDeploy` branches pass it unconditionally; they are in this repo and gain the argument in Task 4.
 
 Do the same in `DependencyManager#run_action`, wrapping its orchestrator call in a session built from the same credentials.
 
@@ -953,9 +966,23 @@ Keep the **Experimental** warning, and give it its reason:
 
 Write what changed and what it costs, in this repo's voice: what was broken (no host ever logged in, two orchestrators never pulled, no way to keep the credential out of deploy.yml), what it is now, and the limit — all doubles, so unverified against a real registry.
 
-- [ ] **Step 4: Update the TODO entry**
+- [ ] **Step 4: Update the TODO entry, and add one**
 
-Mark "Finish registry support" `[x]`, keeping the original diagnosis and adding what was done, the `DOCKER_CONFIG`-versus-`--config` discovery, and that it is unverified against a real private registry. If Task 6 concluded sails need updating, add that as its own open entry.
+Mark "Finish registry support" `[x]`, keeping the original diagnosis and adding what was done, the `DOCKER_CONFIG`-versus-`--config` discovery, and that it is unverified against a real private registry.
+
+Then add this open entry:
+
+```markdown
+- [ ] **A sail cannot pull from a private registry.** `build_orchestrator`
+      withholds `registry_config_dir:` from a sail when it is nil, which keeps
+      every existing sail working — but it also means a deploy using a sail
+      *and* a private registry gets no credentials on the host, and the pull
+      fails. `odysseus-sail-rolling` needs the keyword added to its
+      constructor, and the same goes for any other sail. Deliberately not done
+      with the registry work: sails are separate gems with their own suites,
+      and silently passing an argument a sail does not accept raises
+      `ArgumentError: unknown keyword` on every deploy using one.
+```
 
 - [ ] **Step 5: Commit**
 
