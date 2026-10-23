@@ -383,10 +383,28 @@ RSpec.describe Odysseus::Docker::Client do
     end
   end
 
+  # DOCKER_CONFIG rather than `docker --config`: CommandRedaction's STDIN_PIPE
+  # needs `docker login` directly after the pipe, so a flag between them would
+  # silently stop the password being redacted under --debug.
   describe '#pull' do
     it 'pulls the image' do
       expect(mock_ssh).to receive(:execute).with('docker pull myapp:v1.0')
       client.pull('myapp:v1.0')
+    end
+
+    it 'pulls without a config directory by default' do
+      expect(mock_ssh).to receive(:execute).with('docker pull myapp:v1')
+      client.pull('myapp:v1')
+    end
+
+    it 'points DOCKER_CONFIG at the directory it is given' do
+      expect(mock_ssh).to receive(:execute).with('DOCKER_CONFIG=/tmp/odys.123 docker pull myapp:v1')
+      client.pull('myapp:v1', config_dir: '/tmp/odys.123')
+    end
+
+    it 'escapes a config directory containing a space' do
+      expect(mock_ssh).to receive(:execute).with('DOCKER_CONFIG=/tmp/odys\ 123 docker pull myapp:v1')
+      client.pull('myapp:v1', config_dir: '/tmp/odys 123')
     end
   end
 

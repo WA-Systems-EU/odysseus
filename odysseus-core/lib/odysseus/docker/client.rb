@@ -153,9 +153,19 @@ module Odysseus
       end
 
       # Pull an image
+      #
+      # DOCKER_CONFIG rather than `docker --config <dir>`: the two are
+      # equivalent to docker, but CommandRedaction::STDIN_PIPE matches
+      # `docker login` directly after the pipe, and a flag between them would
+      # stop the login password being redacted. Keeping both commands in the
+      # env-prefix shape means the redactor only has to know one.
+      #
       # @param image [String] image:tag
-      def pull(image)
-        @ssh.execute("docker pull #{image}")
+      # @param config_dir [String, nil] a docker config directory holding
+      #   registry credentials, from Registry::HostSession
+      def pull(image, config_dir: nil)
+        prefix = config_dir ? "DOCKER_CONFIG=#{Shellwords.escape(config_dir)} " : ''
+        @ssh.execute("#{prefix}docker pull #{image}")
       end
 
       # Check if image exists locally
