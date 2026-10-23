@@ -84,7 +84,13 @@ module Odysseus
           '--password-stdin'
         )
       rescue Odysseus::Error => e
-        raise Odysseus::DeployError, "Registry login failed for #{@credentials.server}: #{e.message}"
+        # SSH#execute already redacts the command it embeds in a failure
+        # message, but that message is forwarded into a new exception here --
+        # redacting again is cheap insurance against a password surfacing in
+        # the DeployError regardless of what the caught error turns out to
+        # contain.
+        raise Odysseus::DeployError,
+              "Registry login failed for #{@credentials.server}: #{Odysseus::CommandRedaction.redact(e.message)}"
       end
 
       # Single-quotes a string for POSIX shells, escaping any literal single

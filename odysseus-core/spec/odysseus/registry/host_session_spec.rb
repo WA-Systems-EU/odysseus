@@ -101,6 +101,22 @@ RSpec.describe Odysseus::Registry::HostSession do
     expect { described_class.open(ssh: ssh, credentials: complete) { raise 'boom' } }.to raise_error('boom')
   end
 
+  # A deploy that fails because teardown couldn't clean up its own temp
+  # directory is worse than the credential being left behind: now there's a
+  # failed deploy AND an undiscarded credential. The requirement is that
+  # teardown failure warns -- naming the directory, since that's the one
+  # thing left on the host for someone to go clean up by hand -- and never
+  # fails the deploy.
+  it 'warns and keeps the deploy result when the directory cannot be removed' do
+    stub_mktemp('/tmp/d')
+    allow(ssh).to receive(:execute).with(a_string_including('rm -rf'))
+                                   .and_raise(Odysseus::SSHCommandError, 'permission denied')
+    result = nil
+    expect { result = described_class.open(ssh: ssh, credentials: complete) { :ok } }
+      .to output(%r{/tmp/d}).to_stderr
+    expect(result).to eq(:ok)
+  end
+
   it 'returns what the block returned' do
     stub_mktemp
     expect(described_class.open(ssh: ssh, credentials: complete) { :result }).to eq(:result)
@@ -120,10 +136,19 @@ RSpec.describe Odysseus::Registry::HostSession do
       .to raise_error(Odysseus::DeployError, /ghcr.io/)
   end
 
+  # A stub that raises with just 'unauthorized' would make this pass whether
+  # or not anything redacts anything -- that message never contained the
+  # password to begin with. A rejected login raised by the real SSH class
+  # embeds the raw command (command_failure_message), so the stub has to
+  # carry that shape, password and all, for this spec to mean anything.
   it 'does not put the password in the abort message' do
     allow(ssh).to receive(:execute).with(a_string_including('mktemp -d')).and_return("/tmp/d\n")
-    allow(ssh).to receive(:execute).with(a_string_including('docker login'))
-                                   .and_raise(Odysseus::SSHCommandError, 'unauthorized')
+    realistic_failure = Odysseus::SSHCommandError.new(
+      'Command failed on registry-host with exit status 1: ' \
+      "export DOCKER_CONFIG=/tmp/d && echo 's3cr3t' | docker login ghcr.io -u wa --password-stdin\n" \
+      'unauthorized: incorrect username or password'
+    )
+    allow(ssh).to receive(:execute).with(a_string_including('docker login')).and_raise(realistic_failure)
     allow(ssh).to receive(:execute).with(a_string_including('rm -rf'))
     described_class.open(ssh: ssh, credentials: complete) { nil }
   rescue Odysseus::DeployError => e

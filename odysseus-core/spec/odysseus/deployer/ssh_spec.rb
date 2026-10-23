@@ -229,6 +229,22 @@ RSpec.describe Odysseus::Deployer::SSH do
         expect { ssh.execute('docker stop abc123') }
           .to raise_error(Odysseus::SSHCommandError, /No such container: abc123/)
       end
+
+      # command_failure_message embeds the raw command in every failure, not
+      # just registry logins -- a rejected `docker login --password-stdin`
+      # is just the case that makes the leak concrete. Without this, a
+      # caller that prints or logs the exception (as the CLI does) prints
+      # the password.
+      it 'redacts a secret carried in the failing command' do
+        login = "echo 'hunter2' | docker login r.example.com -u deploy --password-stdin"
+
+        expect { ssh.execute(login) }
+          .to raise_error(Odysseus::SSHCommandError) { |error|
+            expect(error.message).not_to include('hunter2')
+            expect(error.message).to include('[REDACTED]')
+            expect(error.message).to include('docker login r.example.com')
+          }
+      end
     end
 
     context 'when the remote command writes to stderr but succeeds' do

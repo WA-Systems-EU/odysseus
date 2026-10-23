@@ -144,11 +144,18 @@ module Odysseus
 
       # Build a diagnostic message for a failed remote command.
       # Prefers stderr, falls back to stdout when the command only wrote there.
+      #
+      # Redacted the same way the verbose echo above is: this embeds the raw
+      # command into an exception message, which is the other place (besides
+      # --debug) that command text turns into text a caller might print or
+      # log. A registry login that gets rejected raises through here with its
+      # password still in the command string otherwise.
       def command_failure_message(command, exit_status, stderr, stdout)
         details = stderr.strip
         details = stdout.strip if details.empty?
 
-        message = "Command failed on #{@host} with exit status #{exit_status}: #{command}"
+        redacted = Odysseus::CommandRedaction.redact(command)
+        message = "Command failed on #{@host} with exit status #{exit_status}: #{redacted}"
         message += "\n#{details}" unless details.empty?
         message
       end
