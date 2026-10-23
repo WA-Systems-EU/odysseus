@@ -188,6 +188,30 @@ RSpec.describe Odysseus::Config::Parser do
     end
   end
 
+  describe 'registry' do
+    it 'carries password_secret through' do
+      allow_any_instance_of(described_class).to receive(:load_yaml)
+        .and_return({
+                      'service' => 'test',
+                      'image' => 'test-image',
+                      'servers' => {
+                        'web' => {
+                          'hosts' => ['localhost']
+                        }
+                      },
+                      'registry' => {
+                        'server' => 'ghcr.io',
+                        'username' => 'wa',
+                        'password_secret' => 'REGISTRY_TOKEN'
+                      }
+                    })
+
+      config = parser.parse
+
+      expect(config[:registry][:password_secret]).to eq('REGISTRY_TOKEN')
+    end
+  end
+
   describe 'retain_versions' do
     it 'defaults to 5 when not configured' do
       expect(parser.parse[:retain_versions]).to eq(5)

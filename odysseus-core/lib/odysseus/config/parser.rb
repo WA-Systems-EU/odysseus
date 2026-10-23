@@ -271,7 +271,10 @@ module Odysseus
         {
           server: registry['server'],
           username: registry['username'],
-          password: registry['password']
+          password: registry['password'],
+          # Names a key in the encrypted secrets file. Resolved by
+          # Registry::Credentials, not here: parsing must not read secrets.
+          password_secret: registry['password_secret']
         }
       end
 
