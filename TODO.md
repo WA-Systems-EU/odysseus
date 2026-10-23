@@ -111,18 +111,80 @@ we'd feel their absence.
       **The rolling sail itself has not been run against a real host**;
       see `odysseus-sail-rolling`'s `docs/rolling-deploy.md` and this repo's
       READMEs for what that means.
-- [ ] **Finish registry support.** The local half exists — build, `docker login`,
+- [x] **Finish registry support.** The local half existed — build, `docker login`,
       `docker push`, and `Executor#uses_registry?` switching distribution — but no
-      deploy target ever logs in, and `WebDeploy`/`JobDeploy` never call
-      `Docker#pull`; they rely on `docker run`'s implicit pull. So registry mode
-      works for public images and fails for a private one, which is the case
-      anyone would actually use. Both READMEs document it as a first-class
-      alternative to pussh. Needs: host-side login using the configured
-      credentials (from the encrypted secrets file, not deploy.yml), an explicit
-      pull step so a failure is attributable, and logout afterwards so
-      credentials do not linger in the host's docker config. pussh covers a small
-      team well enough that this is not release-blocking, but it is the next
-      real gap.
+      deploy target ever logged in, and `WebDeploy`/`JobDeploy` never called
+      `Docker#pull`; they relied on `docker run`'s implicit pull. So registry mode
+      worked for public images and failed for a private one, which is the case
+      anyone would actually use. Both READMEs documented it as a first-class
+      alternative to pussh with no mechanism behind the credential story.
+      Now: `Registry::Credentials` resolves `registry.password_secret:` from
+      the encrypted secrets file (`password:` still works and warns, one
+      release from removal; `ODYSSEUS_REGISTRY_PASSWORD` covers CI); a deploy
+      host logs in to a throwaway mode-700 `DOCKER_CONFIG` directory, scoped to
+      the role-host's own SSH connection and removed in an `ensure`; and all
+      three orchestrators pull explicitly before starting a container, so a
+      fetch failure is attributable instead of surfacing as a container that
+      would not start. One discovery along the way: the spec's planned
+      `docker --config <dir> login` is not redacted by
+      `CommandRedaction::STDIN_PIPE` (a flag between the pipe and `docker
+      login` breaks the match), and neither is prefixing `DOCKER_CONFIG=<dir>`
+      directly onto the login command, for the same reason — an env
+      assignment is still a token between the pipe and `docker login`. What
+      ships instead is `export DOCKER_CONFIG=<dir> &&` as its own statement,
+      chained with `&&`, keeping `echo '<pw>' | docker login ...` adjacent for
+      the redactor. Unverified against a real private registry: every docker
+      and SSH call in the suite exercising this is a double. pussh remains the
+      supported path; see the open entries below for what registry support
+      still needs.
+
+- [ ] **A sail cannot pull from a private registry.** `build_orchestrator`
+      withholds `registry_config_dir:` from a sail when it is nil, which keeps
+      every existing sail working — but it also means a deploy using a sail
+      *and* a private registry gets no credentials on the host, and the pull
+      fails. `odysseus-sail-rolling` needs the keyword added to its
+      constructor, and the same goes for any other sail. Deliberately not done
+      with the registry work: sails are separate gems with their own suites,
+      and silently passing an argument a sail does not accept raises
+      `ArgumentError: unknown keyword` on every deploy using one.
+- [ ] **The sail constructor contract is unprotected by tests.**
+      `executor_spec.rb:370`'s `sail_class` double defines its own
+      fixed-keyword `initialize(ssh:, config:, logger:, secrets_loader:)`, so
+      it is structurally unable to notice a signature change in
+      `build_orchestrator` — any new keyword, required or not, just raises
+      `ArgumentError` against that double the same way it would against a real
+      sail, which proves nothing about whether this codebase's call site
+      changed. Nothing in odysseus-core's suite would catch adding a keyword
+      that breaks every external sail. The registry work above covers the
+      nil-withholding conditional with a capturing double
+      (`executor_spec.rb`'s `capturing_sail`, under "registry_config_dir and a
+      sail"), but that pins one conditional, not the contract itself. Needs a
+      spec that asserts the exact keyword set `build_orchestrator` passes to a
+      sail, so adding a keyword fails loudly here instead of in someone else's
+      gem.
+- [ ] **`SSH` still embeds raw commands in two exception messages.**
+      `deployer/ssh.rb:61` and `:117` raise `SSHCommandError, "Failed to
+      execute: #{command}"` with the command unredacted — the channel-exec
+      failure path, separate from the exit-status failure path that
+      `command_failure_message` already redacts. Narrow but real: the
+      builder's remote-strategy registry login goes through `ssh.execute`, so
+      a channel-exec failure there (the connection refusing to open the
+      command at all, rather than the command running and failing) would
+      print a password. Related, and not fixable by redacting more call
+      sites: a failure message also appends the remote's own stdout and
+      stderr unredacted, so a remote that echoes a secret back in some shape
+      `CommandRedaction` does not match survives whatever redaction this
+      codebase adds — inherent to pattern-based redaction rather than a bug in
+      it.
+- [ ] **`DependencyManager` opens a registry login for operations that never
+      pull.** `run_action` wraps every action — deploy, remove, restart,
+      upgrade — in the same `HostSession.open`, so `dependency remove` and
+      `dependency restart` put a credential on a host they have no use for it
+      on. Within the exposure envelope a deploy already accepts (a login that
+      is there for seconds longer than strictly needed, on a host already
+      trusted with the deploy), so not urgent; narrowing it needs a decision
+      on `run_action`'s signature — distinguishing the actions that pull from
+      the ones that do not, rather than one path for all four.
 
 - [ ] **Multiple destinations/environments.** One `deploy.yml` per project, no
       overlay. Kamal: `-d staging` with `deploy.staging.yml`.

@@ -7,6 +7,27 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
 
 ## [Unreleased]
 
+### Added
+
+- Registry mode now works against a private registry, not only a public one.
+  Previously no deploy host ever logged in -- the one `docker login` in
+  either gem runs on the *build* machine -- and `WebDeploy`/`JobDeploy` never
+  called `Docker#pull`, relying on `docker run`'s implicit pull, so a private
+  image's fetch failure surfaced as a container that would not start rather
+  than as a fetch that failed. A deploy host now opens a throwaway, mode-700
+  docker config directory, logs in to it, and all three orchestrators pull
+  explicitly before starting a container; the directory is removed once the
+  role-host's deploy finishes, so the credential never reaches the host's own
+  `~/.docker/config.json` and nothing lingers if the deploy dies part-way.
+  Credentials resolve from `registry.password_secret:`, a key in the
+  encrypted secrets file, rather than only the literal `registry.password:`
+  that `deploy.yml` previously required -- there was no way before this to
+  keep a registry credential out of version control. `password:` still works
+  and warns; `ODYSSEUS_REGISTRY_PASSWORD` covers CI, where the secrets file
+  isn't available. Every docker and SSH call exercising this is a double, so
+  none of it is verified against a real private registry; the README's
+  experimental warning says so and stays.
+
 ## [0.10.1] - 2026-09-16
 
 ### Fixed

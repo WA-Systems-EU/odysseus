@@ -157,8 +157,13 @@ module Odysseus
       # DOCKER_CONFIG rather than `docker --config <dir>`: the two are
       # equivalent to docker, but CommandRedaction::STDIN_PIPE matches
       # `docker login` directly after the pipe, and a flag between them would
-      # stop the login password being redacted. Keeping both commands in the
-      # env-prefix shape means the redactor only has to know one.
+      # stop the login password being redacted. `pull` carries no secret, so
+      # its shape here is not redaction-critical either way; the login built
+      # in Registry::HostSession is, and it is not in this env-prefix shape --
+      # it exports DOCKER_CONFIG as its own statement, chained with `&&`, to
+      # keep `echo '<pw>' | docker login` adjacent to the pipe. The two
+      # commands reach the same environment variable by different shapes
+      # because only one of them has a redactor to satisfy.
       #
       # @param image [String] image:tag
       # @param config_dir [String, nil] a docker config directory holding

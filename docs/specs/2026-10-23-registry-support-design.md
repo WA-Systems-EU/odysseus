@@ -74,6 +74,20 @@ doubles the configuration surface for nothing.
 - `docker --config <dir> login <server> -u <user> --password-stdin`
 - `rm -rf <dir>` in an `ensure`
 
+**Corrected after implementation:** the line above is wrong twice over, not
+once. The first draft of this correction said the implementation uses
+`DOCKER_CONFIG=<dir> docker login ...` in place of `--config <dir>`. That is
+also wrong. `CommandRedaction::STDIN_PIPE` requires `docker login` (or
+`--password-stdin`) textually adjacent to the pipe it matches, with nothing —
+not even an env-var assignment — between them; `DOCKER_CONFIG=<dir> ` is a
+space-separated token the regex's `\S*` cannot cross, so that shape is
+unredacted too. What ships is `export DOCKER_CONFIG=<dir> && echo '<pw>' |
+docker login <server> -u <user> --password-stdin`: the export runs as its own
+statement, chained with `&&`, so `echo ... | docker login ...` stays adjacent
+for the redactor while `DOCKER_CONFIG` still reaches `docker login` because
+both run in the same shell invocation. See
+`lib/odysseus/registry/host_session.rb`.
+
 An isolated `--config` directory rather than `docker login` followed by
 `docker logout`, for three reasons. Credentials never enter
 `~/.docker/config.json`. A deploy that dies between login and logout leaves
@@ -86,6 +100,12 @@ deploy has no business having.
 closes it after. One login per host per deploy, one owner, one `ensure`.
 Because the explicit pull puts the image on the host, the session can close
 before any container starts.
+
+**Corrected after implementation:** it is one session per **role-host**, not
+per host. `Executor#run_deploy` opens and closes its SSH connection per
+role-host, and a login cannot outlive the connection it was made over — so a
+host serving two roles gets two logins, one per connection, not one shared
+across both. See `Executor#run_deploy` in `lib/odysseus/deployer/executor.rb`.
 
 ### Explicit pull
 
@@ -102,11 +122,19 @@ not start.
 
 | Failure | Behaviour |
 | --- | --- |
-| `password_secret` names a key the file lacks | `ConfigError`, naming the key and the file. Before any connection. |
-| Both `password` and `password_secret` set | `ConfigError`. Before any connection. |
+| `password_secret` names a key the file lacks | `ConfigError`, naming the key and the file. Before any container starts. |
+| Both `password` and `password_secret` set | `ConfigError`. Before any container starts. |
 | `docker login` rejected on a host | Abort before any container starts, naming the server. Password redacted. |
 | `docker pull` fails | Abort, naming image and registry. |
 | Session teardown fails | Warn, naming the directory left behind. Never fails the deploy -- but never silent either, because what was left is a credential on a host. |
+
+**Corrected after implementation:** the first two rows said "before any
+connection." They are not: `Registry::Credentials` is constructed lazily,
+inside `run_deploy`, after `connect_to_server` has already opened the SSH
+connection -- so a bad `password_secret` or a both-sources config still
+raises after a connection exists. What holds is "before any container
+starts," since `HostSession.open` runs, and can raise, before the
+orchestrator's `deploy` is ever called.
 
 ## Testing, and what the tests cannot show
 

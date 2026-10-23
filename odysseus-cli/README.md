@@ -840,17 +840,31 @@ Build strategies:
 
 ### registry
 
-> **Experimental:** registry-based distribution is not officially supported yet. The
-> pussh path is the supported one; treat this as untested ground and keep a way back.
+> **Experimental:** every docker and SSH call in the test suite is a double, so
+> nothing in it proves a real private registry accepts the login. The code is
+> complete; it is the verification that is missing. The pussh path remains the
+> supported one.
 
 Docker registry configuration. When present, `odysseus deploy --build` will push images to the registry instead of using pussh:
 
 ```yaml
 registry:
-  server: docker.io         # Registry server (required to enable registry mode)
-  username: myuser          # Registry username
-  password: mypassword      # Registry password (consider using secrets)
+  server: ghcr.io
+  username: wa-systems
+  password_secret: REGISTRY_TOKEN   # a key in your encrypted secrets file
 ```
+
+`password_secret` names a key in the file given by `secrets_file`. The literal
+`password:` form still works and warns; it will be removed one release after
+this one.
+
+Set `ODYSSEUS_REGISTRY_PASSWORD` instead when neither is configured — for CI,
+where the secrets file and its key are not available. Setting both
+`password` and `password_secret` is an error rather than a precedence rule.
+
+Hosts log in to a throwaway docker config directory that is removed when the
+deploy finishes, so the credential never enters a host's `~/.docker/config.json`
+and nothing is left behind if a deploy fails part-way.
 
 **Image distribution modes:**
 
@@ -858,8 +872,6 @@ registry:
 |--------|---------------------------|
 | No `registry` | Build locally → pussh to each host via SSH |
 | Has `registry` | Build locally → push to registry → hosts pull |
-
-For better security, you can store registry credentials in your encrypted secrets file and reference them.
 
 ### retain_versions
 
