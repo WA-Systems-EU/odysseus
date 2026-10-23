@@ -94,8 +94,43 @@ RSpec.describe Odysseus::Registry::Credentials do
       expect(result).to be true
     end
 
-    it 'is false without a username' do
-      expect(creds({ server: 'ghcr.io', password: 'p' }).complete?).to be false
+    # A password with no username used to degrade silently to false --
+    # credential-less mode -- which also skips the explicit pull and
+    # reproduces the "container would not start" misdiagnosis this whole
+    # branch exists to remove. A half-configured credential must fail loudly
+    # instead.
+    it 'raises naming what is missing when a password is configured but username is not' do
+      error = nil
+      expect do
+        creds({ server: 'ghcr.io', password: 'p' }).complete?
+      rescue Odysseus::ConfigError => e
+        error = e
+      end.to output.to_stderr # the literal password still warns; swallowed as above
+      expect(error).to be_a(Odysseus::ConfigError)
+      expect(error.message).to match(/username/i)
+    end
+
+    it 'raises the same way when the password comes from password_secret instead of the literal' do
+      allow(loader).to receive(:get).with('REGISTRY_TOKEN').and_return('s3cr3t')
+      expect { creds({ server: 'ghcr.io', password_secret: 'REGISTRY_TOKEN' }).complete? }
+        .to raise_error(Odysseus::ConfigError, /username/i)
+    end
+
+    # The username check used to run before #password, so it short-circuited
+    # the both-sources error whenever username was also missing.
+    it 'still raises the both-sources error even when username is missing too' do
+      c = creds({ server: 'ghcr.io', password: 'literal', password_secret: 'REGISTRY_TOKEN' })
+      expect { c.complete? }.to raise_error(Odysseus::ConfigError, /both/i)
+    end
+
+    # The genuinely credential-less case -- public-image mode -- must keep
+    # working with no error, username present or not.
+    it 'is false, not an error, when no password is configured anywhere' do
+      expect(creds({ server: 'ghcr.io', username: 'wa' }).complete?).to be false
+    end
+
+    it 'is false, not an error, when neither username nor password is configured' do
+      expect(creds({ server: 'ghcr.io' }).complete?).to be false
     end
 
     it 'is false for an empty registry config' do

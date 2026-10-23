@@ -279,19 +279,20 @@ RSpec.describe Odysseus::Builder::Client do
       expect(result[:pushed]).to be true
     end
 
-    it 'does not push when push is false and no registry provided' do
+    it 'does not push when push is false and no credentials provided' do
       result = client.build_and_push(context_path: context_path, image: image)
       expect(result[:success]).to be true
       expect(result[:pushed]).to be false
     end
 
-    it 'pushes when registry config is provided' do
-      registry = { username: 'user', password: 'pass', server: 'docker.io' }
+    it 'pushes when a credential is provided' do
+      credentials = instance_double(Odysseus::Registry::Credentials,
+                                    complete?: true, server: 'docker.io', username: 'user', password: 'pass')
 
       result = client.build_and_push(
         context_path: context_path,
         image: image,
-        registry: registry
+        credentials: credentials
       )
       expect(result[:success]).to be true
       expect(result[:pushed]).to be true
@@ -316,8 +317,9 @@ RSpec.describe Odysseus::Builder::Client do
       expect(result[:success]).to be true
     end
 
-    it 'logs in before push when credentials provided' do
-      registry = { username: 'user', password: 'secret', server: 'docker.io' }
+    it 'logs in before push when a complete credential is provided' do
+      credentials = instance_double(Odysseus::Registry::Credentials,
+                                    complete?: true, server: 'docker.io', username: 'user', password: 'secret')
 
       # First call is login, second is push
       call_count = 0
@@ -331,7 +333,75 @@ RSpec.describe Odysseus::Builder::Client do
         "Success\n"
       end
 
-      client.push(image: image, registry: registry)
+      client.push(image: image, credentials: credentials)
+    end
+
+    # The bug Finding 1 fixes: build_login_command used to read
+    # registry[:password] off a raw config hash, so a password_secret-only
+    # config (no literal `password:` key) produced `echo '' | docker login
+    # ...` -- a login that always failed, silently. #push must instead read
+    # Credentials#password, which is where password_secret actually resolves.
+    it 'puts the credential-resolved password in the login, not an empty string' do
+      credentials = instance_double(Odysseus::Registry::Credentials,
+                                    complete?: true, server: 'ghcr.io', username: 'wa',
+                                    password: 'resolved-from-secrets-file')
+
+      sent = nil
+      allow(client).to receive(:execute_local_command) do |cmd|
+        sent = cmd if cmd.include?('docker login')
+        "Success\n"
+      end
+
+      client.push(image: image, credentials: credentials)
+
+      expect(sent).to include('resolved-from-secrets-file')
+      expect(sent).not_to include("echo '' ")
+    end
+
+    it 'does not attempt a login when the credential is incomplete' do
+      credentials = instance_double(Odysseus::Registry::Credentials, complete?: false)
+
+      expect(client).to receive(:execute_local_command) do |cmd|
+        expect(cmd).not_to include('docker login')
+        "Pushed\n"
+      end
+
+      client.push(image: image, credentials: credentials)
+    end
+
+    # Any other shape loses redaction -- see CommandRedaction::STDIN_PIPE,
+    # which requires `docker login` (or `--password-stdin`) immediately after
+    # the pipe, with the echoed value quoted in a literal `'` or `"`.
+    it 'builds the login in the shape CommandRedaction matches' do
+      credentials = instance_double(Odysseus::Registry::Credentials,
+                                    complete?: true, server: 'ghcr.io', username: 'wa', password: 's3cr3t')
+
+      expect(client).to receive(:execute_local_command).with(
+        "echo 's3cr3t' | docker login ghcr.io -u wa --password-stdin"
+      ).and_return('ok').ordered
+      allow(client).to receive(:execute_local_command).and_return('ok')
+
+      client.push(image: image, credentials: credentials)
+    end
+
+    # A naive `echo '#{password}'` breaks as soon as the password itself
+    # contains a single quote, since that closes the quoting early.
+    # Registry::HostSession already solved this (Odysseus::ShellQuote);
+    # #push has to reuse it rather than reinventing a second, divergent fix.
+    it 'quotes a password containing a single quote so it still reaches docker intact' do
+      credentials = instance_double(Odysseus::Registry::Credentials,
+                                    complete?: true, server: 'ghcr.io', username: 'wa', password: "it's-a-secret")
+
+      sent = nil
+      allow(client).to receive(:execute_local_command) do |cmd|
+        sent = cmd if cmd.include?('docker login')
+        'ok'
+      end
+
+      client.push(image: image, credentials: credentials)
+
+      piped = sent[/echo (.+?) \| docker login/, 1]
+      expect(`echo #{piped}`.chomp).to eq("it's-a-secret")
     end
   end
 

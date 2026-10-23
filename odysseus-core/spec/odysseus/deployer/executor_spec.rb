@@ -361,6 +361,49 @@ RSpec.describe Odysseus::Deployer::Executor do
     end
   end
 
+  # Finding 1: the push-side login previously read registry[:password]
+  # straight off the raw config hash handed to Builder::Client, so a
+  # `password_secret:`-only config -- the documented, now-encouraged shape --
+  # produced an empty password and the push's login silently failed.
+  # Builder::Client must be handed the same resolved Registry::Credentials
+  # Executor already builds for the host-side login, not the raw config hash.
+  describe 'registry credentials reaching the builder' do
+    let(:secrets_loader) { instance_double(Odysseus::Secrets::Loader, configured?: true) }
+    let(:registry_executor) { described_class.new(fixture_path('deploy-registry-secret.yml')) }
+
+    before do
+      allow(Odysseus::Secrets::Loader).to receive(:new).and_return(secrets_loader)
+      allow(secrets_loader).to receive(:get).with('REGISTRY_TOKEN').and_return('s3cr3t-from-file')
+    end
+
+    it 'gives build_and_push a resolved Credentials instance whose password came from password_secret' do
+      mock_builder = instance_double(Odysseus::Builder::Client)
+      allow(Odysseus::Builder::Client).to receive(:new).and_return(mock_builder)
+
+      expect(mock_builder).to receive(:build_and_push) do |credentials:, **|
+        expect(credentials).to be_a(Odysseus::Registry::Credentials)
+        expect(credentials.password).to eq('s3cr3t-from-file')
+        { success: true, pushed: true }
+      end
+
+      registry_executor.build(image_tag: 'v1.0', push: true)
+    end
+
+    it 'reuses the same Credentials instance the host login uses, rather than building a second one' do
+      mock_builder = instance_double(Odysseus::Builder::Client)
+      allow(Odysseus::Builder::Client).to receive(:new).and_return(mock_builder)
+      pushed_credentials = nil
+      allow(mock_builder).to receive(:build_and_push) do |credentials:, **|
+        pushed_credentials = credentials
+        { success: true, pushed: true }
+      end
+
+      registry_executor.build(image_tag: 'v1.0', push: true)
+
+      expect(pushed_credentials).to equal(registry_executor.send(:registry_credentials))
+    end
+  end
+
   describe '#deploy_version' do
     let(:resolver) { instance_double(Odysseus::VersionResolver) }
     let(:resolved) do

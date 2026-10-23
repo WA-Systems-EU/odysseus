@@ -47,13 +47,18 @@ module Odysseus
         !server.nil? && !server.to_s.empty?
       end
 
+      # @raise [Odysseus::ConfigError] when a password is configured but
+      #   username is not -- see #missing_username_message
       # @return [Boolean] whether a host login is possible
       def complete?
         return false unless configured?
-        return false if username.nil? || username.to_s.empty?
 
         pw = password
-        !pw.nil? && !pw.empty?
+        return false if pw.nil? || pw.empty?
+
+        raise Odysseus::ConfigError, missing_username_message if username.nil? || username.to_s.empty?
+
+        true
       end
 
       private
@@ -91,6 +96,11 @@ module Odysseus
       def both_sources_message
         'registry has both password and password_secret set. Pick one: password_secret reads the ' \
           'encrypted secrets file, password is the literal value in deploy.yml.'
+      end
+
+      def missing_username_message
+        'registry has a password configured (password, password_secret, or ODYSSEUS_REGISTRY_PASSWORD) ' \
+          'but no registry.username. Set registry.username to the account that password belongs to.'
       end
     end
   end

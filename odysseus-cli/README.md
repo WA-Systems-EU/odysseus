@@ -841,9 +841,11 @@ Build strategies:
 ### registry
 
 > **Experimental:** every docker and SSH call in the test suite is a double, so
-> nothing in it proves a real private registry accepts the login. The code is
-> complete; it is the verification that is missing. The pussh path remains the
-> supported one.
+> nothing in it proves a real private registry accepts either login. The push
+> step and the deploy host's pull now resolve the credential through the same
+> `Registry::Credentials` object, so a `password_secret:`-only config (the
+> form below) actually reaches `docker login` on both sides rather than only
+> on the host's. The pussh path remains the supported one.
 
 Docker registry configuration. When present, `odysseus deploy --build` will push images to the registry instead of using pussh:
 
@@ -861,6 +863,10 @@ this one.
 Set `ODYSSEUS_REGISTRY_PASSWORD` instead when neither is configured — for CI,
 where the secrets file and its key are not available. Setting both
 `password` and `password_secret` is an error rather than a precedence rule.
+So is configuring a password — from any of the three sources — without
+`username`: a half-configured credential fails the deploy up front instead of
+quietly skipping the login and the explicit pull. With no password configured
+anywhere, `username` is simply ignored, since that's public-image mode.
 
 Hosts log in to a throwaway docker config directory that is removed when the
 deploy finishes, so the credential never enters a host's `~/.docker/config.json`

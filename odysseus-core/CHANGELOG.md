@@ -23,10 +23,18 @@ gem artifacts, so they are summaries rather than contemporaneous notes.
   encrypted secrets file, rather than only the literal `registry.password:`
   that `deploy.yml` previously required -- there was no way before this to
   keep a registry credential out of version control. `password:` still works
-  and warns; `ODYSSEUS_REGISTRY_PASSWORD` covers CI, where the secrets file
-  isn't available. Every docker and SSH call exercising this is a double, so
-  none of it is verified against a real private registry; the README's
-  experimental warning says so and stays.
+  and warns. The build step that pushes the image resolves this same
+  credential -- one `Registry::Credentials` instance, shared with the host's
+  login -- instead of reading `registry.password` off the raw config hash the
+  way it first did, which meant a `password_secret:`-only config, the
+  documented and now-encouraged shape, could log a deploy host in to pull an
+  image the push had silently failed to publish. `ODYSSEUS_REGISTRY_PASSWORD`
+  covers CI for both the push and the pull, where the secrets file isn't
+  available. A credential with a password but no `username` is a config error
+  now rather than a silent drop into public-image mode, which used to skip
+  the explicit pull the same way an unresolved push did. Every docker and SSH
+  call exercising this is a double, so none of it is verified against a real
+  private registry; the README's experimental warning says so and stays.
 
 ## [0.10.1] - 2026-09-16
 

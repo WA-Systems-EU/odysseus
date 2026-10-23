@@ -74,12 +74,13 @@ module Odysseus
       # The password is wrapped in single quotes explicitly -- not via
       # Shellwords.escape, which leaves an alphanumeric string bare -- because
       # STDIN_PIPE only matches an echoed value quoted with a literal `'` or
-      # `"`. A password containing a single quote is handled the POSIX way:
-      # close the quote, emit an escaped quote, reopen it.
+      # `"`. A password containing a single quote is handled the POSIX way,
+      # via Odysseus::ShellQuote: close the quote, emit an escaped quote,
+      # reopen it.
       def login(dir)
         @ssh.execute(
           "export DOCKER_CONFIG=#{Shellwords.escape(dir)} && " \
-          "echo #{shell_single_quote(@credentials.password)} | docker login " \
+          "echo #{Odysseus::ShellQuote.single_quote(@credentials.password)} | docker login " \
           "#{Shellwords.escape(@credentials.server)} -u #{Shellwords.escape(@credentials.username)} " \
           '--password-stdin'
         )
@@ -91,14 +92,6 @@ module Odysseus
         # contain.
         raise Odysseus::DeployError,
               "Registry login failed for #{@credentials.server}: #{Odysseus::CommandRedaction.redact(e.message)}"
-      end
-
-      # Single-quotes a string for POSIX shells, escaping any literal single
-      # quote it contains. Inside single quotes nothing is special except `'`
-      # itself, so a `'` is closed out, an escaped quote is emitted, and the
-      # quote is reopened: `it's` becomes `'it'\''s'`.
-      def shell_single_quote(value)
-        "'#{value.to_s.gsub("'", "'\\\\''")}'"
       end
 
       # Never fails the deploy, but never silent either: what was left behind

@@ -1,6 +1,7 @@
 # lib/odysseus/builder/client.rb
 
 require 'open3'
+require 'shellwords'
 
 module Odysseus
   module Builder
@@ -40,14 +41,17 @@ module Odysseus
       # Build and push to registry
       # @param context_path [String] path to build context
       # @param image [String] full image name with tag
-      # @param registry [Hash] registry config (server, username, password)
+      # @param credentials [Odysseus::Registry::Credentials, nil] the
+      #   resolved registry credential -- the same instance the caller uses
+      #   for the deploy host's own login, not a config hash read back for
+      #   its raw :password key
       # @return [Hash] build and push result
-      def build_and_push(context_path:, image:, registry: nil)
+      def build_and_push(context_path:, image:, credentials: nil)
         result = build(context_path: context_path, image: image)
         return result unless result[:success]
 
-        if @config[:push] || registry
-          push_result = push(image: image, registry: registry)
+        if @config[:push] || credentials
+          push_result = push(image: image, credentials: credentials)
           result.merge(pushed: push_result[:success], push_output: push_result[:output])
         else
           result.merge(pushed: false)
@@ -56,16 +60,20 @@ module Odysseus
 
       # Push image to registry
       # @param image [String] full image name with tag
-      # @param registry [Hash] registry config (server, username, password)
+      # @param credentials [Odysseus::Registry::Credentials, nil] the
+      #   resolved registry credential
       # @return [Hash] push result
-      def push(image:, registry: nil)
+      def push(image:, credentials: nil)
         @logger.info("Pushing image to registry: #{image}")
 
         executor = build_executor
 
-        # Login if credentials provided
-        if registry && registry[:username]
-          login_cmd = build_login_command(registry)
+        # #complete? is what Registry::HostSession also gates a login on: a
+        # credential with a password but no username raises there (see
+        # Registry::Credentials#complete?), and one with no password at all
+        # is valid public-image mode, not something to attempt a login with.
+        if credentials&.complete?
+          login_cmd = build_login_command(credentials)
           executor.call(login_cmd)
         end
 
@@ -259,9 +267,17 @@ module Odysseus
         parts.join(' ')
       end
 
-      def build_login_command(registry)
-        server = registry[:server] || ''
-        "echo '#{registry[:password]}' | docker login #{server} -u #{registry[:username]} --password-stdin"
+      # Shape matters here as much as content: CommandRedaction::STDIN_PIPE
+      # requires `echo '<value>'` (a literal `'` or `"` quote) piped directly
+      # into `docker login`/`--password-stdin`, with nothing in between. The
+      # password is quoted via Odysseus::ShellQuote rather than interpolated
+      # between bare single quotes -- Registry::HostSession solved the same
+      # problem (a password containing a `'` otherwise breaks the command)
+      # and this reuses that fix instead of a second, divergent one.
+      def build_login_command(credentials)
+        "echo #{Odysseus::ShellQuote.single_quote(credentials.password)} | docker login " \
+          "#{Shellwords.escape(credentials.server)} -u #{Shellwords.escape(credentials.username)} " \
+          '--password-stdin'
       end
 
       def execute_local(cmd, working_dir)

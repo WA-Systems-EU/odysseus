@@ -41,10 +41,17 @@ module Odysseus
         builder = build_builder
 
         if push
+          # The same Credentials instance HostSession later logs the deploy
+          # host in with, not a second one built from the raw config hash:
+          # one instance per deploy keeps the password_secret/literal
+          # deprecation warning (Credentials#literal_with_deprecation_warning)
+          # to one notice, and it is what actually resolves password_secret
+          # -- a config hash's own :password key is nil whenever the
+          # credential comes from password_secret or the CI env var.
           builder.build_and_push(
             context_path: context,
             image: full_image,
-            registry: @config[:registry]
+            credentials: registry_credentials
           )
         else
           builder.build(context_path: context, image: full_image)

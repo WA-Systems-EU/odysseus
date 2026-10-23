@@ -133,10 +133,21 @@ we'd feel their absence.
       assignment is still a token between the pipe and `docker login`. What
       ships instead is `export DOCKER_CONFIG=<dir> &&` as its own statement,
       chained with `&&`, keeping `echo '<pw>' | docker login ...` adjacent for
-      the redactor. Unverified against a real private registry: every docker
-      and SSH call in the suite exercising this is a double. pussh remains the
-      supported path; see the open entries below for what registry support
-      still needs.
+      the redactor. Caught in final review, before any of this shipped: the
+      build step's own login -- the one that pushes the image, separate from
+      the host-side login described above -- built its command from
+      `registry[:password]` read straight off the raw config hash, so a
+      `password_secret:`-only config, the shape this entry documents as the
+      norm, pushed with an empty password and failed every time, while a
+      deploy host logged in fine to pull an image that had never been
+      published. The push now resolves the credential through the same
+      `Registry::Credentials` instance the host login uses, and a credential
+      with a password but no `username` is a config error rather than a
+      silent drop into public-image mode -- which used to skip the explicit
+      pull the same way. Unverified against a real private registry: every
+      docker and SSH call in the suite exercising this is a double. pussh
+      remains the supported path; see the open entries below for what
+      registry support still needs.
 
 - [ ] **A sail cannot pull from a private registry.** `build_orchestrator`
       withholds `registry_config_dir:` from a sail when it is nil, which keeps
