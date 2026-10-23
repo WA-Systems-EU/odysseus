@@ -103,6 +103,36 @@ RSpec.describe Odysseus::Orchestrator::JobDeploy do
         expect(mock_docker).to receive(:run).ordered.and_return(new_container_id)
         orchestrator.deploy(image_tag: 'v1', role: :jobs)
       end
+
+      describe 'pulling from a registry' do
+        # Without an explicit pull a fetch failure arrives later as a container
+        # that would not start, which points at the wrong thing.
+        it 'pulls before starting a container when given a config directory' do
+          registry_orchestrator = described_class.new(ssh: mock_ssh, config: config, logger: silent_logger,
+                                                      registry_config_dir: '/tmp/d')
+
+          expect(mock_docker).to receive(:pull).with('myapp/image:v1', config_dir: '/tmp/d').ordered
+          expect(mock_docker).to receive(:run).ordered.and_return(new_container_id)
+
+          registry_orchestrator.deploy(image_tag: 'v1', role: :jobs)
+        end
+
+        it 'does not pull when there is no registry' do
+          expect(mock_docker).not_to receive(:pull)
+
+          orchestrator.deploy(image_tag: 'v1', role: :jobs)
+        end
+
+        it 'aborts naming the image when the pull fails' do
+          registry_orchestrator = described_class.new(ssh: mock_ssh, config: config, logger: silent_logger,
+                                                      registry_config_dir: '/tmp/d')
+          allow(mock_docker).to receive(:pull).and_raise(Odysseus::SSHCommandError, 'denied')
+          expect(mock_docker).not_to receive(:run)
+
+          expect { registry_orchestrator.deploy(image_tag: 'v1', role: :jobs) }
+            .to raise_error(Odysseus::DeployError, %r{myapp/image:v1})
+        end
+      end
     end
 
     context 'without healthcheck configured' do

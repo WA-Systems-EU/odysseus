@@ -12,12 +12,17 @@ module Odysseus
       # @param config [Hash] parsed deploy config
       # @param logger [Object] logger (optional)
       # @param secrets_loader [Odysseus::Secrets::Loader] secrets loader (optional)
-      def initialize(ssh:, config:, logger: nil, secrets_loader: nil)
+      # @param registry_config_dir [String, nil] docker config directory
+      #   holding registry credentials, from Registry::HostSession. Optional:
+      #   executor.rb passes this signature to sail plugins too, and a required
+      #   argument would break odysseus-sail-rolling.
+      def initialize(ssh:, config:, logger: nil, secrets_loader: nil, registry_config_dir: nil)
         @ssh = ssh
         @config = config
         @logger = logger || default_logger
         @secrets_loader = secrets_loader
         @docker = Odysseus::Docker::Client.new(ssh)
+        @registry_config_dir = registry_config_dir
       end
 
       # Execute deploy for a job/worker service
@@ -40,6 +45,7 @@ module Odysseus
         log "  Found #{old_containers.size} existing container(s)"
 
         # Step 2: Start new container
+        pull_image(image) if @registry_config_dir
         log 'Starting new container...'
         new_container_id = start_new_container(image: image, role: role)
         log "  Container started: #{new_container_id[0..11]}"
@@ -138,6 +144,16 @@ module Odysseus
       def ensure_network!
         log 'Ensuring Docker network exists...'
         @docker.ensure_network('odysseus', labels: { 'odysseus.managed' => 'true' })
+      end
+
+      # Explicit, so a fetch failure is attributable. docker run would pull
+      # implicitly, but then an unreachable or unauthorized registry surfaces
+      # as a container that would not start.
+      def pull_image(image)
+        log "Pulling #{image}..."
+        @docker.pull(image, config_dir: @registry_config_dir)
+      rescue Odysseus::Error => e
+        raise Odysseus::DeployError, "Could not pull #{image}: #{e.message}"
       end
 
       # Same environment a web container gets — see Core::Environment.

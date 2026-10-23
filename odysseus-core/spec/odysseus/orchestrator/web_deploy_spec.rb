@@ -303,6 +303,36 @@ RSpec.describe Odysseus::Orchestrator::WebDeploy do
     end
   end
 
+  describe 'pulling from a registry' do
+    # Without an explicit pull a fetch failure arrives later as a container that
+    # would not start, which points at the wrong thing.
+    it 'pulls before starting a container when given a config directory' do
+      registry_orchestrator = described_class.new(ssh: mock_ssh, config: config, logger: silent_logger,
+                                                  registry_config_dir: '/tmp/d')
+
+      expect(mock_docker).to receive(:pull).with('myapp-prod:v1.0', config_dir: '/tmp/d').ordered
+      expect(mock_docker).to receive(:run).ordered.and_return('new-container-123')
+
+      registry_orchestrator.deploy(image_tag: 'v1.0')
+    end
+
+    it 'does not pull when there is no registry' do
+      expect(mock_docker).not_to receive(:pull)
+
+      orchestrator.deploy(image_tag: 'v1.0')
+    end
+
+    it 'aborts naming the image when the pull fails' do
+      registry_orchestrator = described_class.new(ssh: mock_ssh, config: config, logger: silent_logger,
+                                                  registry_config_dir: '/tmp/d')
+      allow(mock_docker).to receive(:pull).and_raise(Odysseus::SSHCommandError, 'denied')
+      expect(mock_docker).not_to receive(:run)
+
+      expect { registry_orchestrator.deploy(image_tag: 'v1.0') }
+        .to raise_error(Odysseus::DeployError, /myapp-prod:v1\.0/)
+    end
+  end
+
   describe 'rollback on failure' do
     before do
       allow(mock_docker).to receive(:wait_healthy).and_return(false)
